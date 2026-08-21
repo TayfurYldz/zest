@@ -240,26 +240,38 @@ class Gate06FindingAcceptanceTests(unittest.TestCase):
         assert result.evidence_id is not None
         return result.evidence_id
 
-    def _open_candidate(self, factory) -> str:
-        self._execute(factory, "exp-1", "alpha")
-        evidence_id = self._admit_evidence(factory, "exp-1")
+    def _open_candidate(
+        self, factory, *, experiment_id: str = "exp-1", message: str = "alpha"
+    ) -> str:
+        self._execute(factory, experiment_id, message)
+        evidence_id = self._admit_evidence(factory, experiment_id)
         proposed = ProposeCandidateFromEvidence(factory, clock=FixedClock()).execute(
             ProposeCandidateFromEvidenceCommand(evidence_id=evidence_id)
         )
         assert proposed.candidate_id is not None
         return proposed.candidate_id
 
-    def _validated_candidate(self, factory) -> str:
-        candidate_id = self._open_candidate(factory)
+    def _validated_candidate(
+        self,
+        factory,
+        *,
+        experiment_id: str = "exp-1",
+        repro_id: str = "exp-repro",
+        message: str = "alpha",
+        repro_msg: str = "beta",
+    ) -> str:
+        candidate_id = self._open_candidate(
+            factory, experiment_id=experiment_id, message=message
+        )
         StartCandidateVerification(factory).execute(
             StartCandidateVerificationCommand(candidate_id=candidate_id)
         )
-        self._execute(factory, "exp-repro", "beta")
-        self._admit_evidence(factory, "exp-repro")
+        self._execute(factory, repro_id, repro_msg)
+        self._admit_evidence(factory, repro_id)
         completed = CompleteCandidateVerification(factory, clock=FixedClock()).execute(
             CompleteCandidateVerificationCommand(
                 candidate_id=candidate_id,
-                reproduction_experiment_id="exp-repro",
+                reproduction_experiment_id=repro_id,
             )
         )
         self.assertEqual(completed.outcome, VerificationOutcome.VALIDATED)
@@ -469,12 +481,19 @@ class Gate06FindingAcceptanceTests(unittest.TestCase):
 
     def test_wrong_proposal_cannot_use_another_review(self) -> None:
         factory = self._factory()
-        candidate_id = self._validated_candidate(factory)
+        first_id = self._validated_candidate(factory)
+        second_id = self._validated_candidate(
+            factory,
+            experiment_id="exp-2",
+            repro_id="exp-repro-2",
+            message="gamma",
+            repro_msg="delta",
+        )
         first = SubmitFindingProposal(factory, clock=FixedClock()).execute(
-            SubmitFindingProposalCommand(candidate_id=candidate_id)
+            SubmitFindingProposalCommand(candidate_id=first_id)
         )
         second = SubmitFindingProposal(factory, clock=FixedClock()).execute(
-            SubmitFindingProposalCommand(candidate_id=candidate_id)
+            SubmitFindingProposalCommand(candidate_id=second_id)
         )
         assert first.proposal_id is not None
         assert second.proposal_id is not None
@@ -602,7 +621,7 @@ class Gate06FindingAcceptanceTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a38_001_promotion_run")
+        self.assertEqual(version, "a39_001_mr5_durability_uq")
         self.assertIn("finding_proposal", tables)
         self.assertIn("human_review", tables)
         self.assertIn("approval", tables)

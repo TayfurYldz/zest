@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import (
     EvidenceRecord,
     ExecutionAttemptRecord,
@@ -18,6 +19,7 @@ from research_os.data.records import (
     VerificationRecord,
     WorkerResultRecord,
 )
+from research_os.data.uniqueness import UQ_VERIFICATION_CANDIDATE, is_uniqueness_conflict
 from research_os.research.assessment import (
     UNUSABLE_ATTEMPT_STATES,
     UNUSABLE_EXPERIMENT_STATES,
@@ -78,6 +80,21 @@ class CompleteCandidateVerification:
             candidate = uow.candidates.get(command.candidate_id)
             if candidate is None:
                 raise ApplicationError("candidate not found")
+            existing = uow.verifications.list_for_candidate(command.candidate_id)
+            if existing:
+                record = existing[-1]
+                try:
+                    state = CandidateState(candidate.state)
+                except ValueError as exc:
+                    raise ApplicationError("candidate state is not a CandidateState") from exc
+                uow.rollback()
+                return CompleteCandidateVerificationResult(
+                    candidate_id=command.candidate_id,
+                    verification_id=record.verification_id,
+                    outcome=VerificationOutcome(record.outcome),
+                    state=state,
+                    reason_codes=("VERIFICATION_ALREADY_RECORDED",),
+                )
             try:
                 current = CandidateState(candidate.state)
             except ValueError as exc:
@@ -183,23 +200,29 @@ class CompleteCandidateVerification:
             except ResearchInputError as exc:
                 raise ApplicationError(str(exc)) from exc
             verification_id = new_opaque_id()
-            uow.verifications.insert(
-                VerificationRecord(
-                    verification_id=verification_id,
-                    candidate_id=candidate.candidate_id,
-                    research_run_id=candidate.research_run_id,
-                    strategy=result.strategy,
-                    outcome=result.outcome.value,
-                    proposed_candidate_state=result.proposed_candidate_state.value,
-                    original_evidence_ids=result.original_evidence_ids,
-                    reproduction_evidence_ids=result.reproduction_evidence_ids,
-                    negative_control_evidence_ids=result.negative_control_evidence_ids,
-                    alternative_explanation_checks=result.alternative_explanation_checks,
-                    verifier_kind=result.verifier_kind,
-                    verifier_identity=result.verifier_identity,
-                    created_at=self._clock.now(),
+            try:
+                uow.verifications.insert(
+                    VerificationRecord(
+                        verification_id=verification_id,
+                        candidate_id=candidate.candidate_id,
+                        research_run_id=candidate.research_run_id,
+                        strategy=result.strategy,
+                        outcome=result.outcome.value,
+                        proposed_candidate_state=result.proposed_candidate_state.value,
+                        original_evidence_ids=result.original_evidence_ids,
+                        reproduction_evidence_ids=result.reproduction_evidence_ids,
+                        negative_control_evidence_ids=result.negative_control_evidence_ids,
+                        alternative_explanation_checks=result.alternative_explanation_checks,
+                        verifier_kind=result.verifier_kind,
+                        verifier_identity=result.verifier_identity,
+                        created_at=self._clock.now(),
+                    )
                 )
-            )
+            except PersistenceConflictError as exc:
+                if not is_uniqueness_conflict(exc, UQ_VERIFICATION_CANDIDATE):
+                    raise
+                uow.rollback()
+                return self._reload_existing(command.candidate_id)
             uow.candidates.set_state(candidate.candidate_id, next_state.value)
             uow.commit()
         return CompleteCandidateVerificationResult(
@@ -208,6 +231,26 @@ class CompleteCandidateVerification:
             outcome=result.outcome,
             state=next_state,
             reason_codes=result.reason_codes,
+        )
+
+    def _reload_existing(self, candidate_id: str) -> CompleteCandidateVerificationResult:
+        with self._uow_factory.open() as uow:
+            candidate = uow.candidates.get(candidate_id)
+            existing = uow.verifications.list_for_candidate(candidate_id)
+            uow.rollback()
+        if candidate is None:
+            raise ApplicationError("candidate not found")
+        if not existing:
+            raise ApplicationError(
+                "verification uniqueness conflict but no Verification exists"
+            )
+        record = existing[-1]
+        return CompleteCandidateVerificationResult(
+            candidate_id=candidate_id,
+            verification_id=record.verification_id,
+            outcome=VerificationOutcome(record.outcome),
+            state=CandidateState(candidate.state),
+            reason_codes=("VERIFICATION_ALREADY_RECORDED",),
         )
 
 

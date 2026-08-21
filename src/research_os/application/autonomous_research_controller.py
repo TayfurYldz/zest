@@ -45,7 +45,11 @@ from research_os.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.promotion_pipeline import PromoteOnAssessment, PromotionPipeline
+from research_os.application.promotion_pipeline import (
+    AdvancePromotionCommand,
+    PromoteOnAssessment,
+    PromotionPipeline,
+)
 from research_os.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
@@ -200,9 +204,14 @@ class AutonomousResearchController:
         )
         self._prepare = PreparePlannedExperiment(uow_factory, clock=self._clock)
         evaluate = EvaluateExperimentFeedback(uow_factory, clock=self._clock)
-        self._evaluate = PromoteOnAssessment(
-            evaluate, PromotionPipeline(uow_factory, clock=self._clock)
+        self._promotion = PromotionPipeline(
+            uow_factory,
+            clock=self._clock,
+            worker=worker,
+            actor_id=actor_id,
+            secret_port=secret_port,
         )
+        self._evaluate = PromoteOnAssessment(evaluate, self._promotion)
         self._select = SelectResearchOpportunities(
             uow_factory, clock=self._clock, actor_id=actor_id
         )
@@ -405,7 +414,7 @@ class AutonomousResearchController:
             OrchestrationPhase.ASSESSMENT_COMPLETE.value,
             OrchestrationPhase.TRANSITION_B_COMPLETE.value,
         } and current.last_experiment_id:
-            return self._resume_after_worker(current, config)
+            return self._resume_after_worker(command, current, config)
 
         usage = self._usage(config, current)
         bound = check_orchestration_bounds(bounds, usage)
@@ -642,6 +651,7 @@ class AutonomousResearchController:
             feedback = self._evaluate.execute(
                 EvaluateExperimentFeedbackCommand(experiment_id=loop.experiment_id)
             )
+            self._continue_promotion(command, feedback)
             current = self._checkpoint(
                 current,
                 phase=OrchestrationPhase.ASSESSMENT_COMPLETE,
@@ -1134,15 +1144,26 @@ class AutonomousResearchController:
             elapsed = 0
         with self._uow_factory.open() as uow:
             experiments = uow.experiments.list_for_research_run(config.research_run_id)
+            promotions = uow.promotion_runs.list_for_research_run(config.research_run_id)
             opportunities = uow.research_opportunities.list_for_research_run(
                 config.research_run_id
             )
             consumption = uow.budget_consumptions.list_for_budget(config.budget_id)
             uow.rollback()
+        reproduction_ids = {
+            item.reproduction_experiment_id
+            for item in promotions
+            if item.reproduction_experiment_id is not None
+        }
+        research_experiments = [
+            item
+            for item in experiments
+            if item.experiment_id not in reproduction_ids
+        ]
         totals = ledger_totals(consumption)
         return OrchestrationUsage(
             cycles_completed=current.cycle_number,
-            experiments_executed=len(experiments),
+            experiments_executed=len(research_experiments),
             model_calls=totals.model_calls,
             worker_invocations=totals.worker_invocations,
             elapsed_ms=elapsed,
@@ -1151,6 +1172,23 @@ class AutonomousResearchController:
             worker_requests=totals.worker_requests,
             execution_time_ms=totals.execution_time_ms,
             artifact_bytes=totals.artifact_bytes,
+        )
+
+    def _continue_promotion(
+        self, command: StartAutonomousResearchCommand, feedback
+    ) -> None:
+        """Continue durable promotion after assessment. Does not create Finding.
+
+        ARC remains the caller. PromotionPipeline does not select opportunities
+        or own research_orchestration.
+        """
+        self._promotion.advance(
+            AdvancePromotionCommand(
+                research_run_id=feedback.research_run_id,
+                scope=command.scope,
+                approval=command.approval,
+                assessment_id=feedback.assessment_id,
+            )
         )
 
     def _checkpoint(
@@ -1292,7 +1330,10 @@ class AutonomousResearchController:
                 current, StopReason.REQUIRE_HUMAN_REVIEW, "human_review", experiment_id=experiment_id
             )
         if loop.experiment_id and loop.status is not ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
-            self._evaluate.execute(EvaluateExperimentFeedbackCommand(experiment_id=loop.experiment_id))
+            feedback = self._evaluate.execute(
+                EvaluateExperimentFeedbackCommand(experiment_id=loop.experiment_id)
+            )
+            self._continue_promotion(command, feedback)
         usage = self._usage(config, current)
         if usage.cycles_completed + 1 >= config.bounds.max_cycles:
             return self._stop(
@@ -1314,6 +1355,7 @@ class AutonomousResearchController:
 
     def _resume_after_worker(
         self,
+        command: StartAutonomousResearchCommand,
         current: ResearchOrchestrationRecord,
         config,
     ) -> OrchestrationTickResult:
@@ -1324,6 +1366,7 @@ class AutonomousResearchController:
             feedback = self._evaluate.execute(
                 EvaluateExperimentFeedbackCommand(experiment_id=current.last_experiment_id)
             )
+            self._continue_promotion(command, feedback)
             current = self._checkpoint(
                 current,
                 phase=OrchestrationPhase.ASSESSMENT_COMPLETE,

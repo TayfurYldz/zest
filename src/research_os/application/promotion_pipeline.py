@@ -24,6 +24,12 @@ from research_os.application.complete_candidate_verification import (
     CompleteCandidateVerificationCommand,
 )
 from research_os.application.errors import ApplicationError
+from research_os.data.errors import PersistenceConflictError
+from research_os.data.uniqueness import (
+    UQ_EVIDENCE_EXPERIMENT_SUPPORTING,
+    UQ_FINDING_PROPOSAL_CANDIDATE,
+    UQ_VERIFICATION_CANDIDATE,
+)
 from research_os.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
@@ -91,6 +97,18 @@ TERMINAL_PROMOTION_STAGES = frozenset(
         "VERIFIED",
         "PROPOSAL_RECORDED",
         "STOPPED",
+    }
+)
+EXPECTED_ADVANCE_CONFLICTS = frozenset(
+    {
+        UQ_VERIFICATION_CANDIDATE,
+        UQ_FINDING_PROPOSAL_CANDIDATE,
+        UQ_EVIDENCE_EXPERIMENT_SUPPORTING,
+        "uq_experiment_id_run",
+        "experiment_pkey",
+        "uq_experiment_plan_id_run",
+        "experiment_plan_pkey",
+        "hypothesis_assessment_pkey",
     }
 )
 NON_SCIENTIFIC_REPRODUCTION_STATUSES = frozenset(
@@ -340,6 +358,31 @@ class PromotionPipeline:
     def _advance_one(
         self, run: PromotionRunRecord, command: AdvancePromotionCommand
     ) -> PromotionResult:
+        try:
+            return self._advance_one_body(run, command)
+        except PersistenceConflictError as exc:
+            if (
+                exc.constraint_name is not None
+                and exc.constraint_name not in EXPECTED_ADVANCE_CONFLICTS
+            ):
+                raise
+            reloaded = self._get(run.promotion_run_id)
+            if reloaded is None:
+                raise
+            if run.candidate_id is not None:
+                existing = self._verifications_for(run.candidate_id)
+                if existing:
+                    return self._advance_one_body(reloaded, command)
+            return _result_from_run(
+                PromotionOutcome.PENDING_INDEPENDENT_VERIFICATION,
+                _feedback_stub(reloaded),
+                reloaded,
+                ("CONCURRENT_PROMOTION_CONFLICT",),
+            )
+
+    def _advance_one_body(
+        self, run: PromotionRunRecord, command: AdvancePromotionCommand
+    ) -> PromotionResult:
         assert self._execute is not None
         if run.candidate_id is None:
             return _result_from_run(
@@ -368,6 +411,25 @@ class PromotionPipeline:
                 (latest.outcome,),
             )
         if run.stage == "VERIFYING":
+            reserved_at_entry = run.reproduction_experiment_id
+            if reserved_at_entry is None:
+                experiment_id = new_opaque_id()
+                claimed = self._claim_reproduction(
+                    run.promotion_run_id, experiment_id
+                )
+                reloaded = self._get(run.promotion_run_id)
+                if reloaded is not None:
+                    run = reloaded
+                if not claimed:
+                    existing_verifications = self._verifications_for(run.candidate_id)
+                    if existing_verifications:
+                        return self._advance_one(run, command)
+                    return _result_from_run(
+                        PromotionOutcome.PENDING_INDEPENDENT_VERIFICATION,
+                        _feedback_stub(run),
+                        run,
+                        ("REPRODUCTION_CLAIMED_BY_CONCURRENT_ADVANCE",),
+                    )
             status = self._execute_independent_reproduction(run, command)
             reloaded = self._get(run.promotion_run_id)
             if reloaded is not None:
@@ -426,12 +488,34 @@ class PromotionPipeline:
                 ("INDEPENDENT_REPRODUCTION_NOT_EXECUTED",),
             )
         self._admit_reproduction_evidence(reproduction_id)
-        completed = self._complete_verification.execute(
-            CompleteCandidateVerificationCommand(
-                candidate_id=run.candidate_id,
-                reproduction_experiment_id=reproduction_id,
+        try:
+            completed = self._complete_verification.execute(
+                CompleteCandidateVerificationCommand(
+                    candidate_id=run.candidate_id,
+                    reproduction_experiment_id=reproduction_id,
+                )
             )
-        )
+        except ApplicationError:
+            existing_verifications = self._verifications_for(run.candidate_id)
+            if not existing_verifications:
+                raise
+            latest = existing_verifications[-1]
+            run = self._save(
+                replace(
+                    run,
+                    stage="VERIFIED" if run.finding_proposal_id is None else run.stage,
+                    verification_id=latest.verification_id,
+                    updated_at=self._clock.now(),
+                )
+            )
+            if latest.outcome == VerificationOutcome.VALIDATED.value:
+                return self._submit_if_validated(run, latest.verification_id)
+            return _result_from_run(
+                PromotionOutcome.VERIFICATION_COMPLETED,
+                _feedback_stub(run),
+                run,
+                (latest.outcome,),
+            )
         run = self._save(
             replace(
                 run,
@@ -513,15 +597,14 @@ class PromotionPipeline:
         self, run: PromotionRunRecord, command: AdvancePromotionCommand
     ) -> ResearchLoopStatus | None:
         assert self._execute is not None
-        experiment_id = run.reproduction_experiment_id or new_opaque_id()
-        if run.reproduction_experiment_id is None:
-            self._save(
-                replace(
-                    run,
-                    reproduction_experiment_id=experiment_id,
-                    updated_at=self._clock.now(),
-                )
-            )
+        experiment_id = run.reproduction_experiment_id
+        if experiment_id is None:
+            return None
+        with self._uow_factory.open() as uow:
+            attempts = uow.execution_attempts.list_for_experiment(experiment_id)
+            uow.rollback()
+        if attempts:
+            return ResearchLoopStatus.ALREADY_TERMINAL
         with self._uow_factory.open() as uow:
             original = uow.experiment_plans.get(run.original_experiment_id)
             uow.rollback()
@@ -560,6 +643,19 @@ class PromotionPipeline:
                 if executed.status is not ResearchLoopStatus.ALREADY_TERMINAL:
                     raise
         return executed.status
+
+    def _claim_reproduction(
+        self, promotion_run_id: str, reproduction_experiment_id: str
+    ) -> bool:
+        with self._uow_factory.open() as uow:
+            claimed = uow.promotion_runs.claim_reproduction(
+                promotion_run_id, reproduction_experiment_id
+            )
+            if claimed:
+                uow.commit()
+            else:
+                uow.rollback()
+            return claimed
 
     def _admit_reproduction_evidence(self, experiment_id: str) -> None:
         try:

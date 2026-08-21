@@ -202,12 +202,12 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         self.assertEqual(cycle_records[0].hypothesis_id, result.hypothesis_id)
         self.assertEqual(cycle_records[0].experiment_id, result.experiment_id)
 
-        # 5. Exactly one Worker dispatch occurred, and it happened through
-        #    ARC's own ExecutePlannedExperiment/RecordingWorkerPort -- there
-        #    is no alternate dispatch path for Hunter/Coverage-sourced work.
-        self.assertEqual(len(port.calls), 1)
-        self.assertEqual(len(store.experiments), 1)
+        # 5. ARC owns the research Worker dispatch. Independent verification
+        #    may add one reproduction experiment on the same controller path.
+        self.assertEqual(len(port.calls), 2)
+        self.assertEqual(len(store.experiments), 2)
         self.assertEqual(result.state, OrchestrationState.READY.value)
+        self.assertEqual(len(store.findings), 0)
 
     def test_hunter_coverage_candidate_deferred_by_diagnostic_is_not_starved(self) -> None:
         """Fairness: a Hunter/Coverage candidate that loses a budget-limited
@@ -262,7 +262,7 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(cycle_1.hypothesis_id)
         self.assertNotEqual(cycle_1.hypothesis_id, "hyp-pre")
         self.assertIn(cycle_1.hypothesis_id, store.hypotheses)
-        self.assertEqual(len(store.experiments), 1)
+        self.assertEqual(len(store.experiments), 2)
         first_cycle_records = [
             item
             for item in store.research_cycles.values()
@@ -294,10 +294,11 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         self.assertEqual(len(second_cycle_records), 1)
         self.assertEqual(second_cycle_records[0].opportunity_id, candidate_id)
 
-        # Both cycles' experiments were dispatched through the one and only
-        # Worker port ARC owns; no second scheduler, no alternate path.
-        self.assertEqual(len(port.calls), 2)
-        self.assertEqual(len(store.experiments), 2)
+        # Both cycles' research experiments were dispatched through ARC's
+        # Worker port. Independent verification may add reproduction work
+        # on the same path; there is still no second scheduler.
+        self.assertEqual(len(port.calls), 4)
+        self.assertEqual(len(store.experiments), 4)
 
 
 if __name__ == "__main__":

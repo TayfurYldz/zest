@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import (
     EvidenceAdmissionRecord,
     EvidenceRecord,
@@ -17,6 +18,10 @@ from research_os.data.records import (
     HypothesisAssessmentRecord,
     ObservationRecord,
     WorkerResultRecord,
+)
+from research_os.data.uniqueness import (
+    UQ_EVIDENCE_EXPERIMENT_SUPPORTING,
+    is_uniqueness_conflict,
 )
 from research_os.research.assessment import (
     AssessmentOutcome,
@@ -181,20 +186,28 @@ class AdmitDiagnosticEvidence:
             admission_record_id = new_opaque_id()
             evidence_id = new_opaque_id() if decision.creates_evidence else None
             if evidence_id is not None:
-                uow.evidence.insert(
-                    EvidenceRecord(
-                        evidence_id=evidence_id,
-                        research_run_id=proposal.research_run_id,
-                        hypothesis_id=proposal.hypothesis_id,
-                        experiment_id=proposal.experiment_id,
-                        admission_record_id=admission_record_id,
-                        polarity=proposal.polarity.value,
-                        claim_scope=proposal.claim_scope,
-                        observation_ids=proposal.observation_ids,
-                        assessment_ids=proposal.assessment_ids,
-                        created_at=self._clock.now(),
+                try:
+                    uow.evidence.insert(
+                        EvidenceRecord(
+                            evidence_id=evidence_id,
+                            research_run_id=proposal.research_run_id,
+                            hypothesis_id=proposal.hypothesis_id,
+                            experiment_id=proposal.experiment_id,
+                            admission_record_id=admission_record_id,
+                            polarity=proposal.polarity.value,
+                            claim_scope=proposal.claim_scope,
+                            observation_ids=proposal.observation_ids,
+                            assessment_ids=proposal.assessment_ids,
+                            created_at=self._clock.now(),
+                        )
                     )
-                )
+                except PersistenceConflictError as exc:
+                    if not is_uniqueness_conflict(
+                        exc, UQ_EVIDENCE_EXPERIMENT_SUPPORTING
+                    ):
+                        raise
+                    uow.rollback()
+                    return self._reload_admitted(command.experiment_id, command.assessment_id)
             uow.evidence_admissions.insert(
                 _admission_record(
                     admission_record_id=admission_record_id,
@@ -214,6 +227,42 @@ class AdmitDiagnosticEvidence:
             reason_codes=decision.reason_codes,
             proposal_id=proposal.proposal_id,
         )
+
+    def _reload_admitted(
+        self, experiment_id: str, assessment_id: str | None
+    ) -> AdmitDiagnosticEvidenceResult:
+        with self._uow_factory.open() as uow:
+            experiment = uow.experiments.get(experiment_id)
+            if experiment is None:
+                raise ApplicationError("experiment not found")
+            if assessment_id is not None:
+                existing = _admitted_for_assessment(
+                    uow.evidence_admissions.list_for_research_run(
+                        experiment.research_run_id
+                    ),
+                    assessment_id,
+                )
+                if existing is not None:
+                    uow.rollback()
+                    return _result_from_admission(existing)
+            supporting = [
+                item
+                for item in uow.evidence.list_for_experiment(experiment_id)
+                if item.polarity == EvidencePolarity.SUPPORTING.value
+            ]
+            uow.rollback()
+            if not supporting:
+                raise ApplicationError(
+                    "evidence uniqueness conflict but no supporting Evidence exists"
+                )
+            record = sorted(supporting, key=lambda item: item.created_at)[0]
+            return AdmitDiagnosticEvidenceResult(
+                outcome=EvidenceAdmissionOutcome.ADMITTED,
+                admission_record_id=record.admission_record_id,
+                evidence_id=record.evidence_id,
+                reason_codes=("EVIDENCE_ALREADY_ADMITTED",),
+                proposal_id=record.admission_record_id,
+            )
 
 
 def _admitted_for_assessment(

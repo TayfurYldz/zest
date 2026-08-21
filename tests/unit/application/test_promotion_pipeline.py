@@ -179,7 +179,7 @@ class PromotionPipelineTests(unittest.TestCase):
 
 
 class ArcPromotionHookTests(unittest.TestCase):
-    def test_arc_admits_evidence_for_consistent_assessment_and_stops_there(self) -> None:
+    def test_arc_reaches_finding_proposal_and_never_finding(self) -> None:
         store = _Store()
         seed_authorization_run(store)
         store.issued_budgets["budget-1"] = IssuedBudgetRecord(
@@ -203,7 +203,7 @@ class ArcPromotionHookTests(unittest.TestCase):
             scope=_allow_scope(),
             bounds=OrchestrationBounds(
                 max_cycles=1,
-                max_experiments=1,
+                max_experiments=2,
                 max_model_calls=20,
                 max_worker_invocations=4,
                 max_elapsed_ms=60_000,
@@ -216,22 +216,30 @@ class ArcPromotionHookTests(unittest.TestCase):
         result = controller.run_bounded(command)
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
         self.assertEqual(result.stop_reason, StopReason.MAX_CYCLES_REACHED.value)
-        self.assertEqual(len(store.hypothesis_assessments), 1)
-        assessment = next(iter(store.hypothesis_assessments.values()))
-        self.assertEqual(assessment.assessment_outcome, "CONSISTENT_WITH_PREDICTION")
-        self.assertEqual(len(store.evidence), 1)
-        self.assertEqual(len(store.evidence_admissions), 1)
-        self.assertEqual(len(store.candidates), 1)
-        self.assertEqual(len(store.verifications), 0)
-        self.assertEqual(len(store.finding_proposals), 0)
-        self.assertEqual(len(store.findings), 0)
-        evidence = next(iter(store.evidence.values()))
-        self.assertEqual(evidence.assessment_ids, (assessment.assessment_id,))
-        AdmitDiagnosticEvidence(factory, clock=FixedClock()).execute(
-            AdmitDiagnosticEvidenceCommand(experiment_id=assessment.experiment_id)
+        self.assertEqual(len(store.hypothesis_assessments), 2)
+        promotion = next(iter(store.promotion_runs.values()))
+        original = next(
+            item
+            for item in store.hypothesis_assessments.values()
+            if item.experiment_id == promotion.original_experiment_id
         )
-        self.assertEqual(len(store.evidence), 1)
-        self.assertEqual(len(store.evidence_admissions), 1)
+        self.assertEqual(original.assessment_outcome, "CONSISTENT_WITH_PREDICTION")
+        self.assertEqual(len(store.candidates), 1)
+        self.assertEqual(len(store.verifications), 1)
+        self.assertEqual(len(store.finding_proposals), 1)
+        self.assertEqual(len(store.findings), 0)
+        self.assertEqual(len(store.promotion_runs), 1)
+        evidence = store.evidence[next(iter(store.candidates.values())).evidence_ids[0]]
+        self.assertEqual(evidence.assessment_ids, (original.assessment_id,))
+        AdmitDiagnosticEvidence(factory, clock=FixedClock()).execute(
+            AdmitDiagnosticEvidenceCommand(experiment_id=original.experiment_id)
+        )
+        supporting_original = [
+            item
+            for item in store.evidence.values()
+            if item.experiment_id == original.experiment_id and item.polarity == "SUPPORTING"
+        ]
+        self.assertEqual(len(supporting_original), 1)
 
     def test_pending_promotion_resumes_after_terminal_research_run(self) -> None:
         store = _Store()
@@ -257,7 +265,7 @@ class ArcPromotionHookTests(unittest.TestCase):
             scope=_allow_scope(),
             bounds=OrchestrationBounds(
                 max_cycles=1,
-                max_experiments=1,
+                max_experiments=2,
                 max_model_calls=20,
                 max_worker_invocations=4,
                 max_elapsed_ms=60_000,
@@ -270,17 +278,18 @@ class ArcPromotionHookTests(unittest.TestCase):
         result = controller.run_bounded(command)
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
         self.assertEqual(len(store.candidates), 1)
-        self.assertEqual(len(store.verifications), 0)
+        self.assertEqual(len(store.verifications), 1)
+        self.assertEqual(len(store.finding_proposals), 1)
+        self.assertEqual(len(store.findings), 0)
         worker_calls_after_run = len(port.calls)
         advanced = AdvancePromotionPipeline(
             factory, port, clock=FixedClock()
         ).execute(AdvancePromotionCommand(research_run_id="run-1", scope=_allow_scope()))
-        self.assertEqual(len(advanced), 1)
-        self.assertEqual(advanced[0].outcome, PromotionOutcome.FINDING_PROPOSAL_RECORDED)
+        self.assertEqual(advanced, ())
         self.assertEqual(len(store.verifications), 1)
         self.assertEqual(len(store.finding_proposals), 1)
         self.assertEqual(len(store.findings), 0)
-        self.assertGreater(len(port.calls), worker_calls_after_run)
+        self.assertEqual(len(port.calls), worker_calls_after_run)
         self.assertEqual(store.research_orchestrations["run-1"].state, OrchestrationState.COMPLETED.value)
 
 

@@ -381,7 +381,7 @@ class Gate16StateTransitionSecurityTests(unittest.TestCase):
         self.assertEqual(self.scorecard.skipped, 0)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a38_001_promotion_run")
+        self.assertEqual(version, "a39_001_mr5_durability_uq")
 
 
 if __name__ == "__main__":

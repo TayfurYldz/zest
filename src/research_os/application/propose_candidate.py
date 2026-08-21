@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import CandidateAdmissionRecord, CandidateRecord, EvidenceRecord
+from research_os.data.uniqueness import (
+    UQ_CANDIDATE_EVIDENCE_EVIDENCE_ID,
+    is_uniqueness_conflict,
+)
 from research_os.research.candidate import (
     CANDIDATE_ADMISSION_POLICY_VERSION,
     CandidateAdmissionContext,
@@ -116,19 +121,27 @@ class ProposeCandidateFromEvidence:
             candidate_id = new_opaque_id() if decision.creates_candidate else None
             if candidate_id is not None:
                 assert decision.initial_state is CandidateState.OPEN
-                uow.candidates.insert(
-                    CandidateRecord(
-                        candidate_id=candidate_id,
-                        research_run_id=proposal.research_run_id,
-                        hypothesis_id=proposal.hypothesis_id,
-                        claim=proposal.claim,
-                        classification=proposal.classification,
-                        state=decision.initial_state.value,
-                        evidence_ids=proposal.evidence_ids,
-                        created_at=self._clock.now(),
-                        admission_record_id=admission_record_id,
+                try:
+                    uow.candidates.insert(
+                        CandidateRecord(
+                            candidate_id=candidate_id,
+                            research_run_id=proposal.research_run_id,
+                            hypothesis_id=proposal.hypothesis_id,
+                            claim=proposal.claim,
+                            classification=proposal.classification,
+                            state=decision.initial_state.value,
+                            evidence_ids=proposal.evidence_ids,
+                            created_at=self._clock.now(),
+                            admission_record_id=admission_record_id,
+                        )
                     )
-                )
+                except PersistenceConflictError as exc:
+                    if not is_uniqueness_conflict(
+                        exc, UQ_CANDIDATE_EVIDENCE_EVIDENCE_ID
+                    ):
+                        raise
+                    uow.rollback()
+                    return self._reload_existing(command.evidence_id)
             uow.candidate_admissions.insert(
                 _admission_record(
                     admission_record_id=admission_record_id,
@@ -146,6 +159,41 @@ class ProposeCandidateFromEvidence:
             proposal_id=proposal.proposal_id,
             state=decision.initial_state,
         )
+
+
+    def _reload_existing(self, evidence_id: str) -> ProposeCandidateFromEvidenceResult:
+        with self._uow_factory.open() as uow:
+            evidence = uow.evidence.get(evidence_id)
+            if evidence is None:
+                raise ApplicationError("evidence not found")
+            existing = [
+                item
+                for item in uow.candidates.list_for_research_run(evidence.research_run_id)
+                if evidence.evidence_id in item.evidence_ids
+            ]
+            if not existing:
+                raise ApplicationError(
+                    "candidate uniqueness conflict but no Candidate exists"
+                )
+            record = sorted(existing, key=lambda item: item.created_at)[0]
+            admission = uow.candidate_admissions.get(record.admission_record_id)
+            uow.rollback()
+            return ProposeCandidateFromEvidenceResult(
+                outcome=CandidateAdmissionOutcome.ADMITTED,
+                admission_record_id=record.admission_record_id,
+                candidate_id=record.candidate_id,
+                reason_codes=(
+                    admission.reason_codes
+                    if admission is not None
+                    else ("CANDIDATE_ALREADY_ADMITTED",)
+                ),
+                proposal_id=(
+                    admission.proposal_id
+                    if admission is not None
+                    else record.admission_record_id
+                ),
+                state=CandidateState(record.state),
+            )
 
 
 def _admission_context(

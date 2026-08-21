@@ -89,12 +89,22 @@ from research_os.data.budget_ledger import assert_within_allowance
 T = TypeVar("T")
 
 
+def _constraint_name(exc: IntegrityError) -> str | None:
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    name = getattr(diag, "constraint_name", None)
+    if isinstance(name, str) and name:
+        return name
+    return None
+
+
 def _raise_integrity(exc: IntegrityError) -> None:
     orig = getattr(exc, "orig", None)
     sqlstate = getattr(orig, "sqlstate", None)
     if sqlstate == "23505":
         raise PersistenceConflictError(
-            "persistence unique constraint failed"
+            "persistence unique constraint failed",
+            constraint_name=_constraint_name(exc),
         ) from exc
     raise PersistenceError("persistence integrity constraint failed") from exc
 
@@ -1358,6 +1368,33 @@ class PostgresPromotionRunRepository:
         )
         if result.rowcount != 1:
             raise PersistenceError("promotion_run not found for save")
+
+    def claim_reproduction(
+        self, promotion_run_id: str, reproduction_experiment_id: str
+    ) -> bool:
+        require_opaque_id(promotion_run_id, "promotion_run_id")
+        require_opaque_id(reproduction_experiment_id, "reproduction_experiment_id")
+        now = _server_now(self._connection)
+        try:
+            result = self._connection.execute(
+                update(tables.promotion_run)
+                .where(tables.promotion_run.c.promotion_run_id == promotion_run_id)
+                .where(tables.promotion_run.c.stage == "VERIFYING")
+                .where(tables.promotion_run.c.reproduction_experiment_id.is_(None))
+                .values(
+                    reproduction_experiment_id=reproduction_experiment_id,
+                    updated_at=now,
+                )
+            )
+        except IntegrityError as exc:
+            orig = getattr(exc, "orig", None)
+            sqlstate = getattr(orig, "sqlstate", None)
+            if sqlstate == "23505":
+                return False
+            _raise_integrity(exc)
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        return result.rowcount == 1
 
 
 def _promotion_run_values(record: PromotionRunRecord) -> dict[str, object]:

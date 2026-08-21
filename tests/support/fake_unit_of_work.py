@@ -15,6 +15,14 @@ from research_os.data.errors import (
     PersistenceInputError,
     TerminalOrchestrationStateError,
 )
+from research_os.data.uniqueness import (
+    UQ_CANDIDATE_EVIDENCE_EVIDENCE_ID,
+    UQ_EVIDENCE_EXPERIMENT_SUPPORTING,
+    UQ_FINDING_PROPOSAL_CANDIDATE,
+    UQ_PROMOTION_RUN_ASSESSMENT,
+    UQ_PROMOTION_RUN_REPRODUCTION_EXPERIMENT,
+    UQ_VERIFICATION_CANDIDATE,
+)
 from research_os.data.records import (
     ALLOWED_CANDIDATE_STATES,
     ALLOWED_EXECUTION_ATTEMPT_STATES,
@@ -680,6 +688,19 @@ class _EvidenceRepo(_Repo):
         super().__init__(store.evidence, fail_on_insert=fail_on_insert)
         self._root = store
 
+    def insert(self, record: EvidenceRecord) -> None:
+        if record.polarity == "SUPPORTING":
+            for existing in self._root.evidence.values():
+                if (
+                    existing.experiment_id == record.experiment_id
+                    and existing.polarity == "SUPPORTING"
+                ):
+                    raise PersistenceConflictError(
+                        "persistence unique constraint failed",
+                        constraint_name=UQ_EVIDENCE_EXPERIMENT_SUPPORTING,
+                    )
+        super().insert(record)
+
     def list_for_research_run(self, research_run_id: str) -> list[EvidenceRecord]:
         return sorted(
             [
@@ -740,6 +761,16 @@ class _CandidateRepo(_Repo):
         self._root = store
         self._fail_on_set_state = fail_on_set_state
 
+    def insert(self, record: CandidateRecord) -> None:
+        incoming = set(record.evidence_ids)
+        for existing in self._root.candidates.values():
+            if incoming.intersection(existing.evidence_ids):
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_CANDIDATE_EVIDENCE_EVIDENCE_ID,
+                )
+        super().insert(record)
+
     def list_for_research_run(self, research_run_id: str) -> list[CandidateRecord]:
         return sorted(
             [
@@ -794,6 +825,23 @@ class _PromotionRunRepo(_Repo):
         super().__init__(store.promotion_runs, fail_on_insert=fail_on_insert)
         self._root = store
 
+    def insert(self, record: PromotionRunRecord) -> None:
+        for existing in self._store.values():
+            if existing.assessment_id == record.assessment_id:
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_PROMOTION_RUN_ASSESSMENT,
+                )
+            if (
+                record.reproduction_experiment_id is not None
+                and existing.reproduction_experiment_id == record.reproduction_experiment_id
+            ):
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_PROMOTION_RUN_REPRODUCTION_EXPERIMENT,
+                )
+        super().insert(record)
+
     def get_by_assessment_id(self, assessment_id: str) -> PromotionRunRecord | None:
         for record in self._root.promotion_runs.values():
             if record.assessment_id == assessment_id:
@@ -817,11 +865,43 @@ class _PromotionRunRepo(_Repo):
             raise PersistenceError("promotion_run not found for save")
         self._store[record.promotion_run_id] = record
 
+    def claim_reproduction(
+        self, promotion_run_id: str, reproduction_experiment_id: str
+    ) -> bool:
+        current = self.get(promotion_run_id)
+        if (
+            current is None
+            or current.stage != "VERIFYING"
+            or current.reproduction_experiment_id is not None
+        ):
+            return False
+        for existing in self._store.values():
+            if existing.reproduction_experiment_id == reproduction_experiment_id:
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_PROMOTION_RUN_REPRODUCTION_EXPERIMENT,
+                )
+        self._store[promotion_run_id] = replace(
+            current,
+            reproduction_experiment_id=reproduction_experiment_id,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return True
+
 
 class _VerificationRepo(_Repo):
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
         super().__init__(store.verifications, fail_on_insert=fail_on_insert)
         self._root = store
+
+    def insert(self, record: VerificationRecord) -> None:
+        for existing in self._root.verifications.values():
+            if existing.candidate_id == record.candidate_id:
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_VERIFICATION_CANDIDATE,
+                )
+        super().insert(record)
 
     def list_for_candidate(self, candidate_id: str) -> list[VerificationRecord]:
         return sorted(
@@ -854,6 +934,15 @@ class _FindingProposalRepo(_Repo):
         super().__init__(store.finding_proposals, fail_on_insert=fail_on_insert)
         self._root = store
         self._fail_on_set_state = fail_on_set_state
+
+    def insert(self, record: FindingProposalRecord) -> None:
+        for existing in self._root.finding_proposals.values():
+            if existing.candidate_id == record.candidate_id:
+                raise PersistenceConflictError(
+                    "persistence unique constraint failed",
+                    constraint_name=UQ_FINDING_PROPOSAL_CANDIDATE,
+                )
+        super().insert(record)
 
     def list_for_candidate(self, candidate_id: str) -> list[FindingProposalRecord]:
         return sorted(

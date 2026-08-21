@@ -126,9 +126,10 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         result = controller.run_bounded(_command(bounds=_bounds(max_cycles=2)))
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
         self.assertEqual(result.stop_reason, StopReason.MAX_CYCLES_REACHED.value)
-        self.assertEqual(len(port.calls), 2)
-        self.assertEqual(len(store.experiments), 2)
+        self.assertEqual(len(port.calls), 4)
+        self.assertEqual(len(store.experiments), 4)
         self.assertEqual(len(store.research_cycles), 2)
+        self.assertEqual(len(store.findings), 0)
 
     def test_pause_resume_and_cancel(self) -> None:
         store = _Store()
@@ -142,7 +143,7 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertEqual(len(port.calls), 0)
         controller.resume("run-1")
         controller.step(_command())
-        self.assertEqual(len(port.calls), 1)
+        self.assertEqual(len(port.calls), 2)
         cancelled = controller.cancel("run-1")
         self.assertEqual(cancelled.stop_reason, StopReason.OPERATOR_CANCELLED.value)
         self.assertNotEqual(

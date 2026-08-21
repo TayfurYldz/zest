@@ -156,6 +156,37 @@ def _validated_candidate(store: _Store) -> str:
     return candidate_id
 
 
+def _second_validated_candidate(store: _Store) -> str:
+    candidate_id = "candidate-diag-2"
+    store.candidates[candidate_id] = CandidateRecord(
+        candidate_id=candidate_id,
+        research_run_id="run-1",
+        hypothesis_id="hyp-1",
+        claim="diagnostic runtime returns the provided echo value",
+        classification="DIAGNOSTIC_PLUMBING",
+        state=CandidateState.VALIDATED.value,
+        evidence_ids=("evidence-diag-2",),
+        admission_record_id="candidate-admission-diag-2",
+        created_at=CREATED_AT,
+    )
+    store.verifications["verification-diag-2"] = VerificationRecord(
+        verification_id="verification-diag-2",
+        candidate_id=candidate_id,
+        research_run_id="run-1",
+        strategy="diagnostic.echo.v1",
+        outcome=VerificationOutcome.VALIDATED.value,
+        proposed_candidate_state=CandidateState.VALIDATED.value,
+        original_evidence_ids=("evidence-diag-2",),
+        reproduction_evidence_ids=("evidence-diag-2-repro",),
+        negative_control_evidence_ids=(),
+        alternative_explanation_checks={},
+        verifier_kind="DETERMINISTIC",
+        verifier_identity="validator-diagnostic-v1",
+        created_at=CREATED_AT,
+    )
+    return candidate_id
+
+
 def _inconclusive_candidate(store: _Store) -> str:
     candidate_id = _open_candidate(store)
     factory = FakeUnitOfWorkFactory(store)
@@ -453,13 +484,14 @@ class FindingAcceptanceApplicationTests(unittest.TestCase):
     def test_approval_for_wrong_proposal_is_rejected(self) -> None:
         store = _Store()
         seed_spine(store)
-        candidate_id = _validated_candidate(store)
+        first_id = _validated_candidate(store)
+        second_id = _second_validated_candidate(store)
         factory = FakeUnitOfWorkFactory(store)
         first = SubmitFindingProposal(factory, clock=FixedClock()).execute(
-            SubmitFindingProposalCommand(candidate_id=candidate_id)
+            SubmitFindingProposalCommand(candidate_id=first_id)
         )
         second = SubmitFindingProposal(factory, clock=FixedClock()).execute(
-            SubmitFindingProposalCommand(candidate_id=candidate_id)
+            SubmitFindingProposalCommand(candidate_id=second_id)
         )
         assert first.proposal_id is not None
         assert second.proposal_id is not None
@@ -491,7 +523,7 @@ class FindingAcceptanceApplicationTests(unittest.TestCase):
         first_id = _submit_and_review(store, candidate_id)
         factory = FakeUnitOfWorkFactory(store)
         second = SubmitFindingProposal(factory, clock=FixedClock()).execute(
-            SubmitFindingProposalCommand(candidate_id=candidate_id)
+            SubmitFindingProposalCommand(candidate_id=_second_validated_candidate(store))
         )
         assert second.proposal_id is not None
         FinalizeFinding(factory, clock=FixedClock()).execute(

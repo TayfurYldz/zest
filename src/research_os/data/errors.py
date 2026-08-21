@@ -6,7 +6,15 @@ class PersistenceError(Exception):
 
 
 class PersistenceConflictError(PersistenceError):
-    """Unique/idempotency conflict. Not a policy decision and not duplicate Evidence."""
+    """Unique/idempotency conflict. Not a policy decision and not duplicate Evidence.
+
+    `constraint_name` is the PostgreSQL unique index/constraint that fired, when
+    known. Callers must inspect it before treating the conflict as idempotent.
+    """
+
+    def __init__(self, *args: object, constraint_name: str | None = None) -> None:
+        super().__init__(*args)
+        self.constraint_name = constraint_name
 
 
 class PersistenceInputError(PersistenceError):

@@ -16,7 +16,9 @@ from research_os.application.impact.proof_resolver import (
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.application.validation_audit import read_validation_audit_view
 from research_os.core.enums import ActorType
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import AuditEventRecord, FindingProposalRecord
+from research_os.data.uniqueness import UQ_FINDING_PROPOSAL_CANDIDATE, is_uniqueness_conflict
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
@@ -74,6 +76,18 @@ class SubmitFindingProposal:
                 state = CandidateState(candidate.state)
             except ValueError as exc:
                 raise ApplicationError("candidate state is not a CandidateState") from exc
+            existing_proposals = uow.finding_proposals.list_for_candidate(
+                candidate.candidate_id
+            )
+            if existing_proposals:
+                record = existing_proposals[0]
+                uow.rollback()
+                return SubmitFindingProposalResult(
+                    outcome=FindingProposalAdmissionOutcome.ADMITTED,
+                    proposal_id=record.proposal_id,
+                    state=FindingProposalState(record.state),
+                    reason_codes=("FINDING_PROPOSAL_ALREADY_RECORDED",),
+                )
             verifications = uow.verifications.list_for_candidate(candidate.candidate_id)
             context = FindingProposalAdmissionContext(
                 candidate_id=candidate.candidate_id,
@@ -138,22 +152,30 @@ class SubmitFindingProposal:
                 impact_chain_ids = _validate_impact_claims(
                     uow, draft, draft.research_run_id
                 )
-                uow.finding_proposals.insert(
-                    FindingProposalRecord(
-                        proposal_id=proposal_id,
-                        candidate_id=draft.candidate_id,
-                        research_run_id=draft.research_run_id,
-                        title=draft.title,
-                        claim=draft.claim,
-                        classification=candidate.classification,
-                        state=decision.initial_state.value,
-                        evidence_ids=draft.evidence_ids,
-                        verification_ids=draft.verification_ids,
-                        content_fingerprint=draft.content_fingerprint,
-                        impact_chain_ids=impact_chain_ids,
-                        created_at=self._clock.now(),
+                try:
+                    uow.finding_proposals.insert(
+                        FindingProposalRecord(
+                            proposal_id=proposal_id,
+                            candidate_id=draft.candidate_id,
+                            research_run_id=draft.research_run_id,
+                            title=draft.title,
+                            claim=draft.claim,
+                            classification=candidate.classification,
+                            state=decision.initial_state.value,
+                            evidence_ids=draft.evidence_ids,
+                            verification_ids=draft.verification_ids,
+                            content_fingerprint=draft.content_fingerprint,
+                            impact_chain_ids=impact_chain_ids,
+                            created_at=self._clock.now(),
+                        )
                     )
-                )
+                except PersistenceConflictError as exc:
+                    if not is_uniqueness_conflict(
+                        exc, UQ_FINDING_PROPOSAL_CANDIDATE
+                    ):
+                        raise
+                    uow.rollback()
+                    return self._reload_existing(command.candidate_id)
                 uow.audit_events.insert(
                     AuditEventRecord(
                         audit_event_id=new_opaque_id(),
@@ -175,6 +197,22 @@ class SubmitFindingProposal:
             proposal_id=proposal_id,
             state=decision.initial_state,
             reason_codes=decision.reason_codes,
+        )
+
+    def _reload_existing(self, candidate_id: str) -> SubmitFindingProposalResult:
+        with self._uow_factory.open() as uow:
+            existing = uow.finding_proposals.list_for_candidate(candidate_id)
+            uow.rollback()
+        if not existing:
+            raise ApplicationError(
+                "finding proposal uniqueness conflict but no FindingProposal exists"
+            )
+        record = existing[0]
+        return SubmitFindingProposalResult(
+            outcome=FindingProposalAdmissionOutcome.ADMITTED,
+            proposal_id=record.proposal_id,
+            state=FindingProposalState(record.state),
+            reason_codes=("FINDING_PROPOSAL_ALREADY_RECORDED",),
         )
 
 

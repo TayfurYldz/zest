@@ -424,7 +424,7 @@ class Gate03LearningCycleTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a38_001_promotion_run")
+        self.assertEqual(version, "a39_001_mr5_durability_uq")
         self.assertIn("research_admission", tables)
         self.assertIn("experiment_plan", tables)
         self.assertIn("hypothesis_assessment", tables)

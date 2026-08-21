@@ -553,6 +553,12 @@ evidence = Table(
         "polarity IN ('SUPPORTING', 'CONTRADICTING', 'NEUTRAL')",
         name="ck_evidence_polarity",
     ),
+    Index(
+        "uq_evidence_experiment_supporting",
+        "experiment_id",
+        unique=True,
+        postgresql_where=text("polarity = 'SUPPORTING'"),
+    ),
 )
 
 evidence_observation = Table(
@@ -629,6 +635,7 @@ candidate_evidence = Table(
     metadata,
     Column("candidate_id", Text, ForeignKey("candidate.candidate_id"), primary_key=True),
     Column("evidence_id", Text, ForeignKey("evidence.evidence_id"), primary_key=True),
+    UniqueConstraint("evidence_id", name="uq_candidate_evidence_evidence_id"),
 )
 
 candidate_admission = Table(
@@ -684,6 +691,7 @@ verification = Table(
         "'VALIDATED', 'REJECTED', 'INCONCLUSIVE', 'DUPLICATE', 'OUT_OF_SCOPE')",
         name="ck_verification_outcome",
     ),
+    UniqueConstraint("candidate_id", name="uq_verification_candidate"),
     CheckConstraint(
         "proposed_candidate_state IN ("
         "'OPEN', 'VERIFYING', 'VALIDATED', 'REJECTED', "
@@ -708,15 +716,21 @@ promotion_run = Table(
     Column("assessment_id", Text, nullable=False),
     Column("original_experiment_id", Text, nullable=False),
     Column("stage", Text, nullable=False),
-    Column("evidence_id", Text, nullable=True),
-    Column("candidate_id", Text, nullable=True),
-    Column("verification_id", Text, nullable=True),
-    Column("finding_proposal_id", Text, nullable=True),
+    Column("evidence_id", Text, ForeignKey("evidence.evidence_id", name="fk_promotion_run_evidence"), nullable=True),
+    Column("candidate_id", Text, ForeignKey("candidate.candidate_id", name="fk_promotion_run_candidate"), nullable=True),
+    Column("verification_id", Text, ForeignKey("verification.verification_id", name="fk_promotion_run_verification"), nullable=True),
+    Column("finding_proposal_id", Text, ForeignKey("finding_proposal.proposal_id", name="fk_promotion_run_finding_proposal"), nullable=True),
     Column("reproduction_experiment_id", Text, nullable=True),
     Column("stop_reason", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("assessment_id", name="uq_promotion_run_assessment"),
+    Index(
+        "uq_promotion_run_reproduction_experiment",
+        "reproduction_experiment_id",
+        unique=True,
+        postgresql_where=text("reproduction_experiment_id IS NOT NULL"),
+    ),
     Index("ix_promotion_run_research_run", "research_run_id"),
     CheckConstraint(
         "stage IN ("
@@ -742,6 +756,7 @@ finding_proposal = Table(
     Column("content_fingerprint", Text, nullable=False),
     Column("impact_chain_ids", JSONB, nullable=False, server_default=text("'[]'")),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("candidate_id", name="uq_finding_proposal_candidate"),
     CheckConstraint(
         "state IN ('PROPOSED', 'HUMAN_REVIEW', 'APPROVED', 'REJECTED')",
         name="ck_finding_proposal_state",

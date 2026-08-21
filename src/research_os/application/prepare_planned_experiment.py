@@ -11,6 +11,7 @@ from research_os.application.capability_binding import require_new_plan_bindings
 from research_os.application.errors import ApplicationError
 from research_os.application.plan_records import experiment_plan_record_for
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import ExperimentExecutionState, ExperimentRecord
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.types import ExperimentPlan
@@ -81,8 +82,21 @@ class PreparePlannedExperiment:
             )
 
         if unit_of_work is None:
-            with self._uow_factory.open() as uow:
-                result = _write(uow)
-                uow.commit()
-            return result
+            try:
+                with self._uow_factory.open() as uow:
+                    result = _write(uow)
+                    uow.commit()
+                return result
+            except PersistenceConflictError:
+                with self._uow_factory.open() as uow:
+                    existing = uow.experiments.get(command.experiment_id)
+                    plan_row = uow.experiment_plans.get(command.experiment_id)
+                    uow.rollback()
+                if existing is None or plan_row is None:
+                    raise
+                return PreparePlannedExperimentResult(
+                    experiment_id=command.experiment_id,
+                    hypothesis_id=existing.hypothesis_id,
+                    evaluation_strategy=plan.evaluation_strategy,
+                )
         return _write(unit_of_work)

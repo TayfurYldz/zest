@@ -154,16 +154,23 @@ class EnduranceOrchestrationTests(unittest.TestCase):
         with factory.open() as uow:
             experiments = uow.experiments.list_for_research_run("run-1")
             hypotheses = uow.hypotheses.list_for_research_run("run-1")
-            attempts = uow.execution_attempts.list_for_research_run("run-1")
-            observations = uow.observations.list_for_research_run("run-1")
+            promotions = uow.promotion_runs.list_for_research_run("run-1")
             findings = uow.findings.list_for_research_run("run-1")
             uow.rollback()
-        self.assertEqual(len(experiments), 3)
+        reproduction_ids = {
+            item.reproduction_experiment_id
+            for item in promotions
+            if item.reproduction_experiment_id is not None
+        }
+        research_experiments = [
+            item
+            for item in experiments
+            if item.experiment_id not in reproduction_ids
+        ]
+        self.assertEqual(len(research_experiments), 3)
         self.assertEqual(len(hypotheses), 3)
-        self.assertEqual(len(attempts), 3)
-        self.assertEqual(len(observations), 3)
         self.assertEqual(len(findings), 0)
-        self.assertEqual(len(worker.calls), 3)
+        self.assertEqual(len(worker.calls), 6)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a38_001_promotion_run")
+        self.assertEqual(version, "a39_001_mr5_durability_uq")

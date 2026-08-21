@@ -446,7 +446,7 @@ class Gate05CandidateVerificationTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a38_001_promotion_run")
+        self.assertEqual(version, "a39_001_mr5_durability_uq")
         self.assertIn("candidate", tables)
         self.assertIn("verification", tables)
         self.assertIn("evidence", tables)
