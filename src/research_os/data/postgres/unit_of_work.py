@@ -33,6 +33,7 @@ from research_os.data.postgres.repositories import (
     PostgresOastTokenRepository,
     PostgresProgramPolicyRepository,
     PostgresProgramRepository,
+    PostgresPromotionRunRepository,
     PostgresRateLimitProfileRepository,
     PostgresResearchAdmissionRepository,
     PostgresResearchReasoningRepository,
@@ -97,6 +98,7 @@ class PostgresUnitOfWork:
         self.evidence_admissions: PostgresEvidenceAdmissionRepository
         self.candidates: PostgresCandidateRepository
         self.candidate_admissions: PostgresCandidateAdmissionRepository
+        self.promotion_runs: PostgresPromotionRunRepository
         self.verifications: PostgresVerificationRepository
         self.finding_proposals: PostgresFindingProposalRepository
         self.human_reviews: PostgresHumanReviewRepository
@@ -166,6 +168,7 @@ class PostgresUnitOfWork:
         self.evidence_admissions = PostgresEvidenceAdmissionRepository(self._connection)
         self.candidates = PostgresCandidateRepository(self._connection)
         self.candidate_admissions = PostgresCandidateAdmissionRepository(self._connection)
+        self.promotion_runs = PostgresPromotionRunRepository(self._connection)
         self.verifications = PostgresVerificationRepository(self._connection)
         self.finding_proposals = PostgresFindingProposalRepository(self._connection)
         self.human_reviews = PostgresHumanReviewRepository(self._connection)

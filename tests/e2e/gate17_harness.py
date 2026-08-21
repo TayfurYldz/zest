@@ -542,7 +542,23 @@ def _snapshot(
         observation_payload = observations[0].payload if observations else None
         worker_request = worker.calls[0]["request"] if worker.calls else None
         human_approved = bool(findings)
-        candidate = candidates[0] if candidates else None
+        candidate = None
+        if candidates:
+            rank = {
+                "VALIDATED": 4,
+                "VERIFYING": 3,
+                "OPEN": 2,
+                "INCONCLUSIVE": 1,
+                "REJECTED": 0,
+            }
+            candidate = max(
+                candidates,
+                key=lambda item: (
+                    rank.get(item.state, -1),
+                    item.created_at.isoformat(),
+                    item.candidate_id,
+                ),
+            )
         verification_outcome = verifications[-1].outcome if verifications else None
         ordered = sorted(
             assessments,

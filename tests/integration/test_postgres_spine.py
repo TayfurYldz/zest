@@ -693,7 +693,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a37_001_impact_edge_proof")
+        self.assertEqual(version, "a38_001_promotion_run")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
@@ -705,6 +705,7 @@ class PostgresSpineTests(unittest.TestCase):
         self.assertIn("evidence_admission", tables)
         self.assertIn("candidate", tables)
         self.assertIn("verification", tables)
+        self.assertIn("promotion_run", tables)
         self.assertIn("finding_proposal", tables)
         self.assertIn("human_review", tables)
         self.assertIn("approval", tables)

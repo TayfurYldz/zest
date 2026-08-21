@@ -335,6 +335,28 @@ class CandidateLifecycleApplicationTests(unittest.TestCase):
         self.assertEqual(completed.outcome, VerificationOutcome.INCONCLUSIVE)
         self.assertEqual(completed.state, CandidateState.INCONCLUSIVE)
 
+    def test_duplicate_propose_and_start_are_idempotent(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        evidence_id = _original_evidence(store)
+        factory = FakeUnitOfWorkFactory(store)
+        first = ProposeCandidateFromEvidence(factory, clock=FixedClock()).execute(
+            ProposeCandidateFromEvidenceCommand(evidence_id=evidence_id)
+        )
+        second = ProposeCandidateFromEvidence(factory, clock=FixedClock()).execute(
+            ProposeCandidateFromEvidenceCommand(evidence_id=evidence_id)
+        )
+        self.assertEqual(first.candidate_id, second.candidate_id)
+        self.assertEqual(len(store.candidates), 1)
+        assert first.candidate_id is not None
+        StartCandidateVerification(factory).execute(
+            StartCandidateVerificationCommand(candidate_id=first.candidate_id)
+        )
+        StartCandidateVerification(factory).execute(
+            StartCandidateVerificationCommand(candidate_id=first.candidate_id)
+        )
+        self.assertEqual(store.candidates[first.candidate_id].state, "VERIFYING")
+
 
 if __name__ == "__main__":
     unittest.main()

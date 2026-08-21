@@ -68,6 +68,7 @@ from research_os.data.records import (
     FrontierSourceRecord,
     HunterFamilyRecord,
     HuntV3QueueRecord,
+    PromotionRunRecord,
 )
 
 
@@ -236,6 +237,14 @@ class CandidateAdmissionRepository(Protocol):
     def list_for_research_run(
         self, research_run_id: str
     ) -> list[CandidateAdmissionRecord]: ...
+
+
+class PromotionRunRepository(Protocol):
+    def insert(self, record: PromotionRunRecord) -> None: ...
+    def get(self, promotion_run_id: str) -> PromotionRunRecord | None: ...
+    def get_by_assessment_id(self, assessment_id: str) -> PromotionRunRecord | None: ...
+    def list_for_research_run(self, research_run_id: str) -> list[PromotionRunRecord]: ...
+    def save(self, record: PromotionRunRecord) -> None: ...
 
 
 class VerificationRepository(Protocol):

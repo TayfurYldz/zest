@@ -43,6 +43,7 @@ A34_MIGRATION = ALEMBIC_VERSIONS / "a34_001_program_platforms.py"
 A35_MIGRATION = ALEMBIC_VERSIONS / "a35_001_orchestration_lease.py"
 A36_MIGRATION = ALEMBIC_VERSIONS / "a36_001_opportunity_candidate.py"
 A37_MIGRATION = ALEMBIC_VERSIONS / "a37_001_impact_edge_proof.py"
+A38_MIGRATION = ALEMBIC_VERSIONS / "a38_001_promotion_run.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -83,6 +84,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "candidate_evidence",
                 "candidate_admission",
                 "verification",
+                "promotion_run",
                 "finding_proposal",
                 "human_review",
                 "approval",
@@ -503,6 +505,16 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a36 = A36_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("a37_001_impact_edge_proof", a36)
+
+    def test_a38_migration_adds_promotion_run(self) -> None:
+        source = A38_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a38_001_promotion_run", source)
+        self.assertIn("a37_001_impact_edge_proof", source)
+        self.assertIn("promotion_run", source)
+        self.assertIn("uq_promotion_run_assessment", source)
+        self.assertNotIn("create_all", source)
+        a37 = A37_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("a38_001_promotion_run", a37)
 
 
 if __name__ == "__main__":

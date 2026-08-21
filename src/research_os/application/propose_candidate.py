@@ -61,6 +61,31 @@ class ProposeCandidateFromEvidence:
             evidence = uow.evidence.get(command.evidence_id)
             if evidence is None:
                 raise ApplicationError("evidence not found")
+            existing = [
+                item
+                for item in uow.candidates.list_for_research_run(evidence.research_run_id)
+                if evidence.evidence_id in item.evidence_ids
+            ]
+            if existing:
+                record = sorted(existing, key=lambda item: item.created_at)[0]
+                admission = uow.candidate_admissions.get(record.admission_record_id)
+                uow.rollback()
+                return ProposeCandidateFromEvidenceResult(
+                    outcome=CandidateAdmissionOutcome.ADMITTED,
+                    admission_record_id=record.admission_record_id,
+                    candidate_id=record.candidate_id,
+                    reason_codes=(
+                        admission.reason_codes
+                        if admission is not None
+                        else ("CANDIDATE_ALREADY_ADMITTED",)
+                    ),
+                    proposal_id=(
+                        admission.proposal_id
+                        if admission is not None
+                        else record.admission_record_id
+                    ),
+                    state=CandidateState(record.state),
+                )
             context = _admission_context(
                 evidence=evidence,
                 requested_evidence_ids=(

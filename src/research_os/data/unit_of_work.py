@@ -29,6 +29,7 @@ from research_os.data.ports import (
     IssuedBudgetRepository,
     ObservationRepository,
     ProgramRepository,
+    PromotionRunRepository,
     ResearchAdmissionRepository,
     ResearchCycleRepository,
     SensorObservationRepository,
@@ -86,6 +87,7 @@ class UnitOfWork(Protocol):
     evidence_admissions: EvidenceAdmissionRepository
     candidates: CandidateRepository
     candidate_admissions: CandidateAdmissionRepository
+    promotion_runs: PromotionRunRepository
     verifications: VerificationRepository
     finding_proposals: FindingProposalRepository
     human_reviews: HumanReviewRepository

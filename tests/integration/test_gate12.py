@@ -201,10 +201,12 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
         self.assertEqual(counts["hypothesis"], 2)
         self.assertEqual(counts["experiment"], 2)
         self.assertEqual(counts["finding"], 0)
-        # Slice 5: CONSISTENT_WITH_PREDICTION assessments auto-attempt Evidence
-        # admission. Candidate/Finding remain human-gated.
+        # Canonical MR-5: CONSISTENT_WITH_PREDICTION admits Evidence and a
+        # Candidate, then starts independent verification. Finding remains
+        # human-gated. Verification Worker execution is AdvancePromotionPipeline,
+        # not an extra ARC research-cycle experiment.
         self.assertEqual(counts["evidence"], 2)
-        self.assertEqual(counts["candidate"], 0)
+        self.assertEqual(counts["candidate"], 2)
         # RT-A: the run already reached its own terminal COMPLETED/
         # MAX_CYCLES_REACHED checkpoint via run_bounded() above. A cancel
         # issued after the fact must not resurrect or reclassify a terminal
@@ -314,7 +316,7 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
     def test_schema_head_is_a17(self) -> None:
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a37_001_impact_edge_proof")
+        self.assertEqual(version, "a38_001_promotion_run")
 
     def test_postgres_process_crash_matrix_does_not_duplicate(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)
@@ -362,7 +364,9 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
                 self.assertLessEqual(after["evidence"], 1)
                 if before["evidence"]:
                     self.assertEqual(after["evidence"], before["evidence"])
-                self.assertEqual(after["candidate"], 0)
+                self.assertLessEqual(after["candidate"], 1)
+                if before["candidate"]:
+                    self.assertEqual(after["candidate"], before["candidate"])
                 self.assertEqual(after["finding"], 0)
                 self.assertLessEqual(after["hypothesis"], max(before["hypothesis"], 1))
                 if before["hypothesis"]:

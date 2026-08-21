@@ -66,6 +66,7 @@ from research_os.data.records import (
     HunterFamilyRecord,
     HuntV3QueueRecord,
     OastTokenRecord,
+    PromotionRunRecord,
 )
 
 
@@ -473,6 +474,25 @@ def verification_from_row(row: Mapping[str, Any]) -> VerificationRecord:
         verifier_kind=data["verifier_kind"],
         verifier_identity=data["verifier_identity"],
         created_at=data["created_at"],
+    )
+
+
+def promotion_run_from_row(row: Mapping[str, Any]) -> PromotionRunRecord:
+    data = _mapping(row)
+    return PromotionRunRecord(
+        promotion_run_id=data["promotion_run_id"],
+        research_run_id=data["research_run_id"],
+        assessment_id=data["assessment_id"],
+        original_experiment_id=data["original_experiment_id"],
+        stage=data["stage"],
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+        evidence_id=data.get("evidence_id"),
+        candidate_id=data.get("candidate_id"),
+        verification_id=data.get("verification_id"),
+        finding_proposal_id=data.get("finding_proposal_id"),
+        reproduction_experiment_id=data.get("reproduction_experiment_id"),
+        stop_reason=data.get("stop_reason"),
     )
 
 

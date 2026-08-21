@@ -700,6 +700,33 @@ verification = Table(
     ),
 )
 
+promotion_run = Table(
+    "promotion_run",
+    metadata,
+    Column("promotion_run_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("assessment_id", Text, nullable=False),
+    Column("original_experiment_id", Text, nullable=False),
+    Column("stage", Text, nullable=False),
+    Column("evidence_id", Text, nullable=True),
+    Column("candidate_id", Text, nullable=True),
+    Column("verification_id", Text, nullable=True),
+    Column("finding_proposal_id", Text, nullable=True),
+    Column("reproduction_experiment_id", Text, nullable=True),
+    Column("stop_reason", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("assessment_id", name="uq_promotion_run_assessment"),
+    Index("ix_promotion_run_research_run", "research_run_id"),
+    CheckConstraint(
+        "stage IN ("
+        "'EVIDENCE_REJECTED', 'EVIDENCE_ADMITTED', 'CANDIDATE_REJECTED', "
+        "'CANDIDATE_OPEN', 'VERIFYING', 'REPRODUCTION_EXECUTED', "
+        "'VERIFIED', 'PROPOSAL_RECORDED', 'STOPPED')",
+        name="ck_promotion_run_stage",
+    ),
+)
+
 finding_proposal = Table(
     "finding_proposal",
     metadata,
@@ -1670,6 +1697,7 @@ SPINE_TABLES = (
     candidate_evidence,
     candidate_admission,
     verification,
+    promotion_run,
     finding_proposal,
     human_review,
     approval,

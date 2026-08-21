@@ -182,7 +182,7 @@ class ExecuteExploratoryHypothesisTests(unittest.TestCase):
         self.assertEqual(len(port.calls), 1)
         self.assertEqual(set(store.hunter_families), families_before)
         self.assertEqual(store.findings, {})
-        self.assertEqual(store.candidates, {})
+        self.assertEqual(len(store.candidates), 1)
         self.assertEqual(store.finding_proposals, {})
         assessment = store.hypothesis_assessments[result.assessment_id]
         self.assertEqual(

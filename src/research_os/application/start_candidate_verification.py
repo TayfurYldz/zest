@@ -49,8 +49,30 @@ class StartCandidateVerification:
                 raise ApplicationError("candidate not found")
             try:
                 current = CandidateState(candidate.state)
+            except ValueError as exc:
+                raise ApplicationError("candidate state is not a CandidateState") from exc
+            if current is CandidateState.VERIFYING:
+                if candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION:
+                    plan = plan_authorization_differential_verification(
+                        candidate.candidate_id, candidate.evidence_ids
+                    )
+                elif candidate.classification == HTTP_STATE_TRANSITION_CLASSIFICATION:
+                    plan = plan_state_transition_verification(
+                        candidate.candidate_id, candidate.evidence_ids
+                    )
+                else:
+                    plan = plan_diagnostic_verification(
+                        candidate.candidate_id, candidate.evidence_ids
+                    )
+                uow.rollback()
+                return StartCandidateVerificationResult(
+                    candidate_id=candidate.candidate_id,
+                    state=current,
+                    plan=plan,
+                )
+            try:
                 next_state = start_candidate_verification(current)
-            except (ResearchInputError, ValueError) as exc:
+            except ResearchInputError as exc:
                 raise ApplicationError(str(exc)) from exc
             if candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION:
                 plan = plan_authorization_differential_verification(

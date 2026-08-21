@@ -26,6 +26,7 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     ALLOWED_FINDING_PROPOSAL_STATES,
     ALLOWED_INVARIANT_STATUSES,
+    ALLOWED_PROMOTION_STAGES,
     ALLOWED_SESSION_STATES,
     ApprovalRecord,
     AuditEventRecord,
@@ -60,6 +61,7 @@ from research_os.data.records import (
     OastTokenRecord,
     ProgramPolicyRecord,
     ProgramRecord,
+    PromotionRunRecord,
     RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
@@ -1300,6 +1302,80 @@ class PostgresCandidateAdmissionRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.candidate_admission_from_row(row) for row in rows]
+
+
+class PostgresPromotionRunRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: PromotionRunRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.promotion_run.insert().values(
+                **_promotion_run_values(record)
+            ),
+        )
+
+    def get(self, promotion_run_id: str) -> PromotionRunRecord | None:
+        require_opaque_id(promotion_run_id, "promotion_run_id")
+        return _fetch_one(
+            self._connection,
+            tables.promotion_run,
+            tables.promotion_run.c.promotion_run_id,
+            promotion_run_id,
+            map_row.promotion_run_from_row,
+        )
+
+    def get_by_assessment_id(self, assessment_id: str) -> PromotionRunRecord | None:
+        require_opaque_id(assessment_id, "assessment_id")
+        return _fetch_one(
+            self._connection,
+            tables.promotion_run,
+            tables.promotion_run.c.assessment_id,
+            assessment_id,
+            map_row.promotion_run_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[PromotionRunRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.promotion_run)
+                .where(tables.promotion_run.c.research_run_id == research_run_id)
+                .order_by(tables.promotion_run.c.created_at, tables.promotion_run.c.promotion_run_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.promotion_run_from_row(row) for row in rows]
+
+    def save(self, record: PromotionRunRecord) -> None:
+        if record.stage not in ALLOWED_PROMOTION_STAGES:
+            raise PersistenceInputError("stage is not a PromotionPipeline stage")
+        result = self._connection.execute(
+            update(tables.promotion_run)
+            .where(tables.promotion_run.c.promotion_run_id == record.promotion_run_id)
+            .values(**_promotion_run_values(record))
+        )
+        if result.rowcount != 1:
+            raise PersistenceError("promotion_run not found for save")
+
+
+def _promotion_run_values(record: PromotionRunRecord) -> dict[str, object]:
+    return {
+        "promotion_run_id": record.promotion_run_id,
+        "research_run_id": record.research_run_id,
+        "assessment_id": record.assessment_id,
+        "original_experiment_id": record.original_experiment_id,
+        "stage": record.stage,
+        "evidence_id": record.evidence_id,
+        "candidate_id": record.candidate_id,
+        "verification_id": record.verification_id,
+        "finding_proposal_id": record.finding_proposal_id,
+        "reproduction_experiment_id": record.reproduction_experiment_id,
+        "stop_reason": record.stop_reason,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
 
 
 class PostgresVerificationRepository:

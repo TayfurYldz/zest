@@ -144,6 +144,19 @@ ALLOWED_CANDIDATE_CLASSIFICATIONS = frozenset(
         "HTTP_STATE_TRANSITION_AUTHORIZATION",
     }
 )
+ALLOWED_PROMOTION_STAGES = frozenset(
+    {
+        "EVIDENCE_REJECTED",
+        "EVIDENCE_ADMITTED",
+        "CANDIDATE_REJECTED",
+        "CANDIDATE_OPEN",
+        "VERIFYING",
+        "REPRODUCTION_EXECUTED",
+        "VERIFIED",
+        "PROPOSAL_RECORDED",
+        "STOPPED",
+    }
+)
 ALLOWED_CANDIDATE_ADMISSION_OUTCOMES = frozenset(
     {
         "ADMITTED",
@@ -1023,6 +1036,51 @@ class VerificationRecord:
             "alternative_explanation_checks",
             dict(self.alternative_explanation_checks),
         )
+
+
+@dataclass(frozen=True)
+class PromotionRunRecord:
+    """Durable PromotionPipeline provenance. Not Evidence, Candidate, or Finding.
+
+    Mutable stage machine. Authoritative Evidence/Candidate/Verification/
+    FindingProposal rows remain in their own tables; this record only tracks
+    which stage of the composed pipeline owns a given assessment.
+    """
+
+    promotion_run_id: str
+    research_run_id: str
+    assessment_id: str
+    original_experiment_id: str
+    stage: str
+    created_at: datetime
+    updated_at: datetime
+    evidence_id: str | None = None
+    candidate_id: str | None = None
+    verification_id: str | None = None
+    finding_proposal_id: str | None = None
+    reproduction_experiment_id: str | None = None
+    stop_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.promotion_run_id, "promotion_run_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.assessment_id, "assessment_id")
+        require_opaque_id(self.original_experiment_id, "original_experiment_id")
+        require_aware_datetime(self.created_at, "created_at")
+        require_aware_datetime(self.updated_at, "updated_at")
+        if self.stage not in ALLOWED_PROMOTION_STAGES:
+            raise PersistenceInputError("stage is not a PromotionPipeline stage")
+        require_optional_opaque_id(self.evidence_id, "evidence_id")
+        require_optional_opaque_id(self.candidate_id, "candidate_id")
+        require_optional_opaque_id(self.verification_id, "verification_id")
+        require_optional_opaque_id(self.finding_proposal_id, "finding_proposal_id")
+        require_optional_opaque_id(
+            self.reproduction_experiment_id, "reproduction_experiment_id"
+        )
+        if self.stop_reason is not None and (
+            not isinstance(self.stop_reason, str) or not self.stop_reason.strip()
+        ):
+            raise PersistenceInputError("stop_reason must be a non-empty string when set")
 
 
 @dataclass(frozen=True)

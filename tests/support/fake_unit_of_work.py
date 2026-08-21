@@ -21,6 +21,7 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     ALLOWED_FINDING_PROPOSAL_STATES,
     ALLOWED_INVARIANT_STATUSES,
+    ALLOWED_PROMOTION_STAGES,
     ALLOWED_SESSION_STATES,
     ApprovalRecord,
     AuditEventRecord,
@@ -49,6 +50,7 @@ from research_os.data.records import (
     ObservationRecord,
     ProgramPolicyRecord,
     ProgramRecord,
+    PromotionRunRecord,
     RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
@@ -111,6 +113,7 @@ class _Store:
         self.evidence_admissions: dict[str, EvidenceAdmissionRecord] = {}
         self.candidates: dict[str, CandidateRecord] = {}
         self.candidate_admissions: dict[str, CandidateAdmissionRecord] = {}
+        self.promotion_runs: dict[str, PromotionRunRecord] = {}
         self.verifications: dict[str, VerificationRecord] = {}
         self.finding_proposals: dict[str, FindingProposalRecord] = {}
         self.human_reviews: dict[str, HumanReviewRecord] = {}
@@ -273,6 +276,8 @@ def _id_of(record: Any) -> str:
         return record.candidate_id
     if isinstance(record, CandidateAdmissionRecord):
         return record.admission_record_id
+    if isinstance(record, PromotionRunRecord):
+        return record.promotion_run_id
     if isinstance(record, VerificationRecord):
         return record.verification_id
     if isinstance(record, FindingProposalRecord):
@@ -782,6 +787,35 @@ class _CandidateAdmissionRepo(_Repo):
             ],
             key=lambda record: record.admission_record_id,
         )
+
+
+class _PromotionRunRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.promotion_runs, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def get_by_assessment_id(self, assessment_id: str) -> PromotionRunRecord | None:
+        for record in self._root.promotion_runs.values():
+            if record.assessment_id == assessment_id:
+                return record
+        return None
+
+    def list_for_research_run(self, research_run_id: str) -> list[PromotionRunRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.promotion_runs.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: (record.created_at, record.promotion_run_id),
+        )
+
+    def save(self, record: PromotionRunRecord) -> None:
+        if record.stage not in ALLOWED_PROMOTION_STAGES:
+            raise PersistenceInputError("stage is not a PromotionPipeline stage")
+        if record.promotion_run_id not in self._store:
+            raise PersistenceError("promotion_run not found for save")
+        self._store[record.promotion_run_id] = record
 
 
 class _VerificationRepo(_Repo):
@@ -1723,6 +1757,9 @@ class FakeUnitOfWork:
         self.candidate_admissions = _CandidateAdmissionRepo(
             self._store, fail_on_insert=fail_on == "candidate_admissions"
         )
+        self.promotion_runs = _PromotionRunRepo(
+            self._store, fail_on_insert=fail_on == "promotion_runs"
+        )
         self.verifications = _VerificationRepo(
             self._store, fail_on_insert=fail_on == "verifications"
         )
@@ -1868,6 +1905,8 @@ class FakeUnitOfWork:
         self._store.candidates.update(snapshot.candidates)
         self._store.candidate_admissions.clear()
         self._store.candidate_admissions.update(snapshot.candidate_admissions)
+        self._store.promotion_runs.clear()
+        self._store.promotion_runs.update(snapshot.promotion_runs)
         self._store.verifications.clear()
         self._store.verifications.update(snapshot.verifications)
         self._store.finding_proposals.clear()
