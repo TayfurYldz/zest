@@ -35,6 +35,7 @@ from research_os.data.postgres.repositories import (
     PostgresProgramRepository,
     PostgresPromotionRunRepository,
     PostgresRateLimitProfileRepository,
+    PostgresRuntimeInstanceRepository,
     PostgresResearchAdmissionRepository,
     PostgresResearchReasoningRepository,
     PostgresResearchRunRepository,
@@ -133,6 +134,7 @@ class PostgresUnitOfWork:
         self.hunter_families: PostgresHunterFamilyRepository
         self.hunt_v3_queue: PostgresHuntV3QueueRepository
         self.impact_chains: PostgresImpactChainRepository
+        self.runtime_instances: PostgresRuntimeInstanceRepository
 
     def open(self) -> PostgresUnitOfWork:
         return type(self)(self._engine)
@@ -217,6 +219,7 @@ class PostgresUnitOfWork:
         self.hunter_families = PostgresHunterFamilyRepository(self._connection)
         self.hunt_v3_queue = PostgresHuntV3QueueRepository(self._connection)
         self.impact_chains = PostgresImpactChainRepository(self._connection)
+        self.runtime_instances = PostgresRuntimeInstanceRepository(self._connection)
         return self
 
     def commit(self) -> None:

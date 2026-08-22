@@ -91,6 +91,7 @@ from research_os.data.records import (
     FrontierSourceRecord,
     HunterFamilyRecord,
     HuntV3QueueRecord,
+    RuntimeInstanceRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -156,6 +157,7 @@ class _Store:
         self.discovery_projection_receipts: dict[str, DiscoveryProjectionReceiptRecord] = {}
         self.hunter_families: dict[str, HunterFamilyRecord] = {}
         self.hunt_v3_queue: dict[str, HuntV3QueueRecord] = {}
+        self.runtime_instances: dict[str, RuntimeInstanceRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
 
@@ -354,6 +356,8 @@ def _id_of(record: Any) -> str:
         return f"{record.family_id}:{record.version}"
     if isinstance(record, HuntV3QueueRecord):
         return record.queue_id
+    if isinstance(record, RuntimeInstanceRecord):
+        return record.runtime_instance_id
     raise PersistenceError("unknown record identity")
 
 
@@ -1497,6 +1501,13 @@ class _ResearchOrchestrationRepo:
         )
         return True
 
+    def list_recoverable(self) -> list[ResearchOrchestrationRecord]:
+        return [
+            record
+            for record in self._root.research_orchestrations.values()
+            if record.state in {"READY", "RUNNING"}
+        ]
+
 
 class _ResearchCycleRepo(_Repo):
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
@@ -1803,6 +1814,24 @@ class _HuntV3QueueRepo(_Repo):
         )
 
 
+class _RuntimeInstanceRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.runtime_instances)
+        self._root = store
+
+    def save(self, record: RuntimeInstanceRecord) -> None:
+        if record.runtime_instance_id not in self._store:
+            raise PersistenceError("runtime_instance not found")
+        self._store[record.runtime_instance_id] = record
+
+    def list_active(self) -> list[RuntimeInstanceRecord]:
+        return [
+            record
+            for record in self._root.runtime_instances.values()
+            if record.status in {"STARTING", "RUNNING", "DRAINING"}
+        ]
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -1934,6 +1963,7 @@ class FakeUnitOfWork:
         self.hunt_v3_queue = _HuntV3QueueRepo(
             self._store, fail_on_insert=fail_on == "hunt_v3_queue"
         )
+        self.runtime_instances = _RuntimeInstanceRepo(self._store)
 
     def __enter__(self) -> FakeUnitOfWork:
         self._store.open_transactions += 1
@@ -2079,6 +2109,8 @@ class FakeUnitOfWork:
         self._store.hunter_families.update(snapshot.hunter_families)
         self._store.hunt_v3_queue.clear()
         self._store.hunt_v3_queue.update(snapshot.hunt_v3_queue)
+        self._store.runtime_instances.clear()
+        self._store.runtime_instances.update(snapshot.runtime_instances)
 
 
 class FakeUnitOfWorkFactory:

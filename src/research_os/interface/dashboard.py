@@ -25,40 +25,18 @@ from research_os.data.postgres.engine import (
 )
 from research_os.application.identity import new_opaque_id
 from research_os.application.autonomous_research_controller import (
-    AutonomousResearchController,
     OrchestrationTickResult,
     StartAutonomousResearchCommand,
-)
-from research_os.application.http_transaction_authorization import (
-    scope_evaluation_from_compiled_check,
-)
-from research_os.application.program_research_context import load_program_research_context
-from research_os.application.program_daily_budget import (
-    AllocateProgramDailyBudget,
-    AllocateProgramDailyBudgetCommand,
 )
 from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
 from research_os.application.record_human_review import RecordHumanReview, RecordHumanReviewCommand
 from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
-from research_os.application.reconcile_research_run import ReconcileResearchRun
 from research_os.application.research_run_control import ResearchRunControl
-from research_os.core.scope_compiler import evaluate_scope_candidate
-from research_os.core.enums import ActorType
+from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.integrations.models.cli_session import (
-    CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
-    CodexCliSessionAdapter,
-    load_codex_model_configurations,
-    probe_codex_cli,
-)
-from research_os.platform.persistent_browser_worker import PersistentBrowserWorkerAdapter
-from research_os.platform.url_normalize import normalize_url
 from research_os.research.orchestration import OrchestrationBounds
 from research_os.research.finding_proposal import HumanReviewDecision
-from research_os.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
-from research_os.application.discovery.runner import SurfaceDiscoveryStart
-from research_os.application.local_run_supervisor import LocalRunSupervisorRegistry
-from research_os.core.enums import ActorType, ScopeRuleEffect
+from research_os.interface.osd_client import OperatorApiRunControl, RESEARCH_OSD_URL_ENV
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -69,7 +47,6 @@ from research_os.data.records import (
     ResearchRunRecord,
     ScopeRuleV2Record,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.interface.cli import build_status_snapshot
 from research_os.safe_data import redact_secret_keys
 
@@ -154,165 +131,69 @@ def configure_dashboard_run_control(runtime: DashboardRunControlRuntime | None) 
 def build_dashboard_run_control_runtime(
     *, env: Mapping[str, str] | None = None
 ) -> DashboardRunControlRuntime:
+    """Attach dashboard as an Operator API client. Dashboard never owns supervisors."""
+
     source = dict(os.environ if env is None else env)
+    osd_url = source.get(RESEARCH_OSD_URL_ENV)
+    if not osd_url or not osd_url.strip():
+        raise RuntimeError(
+            f"{RESEARCH_OSD_URL_ENV} is required; dashboard must not own run supervisors"
+        )
+    approval, close_runtime = _optional_approval_runtime(source)
+    return DashboardRunControlRuntime(
+        control=OperatorApiRunControl(osd_url),
+        command_factory=_osd_ignored_command_factory,
+        close=close_runtime,
+        approval=approval,
+    )
+
+
+def _optional_approval_runtime(
+    source: Mapping[str, str],
+) -> tuple[DashboardApprovalRuntime | None, Callable[[], None] | None]:
     url = source.get(DATABASE_URL_ENV)
     if not url:
-        raise ValueError(f"{DATABASE_URL_ENV} is required for run control")
+        return None, None
     engine = create_sync_engine(url)
     factory = PostgresUnitOfWork(engine)
-    configurations = load_codex_model_configurations(source)
-    configuration = configurations[0]
-    availability = probe_codex_cli(configuration=configuration)
-    if not availability.readiness or not availability.readiness.auth_ready:
-        engine.dispose()
-        raise RuntimeError(f"Codex runtime is not ready: {availability.detail}")
-    model = CodexCliSessionAdapter(
-        allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
-        executable=configuration.executable,
-        version=availability.version,
-        model=configuration.model,
-        configuration_id=configuration.configuration_id,
-    )
-    worker = PersistentBrowserWorkerAdapter()
-    controller = AutonomousResearchController(factory, worker, model)
-
-    def prepare_start(research_run_id: str) -> None:
-        with factory.open() as uow:
-            run = uow.research_runs.get(research_run_id)
-            if run is None:
-                uow.rollback()
-                raise ValueError("research run not found")
-            policy = uow.program_policies.get(run.program_id)
-            uow.rollback()
-        if policy is None or policy.daily_llm_budget_microdollars is None:
-            raise ValueError("daily LLM budget policy is required")
-        AllocateProgramDailyBudget(factory).execute(
-            AllocateProgramDailyBudgetCommand(
-                program_id=run.program_id,
-                budget_date=datetime.now(timezone.utc).date().isoformat(),
-                limit_microdollars=policy.daily_llm_budget_microdollars,
-            )
-        )
-
-    control = ResearchRunControl(
-        controller,
-        LocalRunSupervisorRegistry(),
-        factory,
-        prepare_start=prepare_start,
-        reconciler=ReconcileResearchRun(factory),
-    )
-
-    def command_factory(
-        research_run_id: str, _payload: Mapping[str, Any]
-    ) -> StartAutonomousResearchCommand:
-        with factory.open() as uow:
-            run = uow.research_runs.get(research_run_id)
-            if run is None:
-                uow.rollback()
-                raise ValueError("research run not found")
-            context = load_program_research_context(uow, run.program_id)
-            policy = context.policy if context is not None else None
-            run_config = dict(policy.action_policy.get("run", {})) if policy else {}
-            orchestration = dict(
-                policy.action_policy.get("orchestration", {}) if policy else {}
-            )
-            uow.rollback()
-        if context is None or policy is None:
-            raise ValueError("program research context is unavailable")
-        target_reference = str(run_config.get("target_reference", "")).strip()
-        research_question = str(run_config.get("research_question", "")).strip()
-        if not target_reference or not research_question:
-            raise ValueError("persisted run configuration is incomplete")
-        candidate = normalize_url(target_reference)
-        check = evaluate_scope_candidate(candidate, context.compiled_scope)
-        scope = scope_evaluation_from_compiled_check(check, context.compiled_scope)
-        try:
-            bounds = OrchestrationBounds(
-                max_cycles=int(orchestration["max_cycles"]),
-                max_experiments=int(orchestration["max_experiments"]),
-                max_model_calls=int(orchestration["max_model_calls"]),
-                max_worker_invocations=int(orchestration["max_worker_invocations"]),
-                max_elapsed_ms=int(orchestration["max_elapsed_ms"]),
-                max_selected_opportunities=int(orchestration["max_selected_opportunities"]),
-                max_runtime_fallback=int(orchestration["max_runtime_fallback"]),
-                side_effect_ceiling=int(orchestration["side_effect_ceiling"]),
-                allow_repeated_control_experiments=bool(
-                    orchestration["allow_repeated_control_experiments"]
-                ),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("persisted orchestration configuration is invalid") from exc
-        budget = _budget_for_run(factory, research_run_id)
-        if candidate.normalized_scheme is None or candidate.normalized_host is None:
-            raise ValueError("target reference cannot seed surface discovery")
-        default_port = 80 if candidate.normalized_scheme == "http" else 443
-        normalized_origin = f"{candidate.normalized_scheme}://{candidate.normalized_host}"
-        if candidate.normalized_port != default_port:
-            normalized_origin += f":{candidate.normalized_port}"
-        discovery_bounds = DiscoveryBounds(
-            max_discovery_cycles=bounds.max_cycles,
-            max_frontier_items=bounds.max_worker_invocations,
-            max_new_facts_per_cycle=bounds.max_worker_invocations,
-            max_browser_actions=bounds.max_worker_invocations,
-            max_http_transactions=bounds.max_worker_invocations,
-            max_per_route_revisit=1,
-            max_identity_variants=0,
-            max_transition_depth=1,
-            max_graph_depth_from_seed=2,
-            max_template_inference_fanout=4,
-            max_duplicate_observations=1,
-        )
-        surface_discovery = SurfaceDiscoveryStart(
-            config=DiscoveryRunConfig(
-                research_run_id=research_run_id,
-                seed_target_reference=target_reference,
-                normalized_origin=normalized_origin,
-                normalized_path=candidate.raw_path,
-                bounds=discovery_bounds,
-            ),
-            compiled_scope=context.compiled_scope,
-        )
-        return StartAutonomousResearchCommand(
-            research_run_id=research_run_id,
-            budget_id=budget,
-            target_reference=target_reference,
-            scope=scope,
-            bounds=bounds,
-            research_question=research_question,
-            surface_discovery=surface_discovery,
-        )
 
     def close_runtime() -> None:
-        worker.shutdown()
         engine.dispose()
 
-    return DashboardRunControlRuntime(
-        control=control,
-        command_factory=command_factory,
-        close=close_runtime,
-        approval=DashboardApprovalRuntime(
+    return (
+        DashboardApprovalRuntime(
             start_review=StartHumanReview(factory),
             record_review=RecordHumanReview(factory),
             finalize=FinalizeFinding(factory),
         ),
+        close_runtime,
     )
 
 
-def _budget_for_run(factory: PostgresUnitOfWork, research_run_id: str) -> str:
-    with factory.open() as uow:
-        orchestration = uow.research_orchestrations.get(research_run_id)
-        if orchestration is not None:
-            uow.rollback()
-            return orchestration.budget_id
-        run = uow.research_runs.get(research_run_id)
-        if run is None:
-            uow.rollback()
-            raise ValueError("research run not found")
-        budgets = uow.issued_budgets.list_for_research_run(research_run_id)
-        uow.rollback()
-    if len(budgets) != 1:
-        raise ValueError("research run must have exactly one issued budget")
-    return budgets[0].budget_id
+def _osd_ignored_command_factory(
+    research_run_id: str, _payload: Mapping[str, Any]
+) -> StartAutonomousResearchCommand:
+    """Satisfies the dashboard POST type check. research-osd reconstructs config from SoR."""
+
+    from research_os.core.scope import ScopeEvaluationInput
+
+    return StartAutonomousResearchCommand(
+        research_run_id=research_run_id,
+        budget_id="osd-reconstructs",
+        target_reference="osd-reconstructs",
+        scope=ScopeEvaluationInput(matches=(), ambiguous=True),
+        bounds=OrchestrationBounds(
+            max_cycles=1,
+            max_experiments=1,
+            max_model_calls=1,
+            max_worker_invocations=1,
+            max_elapsed_ms=1,
+            max_selected_opportunities=1,
+            max_runtime_fallback=0,
+            side_effect_ceiling=0,
+        ),
+        research_question="osd-reconstructs",
+    )
 
 
 def _operator_run_action(
@@ -1100,7 +981,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
     try:
-        configure_dashboard_run_control(build_dashboard_run_control_runtime())
+        source = dict(os.environ)
+        if source.get(RESEARCH_OSD_URL_ENV):
+            configure_dashboard_run_control(build_dashboard_run_control_runtime())
+        else:
+            configure_dashboard_run_control(None)
     except (RuntimeError, ValueError):
         configure_dashboard_run_control(None)
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)

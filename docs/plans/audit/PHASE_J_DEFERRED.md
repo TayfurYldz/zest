@@ -1,35 +1,22 @@
-# Phase J — `research-osd` deferred
+# Phase J — `research-osd`
 
-Status: **DEFERRED**. Not implemented. Not qualified. Not a locked Slice 7 deliverable.
+Status: **QUALIFIED** for persistent local runtime ownership. See `PHASE_J_RESEARCH_OSD_QUALIFICATION.md`.
 
-## Why this is not the next code slice
+Not 24/7. Not PRODUCTION_READY. Not systemd/machine-reboot qualified.
 
-`IMPLEMENTATION_SEQUENCE_LOCK.md` and `CAMPAIGN_BASELINE.md` place persistent `research-osd` (RT-5 / dashboard-as-client / systemd / Operator API / SSE) **outside** the locked majority-implementation sequence. Slices 0–7 reconnect research lifecycle and harden runtime fencing/preflight that a daemon would otherwise race.
+## What landed
 
-A daemon that supervised unleased runs was explicitly called out as making the race worse. Slices 0–1 added terminal-state hygiene and lease/fencing. That removes the original blocker, but it does **not** constitute a design for:
+- Durable `runtime_instance` identity (new id every process start)
+- `research-osd` process owns `LocalRunSupervisor` + existing CAS lease
+- Per-run fenced UoW + lease-checked Worker dispatch
+- Dashboard is a client (`RESEARCH_OSD_URL`) or read-only
+- Recovery classifier does not treat expired lease as operational failure
+- DISPATCHING / UNKNOWN_OUTCOME are not auto-retried
 
-- `runtime_instance` identity and crash ownership
-- Operator API transport
-- SSE / dashboard-as-client contract
-- systemd unit vs process supervisor
-- how `LocalRunSupervisor` yields to a persistent owner
+## What already existed (reused)
 
-Project rules forbid treating the stack as decided and forbid silently adding a major architectural component. Phase J needs an explicit design pass before any production daemon, Docker, or new framework work.
-
-## What already exists (do not rebuild)
-
-- `LocalRunSupervisor` — process-local, does not survive restart.
-- Dashboard HTTP process as today's operational owner.
-- Slice 1 lease/fencing on `research_orchestration`.
-- Slice 2 Preflight.
-
-## What must not happen in a freelance Phase J
-
-- Second lifecycle owner beside ARC.
-- Dashboard payload overriding authoritative run config.
-- Daemon that dispatches Workers without Core authorization.
-- Treating process liveness as research Evidence.
-
-## Resume condition
-
-Operator requests an explicit Phase J design (interfaces, ownership, schema) after this campaign's completion report. Until then, `research-osd` remains `NOT_PRESENT`.
+- `LocalRunSupervisor` tick/lease-renew/stop-on-loss
+- Slice 1 lease/fencing on `research_orchestration`
+- Slice 2 Preflight
+- `ReconcileResearchRun` attempt classification
+- `configuration_from_record` / ARC terminal immutability

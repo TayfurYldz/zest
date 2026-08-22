@@ -693,7 +693,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a40_001_mr6a_identity_anomaly")
+        self.assertEqual(version, "a41_001_runtime_instance")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
@@ -732,6 +732,7 @@ class PostgresSpineTests(unittest.TestCase):
         self.assertIn("frontier_item", tables)
         self.assertIn("frontier_event", tables)
         self.assertIn("discovery_projection_receipt", tables)
+        self.assertIn("runtime_instance", tables)
         self.assertNotIn("attack_surface_node", tables)
 
 

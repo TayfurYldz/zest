@@ -1,0 +1,140 @@
+"""Compose fenced UnitOfWork and WorkerPort around existing lease identity.
+
+Does not change ARC internals. Used only by research-osd when it already
+holds (owner_runtime_instance_id, lease_epoch) for one run. A stale owner
+cannot persist orchestration or invoke Worker.
+"""
+
+from __future__ import annotations
+
+from typing import Mapping
+
+from research_os.application.ports import UnitOfWorkFactory
+from research_os.data.errors import LeaseFencingError, PersistenceError
+from research_os.platform.worker import WorkerInvocationOutcome, WorkerPort
+
+
+class FencedOrchestrationRepository:
+    def __init__(
+        self,
+        inner,
+        *,
+        owner_runtime_instance_id: str,
+        lease_epoch: int,
+    ) -> None:
+        self._inner = inner
+        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._lease_epoch = lease_epoch
+
+    def save(self, record, **kwargs):
+        kwargs.setdefault("expect_owner_runtime_instance_id", self._owner_runtime_instance_id)
+        kwargs.setdefault("expect_lease_epoch", self._lease_epoch)
+        return self._inner.save(record, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
+class SingleRunFencedUnitOfWork:
+    def __init__(
+        self,
+        inner,
+        *,
+        owner_runtime_instance_id: str,
+        lease_epoch: int,
+    ) -> None:
+        self._inner = inner
+        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._lease_epoch = lease_epoch
+
+    def __enter__(self) -> "SingleRunFencedUnitOfWork":
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return self._inner.__exit__(exc_type, exc, tb)
+
+    def commit(self) -> None:
+        self._inner.commit()
+
+    def rollback(self) -> None:
+        self._inner.rollback()
+
+    @property
+    def research_orchestrations(self):
+        return FencedOrchestrationRepository(
+            self._inner.research_orchestrations,
+            owner_runtime_instance_id=self._owner_runtime_instance_id,
+            lease_epoch=self._lease_epoch,
+        )
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
+class SingleRunFencedUowFactory:
+    def __init__(
+        self,
+        inner: UnitOfWorkFactory,
+        *,
+        owner_runtime_instance_id: str,
+        lease_epoch: int,
+    ) -> None:
+        self._inner = inner
+        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._lease_epoch = lease_epoch
+
+    def open(self) -> SingleRunFencedUnitOfWork:
+        return SingleRunFencedUnitOfWork(
+            self._inner.open(),
+            owner_runtime_instance_id=self._owner_runtime_instance_id,
+            lease_epoch=self._lease_epoch,
+        )
+
+
+class LeaseFencedWorkerPort:
+    """Refuse Worker.invoke unless the remembered lease still matches SoR."""
+
+    def __init__(
+        self,
+        inner: WorkerPort,
+        uow_factory: UnitOfWorkFactory,
+        *,
+        research_run_id: str,
+        owner_runtime_instance_id: str,
+        lease_epoch: int,
+    ) -> None:
+        self._inner = inner
+        self._uow_factory = uow_factory
+        self._research_run_id = research_run_id
+        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._lease_epoch = lease_epoch
+
+    def invoke(
+        self,
+        request: Mapping[str, object],
+        *,
+        timeout_ms: int | None = None,
+    ) -> WorkerInvocationOutcome:
+        try:
+            with self._uow_factory.open() as uow:
+                record = uow.research_orchestrations.get(self._research_run_id)
+                uow.rollback()
+        except PersistenceError as exc:
+            raise LeaseFencingError(
+                "lease cannot be confirmed; refusing Worker dispatch"
+            ) from exc
+        if record is None:
+            raise LeaseFencingError("orchestration not found; refusing Worker dispatch")
+        if (
+            record.owner_runtime_instance_id != self._owner_runtime_instance_id
+            or record.lease_epoch != self._lease_epoch
+        ):
+            raise LeaseFencingError(
+                "stale lease epoch cannot dispatch Worker "
+                f"(expected owner={self._owner_runtime_instance_id!r} "
+                f"epoch={self._lease_epoch}; "
+                f"actual owner={record.owner_runtime_instance_id!r} "
+                f"epoch={record.lease_epoch})"
+            )
+        return self._inner.invoke(request, timeout_ms=timeout_ms)

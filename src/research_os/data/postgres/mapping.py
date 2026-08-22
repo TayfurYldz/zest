@@ -26,6 +26,7 @@ from research_os.data.records import (
     HypothesisRecord,
     HumanReviewRecord,
     ImpactChainEdgeRecord,
+    RuntimeInstanceRecord,
     ImpactChainNodeRecord,
     ImpactChainRecord,
     InvariantHypothesisRecord,
@@ -1120,4 +1121,19 @@ def impact_chain_edge_from_row(row: Mapping[str, Any]) -> ImpactChainEdgeRecord:
         relation=data["relation"],
         proof_refs=_id_tuple(data["proof_refs"]),
         created_at=data["created_at"],
+    )
+
+
+def runtime_instance_from_row(row: Mapping[str, Any]) -> RuntimeInstanceRecord:
+    data = _mapping(row)
+    return RuntimeInstanceRecord(
+        runtime_instance_id=data["runtime_instance_id"],
+        host_identity=data["host_identity"],
+        process_id=data["process_id"],
+        engine_version=data["engine_version"],
+        status=data["status"],
+        capabilities_summary=dict(data["capabilities_summary"] or {}),
+        started_at=data["started_at"],
+        last_seen_at=data["last_seen_at"],
+        stopped_at=data["stopped_at"],
     )

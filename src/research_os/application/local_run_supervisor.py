@@ -19,7 +19,11 @@ from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.orchestration_lease import LeaseConfig
 from research_os.application.ports import UnitOfWorkFactory
-from research_os.data.errors import PersistenceError, TerminalOrchestrationStateError
+from research_os.data.errors import (
+    LeaseFencingError,
+    PersistenceError,
+    TerminalOrchestrationStateError,
+)
 from research_os.data.records import LeaseAcquireOutcome
 from research_os.research.orchestration import (
     CycleOutcome,
@@ -142,6 +146,16 @@ class LocalRunSupervisor:
         }:
             try:
                 result = self.controller.step(self.command)
+            except LeaseFencingError:
+                self._lease_lost = True
+                self._stop_event.set()
+                with self.uow_factory.open() as uow:
+                    record = uow.research_orchestrations.get(self.research_run_id)
+                    uow.rollback()
+                self._last_result = (
+                    _result_from_persisted(record) if record is not None else None
+                )
+                return self._last_result
             except TerminalOrchestrationStateError:
                 # Another authority (operator pause/cancel, or reconciliation)
                 # finalized this run terminally while this tick was in
@@ -253,6 +267,7 @@ class LocalRunSupervisorRegistry:
         command: StartAutonomousResearchCommand,
         uow_factory: UnitOfWorkFactory,
         cadence_seconds: float = 0.25,
+        controller_factory=None,
     ) -> LocalRunSupervisor | None:
         """Attach a supervisor for this run, or return None if the lease
         could not be acquired (another runtime instance holds it, or the
@@ -273,6 +288,8 @@ class LocalRunSupervisorRegistry:
                 uow.commit()
             if acquired.outcome is not LeaseAcquireOutcome.ACQUIRED:
                 return None
+            if controller_factory is not None:
+                controller = controller_factory(acquired.record.lease_epoch)
             supervisor = LocalRunSupervisor(
                 research_run_id,
                 controller,
@@ -304,3 +321,11 @@ class LocalRunSupervisorRegistry:
         with self._lock:
             supervisor = self._supervisors.get(research_run_id)
         return supervisor is not None and supervisor.is_running
+
+    def owned_run_ids(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._supervisors)
+
+    def supervisor(self, research_run_id: str):
+        with self._lock:
+            return self._supervisors.get(research_run_id)

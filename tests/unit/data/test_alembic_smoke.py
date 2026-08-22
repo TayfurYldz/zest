@@ -46,6 +46,7 @@ A37_MIGRATION = ALEMBIC_VERSIONS / "a37_001_impact_edge_proof.py"
 A38_MIGRATION = ALEMBIC_VERSIONS / "a38_001_promotion_run.py"
 A39_MIGRATION = ALEMBIC_VERSIONS / "a39_001_mr5_durability_uq.py"
 A40_MIGRATION = ALEMBIC_VERSIONS / "a40_001_mr6a_identity_anomaly.py"
+A41_MIGRATION = ALEMBIC_VERSIONS / "a41_001_runtime_instance.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -130,6 +131,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "impact_chain",
                 "impact_chain_node",
                 "impact_chain_edge",
+                "runtime_instance",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -540,6 +542,17 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a39 = A39_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("a40_001_mr6a_identity_anomaly", a39)
+
+    def test_a41_migration_adds_runtime_instance(self) -> None:
+        source = A41_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a41_001_runtime_instance", source)
+        self.assertIn("a40_001_mr6a_identity_anomaly", source)
+        self.assertIn("runtime_instance", source)
+        self.assertIn("ck_runtime_instance_status", source)
+        self.assertNotIn("DELETE FROM", source)
+        self.assertNotIn("create_all", source)
+        a40 = A40_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("a41_001_runtime_instance", a40)
 
 
 if __name__ == "__main__":

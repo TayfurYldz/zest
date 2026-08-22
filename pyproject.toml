@@ -26,6 +26,7 @@ browser = ["playwright>=1.49,<2"]
 [project.scripts]
 research-os = "research_os.interface.cli:main"
 research-os-dashboard = "research_os.interface.dashboard:main"
+research-osd = "research_os.interface.research_osd:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_os"]

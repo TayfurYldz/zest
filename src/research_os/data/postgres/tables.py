@@ -1697,6 +1697,24 @@ impact_chain_edge = Table(
     ),
 )
 
+runtime_instance = Table(
+    "runtime_instance",
+    metadata,
+    Column("runtime_instance_id", Text, primary_key=True),
+    Column("host_identity", Text, nullable=False),
+    Column("process_id", Text, nullable=False),
+    Column("engine_version", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("capabilities_summary", JSONB, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("last_seen_at", DateTime(timezone=True), nullable=False),
+    Column("stopped_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "status IN ('STARTING', 'RUNNING', 'DRAINING', 'STOPPED')",
+        name="ck_runtime_instance_status",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1764,6 +1782,7 @@ SPINE_TABLES = (
     impact_chain,
     impact_chain_node,
     impact_chain_edge,
+    runtime_instance,
 )
 
 APPEND_ONLY_TABLES = (

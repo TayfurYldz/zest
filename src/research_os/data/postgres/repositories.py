@@ -68,6 +68,7 @@ from research_os.data.records import (
     ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
+    RuntimeInstanceRecord,
     ScopeRuleV2Record,
     SensorObservationRecord,
     TargetInferenceRecord,
@@ -2485,6 +2486,21 @@ class PostgresResearchOrchestrationRepository:
             raise PersistenceError("persistence write failed") from exc
         return result.rowcount == 1
 
+    def list_recoverable(self) -> list[ResearchOrchestrationRecord]:
+        try:
+            rows = (
+                self._connection.execute(
+                    select(tables.research_orchestration).where(
+                        tables.research_orchestration.c.state.in_(("READY", "RUNNING"))
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.research_orchestration_from_row(row) for row in rows]
+
 
 class PostgresResearchCycleRepository:
     def __init__(self, connection: Connection) -> None:
@@ -2988,4 +3004,70 @@ class PostgresImpactChainRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.impact_chain_from_row(row) for row in rows]
+
+
+class PostgresRuntimeInstanceRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: RuntimeInstanceRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.runtime_instance.insert().values(
+                runtime_instance_id=record.runtime_instance_id,
+                host_identity=record.host_identity,
+                process_id=record.process_id,
+                engine_version=record.engine_version,
+                status=record.status,
+                capabilities_summary=dict(record.capabilities_summary),
+                started_at=record.started_at,
+                last_seen_at=record.last_seen_at,
+                stopped_at=record.stopped_at,
+            ),
+        )
+
+    def get(self, runtime_instance_id: str) -> RuntimeInstanceRecord | None:
+        require_opaque_id(runtime_instance_id, "runtime_instance_id")
+        return _fetch_one(
+            self._connection,
+            tables.runtime_instance,
+            tables.runtime_instance.c.runtime_instance_id,
+            runtime_instance_id,
+            map_row.runtime_instance_from_row,
+        )
+
+    def save(self, record: RuntimeInstanceRecord) -> None:
+        require_opaque_id(record.runtime_instance_id, "runtime_instance_id")
+        _execute_write(
+            self._connection,
+            update(tables.runtime_instance)
+            .where(
+                tables.runtime_instance.c.runtime_instance_id == record.runtime_instance_id
+            )
+            .values(
+                host_identity=record.host_identity,
+                process_id=record.process_id,
+                engine_version=record.engine_version,
+                status=record.status,
+                capabilities_summary=dict(record.capabilities_summary),
+                started_at=record.started_at,
+                last_seen_at=record.last_seen_at,
+                stopped_at=record.stopped_at,
+            ),
+        )
+
+    def list_active(self) -> list[RuntimeInstanceRecord]:
+        try:
+            rows = (
+                self._connection.execute(
+                    select(tables.runtime_instance).where(
+                        tables.runtime_instance.c.status.in_(("STARTING", "RUNNING", "DRAINING"))
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.runtime_instance_from_row(row) for row in rows]
 

@@ -59,6 +59,8 @@ from research_os.data.ports import (
     AttackSurfaceSnapshotRepository,
     HunterFamilyRepository,
     HuntV3QueueRepository,
+    ImpactChainRepository,
+    RuntimeInstanceRepository,
 )
 
 
@@ -122,6 +124,7 @@ class UnitOfWork(Protocol):
     hunter_families: HunterFamilyRepository
     hunt_v3_queue: HuntV3QueueRepository
     impact_chains: ImpactChainRepository
+    runtime_instances: RuntimeInstanceRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

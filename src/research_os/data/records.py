@@ -2196,6 +2196,38 @@ class LeaseAcquireOutcome(Enum):
 
 
 @dataclass(frozen=True)
+class RuntimeInstanceRecord:
+    """Durable identity of one research-osd process. Not research authority."""
+
+    runtime_instance_id: str
+    host_identity: str
+    process_id: str
+    engine_version: str
+    status: str
+    capabilities_summary: Mapping[str, Any]
+    started_at: datetime
+    last_seen_at: datetime
+    stopped_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.runtime_instance_id, "runtime_instance_id")
+        if not isinstance(self.host_identity, str) or not self.host_identity.strip():
+            raise PersistenceInputError("host_identity must be a non-empty string")
+        if not isinstance(self.process_id, str) or not self.process_id.strip():
+            raise PersistenceInputError("process_id must be a non-empty string")
+        if not isinstance(self.engine_version, str) or not self.engine_version.strip():
+            raise PersistenceInputError("engine_version must be a non-empty string")
+        if self.status not in {"STARTING", "RUNNING", "DRAINING", "STOPPED"}:
+            raise PersistenceInputError("status is not a valid runtime_instance status")
+        object.__setattr__(self, "capabilities_summary", dict(self.capabilities_summary))
+        reject_secret_structure(self.capabilities_summary, "capabilities_summary")
+        require_aware_datetime(self.started_at, "started_at")
+        require_aware_datetime(self.last_seen_at, "last_seen_at")
+        if self.stopped_at is not None:
+            require_aware_datetime(self.stopped_at, "stopped_at")
+
+
+@dataclass(frozen=True)
 class LeaseAcquireResult:
     """Outcome of one acquire_lease() call. record is populated only on ACQUIRED."""
 

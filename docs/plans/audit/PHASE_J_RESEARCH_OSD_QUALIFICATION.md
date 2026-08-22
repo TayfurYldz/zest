@@ -1,0 +1,224 @@
+# Research OS — Phase J Persistent research-osd Qualification
+
+**Document class:** Qualification record  
+**Date:** 2026-08-22  
+**Status:** QUALIFIED for persistent local `research-osd` runtime ownership. Not 24/7. Not PRODUCTION_READY.
+
+---
+
+## A. Baseline
+
+- branch: `campaign/canonical-mr5-mr6`
+- old HEAD: `297621b3b00c7b4c4393a2641cdc75f3a3568b11` (`canonical-mr6-closed`)
+- Alembic head: `a41_001_runtime_instance` (revises `a40_001_mr6a_identity_anomaly`)
+- PG: `postgresql+psycopg://research_os_test@127.0.0.1:55432/research_os_test`
+- worktree at qualification: Phase J sources added; sealed checkpoints 9–13 not rewritten
+
+## B. Before Architecture
+
+```text
+browser
+  → dashboard HTTP process (research-os-dashboard)
+  → ResearchRunControl
+  → LocalRunSupervisorRegistry   (process-local dict)
+  → LocalRunSupervisor thread
+  → ARC.step()
+```
+
+Dashboard death stopped supervisors. Registry identity was a process-local opaque id, not a `runtime_instance` row. Lease columns existed (Slice 1) but nobody reconstructed a supervisor after process death.
+
+## C. After Architecture
+
+```text
+research-osd process
+  → RuntimeInstance row (new id every start)
+  → Operator API (127.0.0.1)
+  → ResearchOsdRuntime
+  → LocalRunSupervisorRegistry (lease owner = runtime_instance_id)
+  → per-run fenced ARC + LeaseFencedWorkerPort
+  → ARC.step() / Core / Worker
+
+dashboard HTTP process
+  → optional RESEARCH_OSD_URL client
+  → no LocalRunSupervisorRegistry
+```
+
+PostgreSQL remains the sole authoritative state.
+
+## D. Ownership Boundaries
+
+Daemon owns: process lifetime, RuntimeInstance registration, lease acquire/renew/release, heartbeat, stale-run detection, recovery classification coordination, supervisor lifecycle, Preflight invocation, Operator API, operational telemetry, drain.
+
+Daemon never owns: opportunity selection, hypothesis generation, exploratory reasoning, HunterFamily interpretation, experiment semantics, Evidence/Candidate/Verification/Finding decisions, scope, budget policy, authorization, side-effect policy, arbitrary Worker dispatch.
+
+## E. RuntimeInstance
+
+Table `runtime_instance`: id, host_identity, process_id, engine_version (`phase-j.1`), status STARTING/RUNNING/DRAINING/STOPPED, capabilities_summary (no secrets), started_at, last_seen_at, stopped_at.
+
+New `runtime_instance_id` every process start. Host/pid are metadata only.
+
+## F. Fenced Ownership
+
+Existing CAS lease reused (`owner_runtime_instance_id`, `lease_epoch`, `lease_expires_at`, PostgreSQL `now()`).
+
+Daemon composition (not ARC internals):
+
+- `SingleRunFencedUowFactory` injects expect_owner/epoch on orchestration `save()`
+- `LeaseFencedWorkerPort` re-reads lease immediately before `Worker.invoke()`
+
+10× two-runtime races: unit + PostgreSQL integration (`test_ten_two_daemon_races`, `test_two_daemons_one_owner_ten_times`). Exactly one owner.
+
+## G. Heartbeat / Lease Loss
+
+`LeaseConfig` (defaults 30s/90s, env-overridable). Supervisor stops on renewal reject. Stale epoch cannot save or dispatch (`LeaseFencingError`).
+
+## H. Dashboard Independence
+
+`research-os-dashboard` `main()` does not construct `LocalRunSupervisorRegistry`. Run control requires `RESEARCH_OSD_URL` or is unconfigured (read-only). Injected `configure_dashboard_run_control(FakeControl)` tests remain valid.
+
+## I. Startup Recovery
+
+| phase before crash | classification | action after restart | Worker replay? |
+|---|---|---|---|
+| READY/RUNNING, no open attempt | SAFE_RESUME | new lease, Preflight, attach supervisor | no |
+| AUTHORIZED never dispatched | SAFE_RETRY_AFTER_REAUTHORIZATION | re-attach; Core re-auth on next dispatch | no until re-auth |
+| DISPATCHING | RECONCILIATION_REQUIRED | WAITING_HUMAN, no attach | no |
+| UNKNOWN_OUTCOME side-effectful | HUMAN_REQUIRED | WAITING_HUMAN, no attach | no |
+| PAUSED / WAITING_HUMAN / terminal | DO_NOT_RESUME | skip | no |
+
+Expired lease is not `MARK_OPERATIONAL_FAILURE`.
+
+## J. ExecutionAttempt Recovery
+
+- INTENT_COMMITTED / AUTHORIZED: SAFE_RETRY_AFTER_REAUTHORIZATION
+- DISPATCHING: RECONCILIATION_REQUIRED
+- DISPATCHED unknown / UNKNOWN_OUTCOME: HUMAN_REQUIRED when side-effectful
+- RESULT_RECORDED / COMPLETED attempt: SAFE_RESUME
+- UNKNOWN_OUTCOME is never treated as “request did not happen”
+
+## K. PostgreSQL Outage
+
+`PersistenceError` (except unique conflict on duplicate START) sets `pg_unavailable`. New START/dispatch refused. RAM is not SoR.
+
+## L. Worker Failure
+
+Operational (`PROCESS_FAILED` / invocation status). Does not falsify a hypothesis.
+
+## M. Model Failure
+
+Preflight `MODEL_RUNTIME_READY` fail-closed. Unavailable model in `research-osd` main does not grant dispatch.
+
+## N. Lifecycle Commands
+
+- START: reconstruct command from SoR; Preflight; ARC.start; lease; supervisor
+- duplicate START: return current SoR state; one owner
+- PAUSE / RESUME / CANCEL: existing ARC methods; supervisor stops on non-runnable/terminal
+- terminal command: ARC rejects rewrite (`ORCHESTRATION_OPERATOR_COMMAND_REJECTED`)
+
+Client payload cannot override persisted bounds/scope/budget.
+
+## O. Operator API
+
+Local bind only (`127.0.0.1`):
+
+- `GET /health`
+- `GET /api/runs/:id`
+- `POST /api/runs/:id/{start,pause,resume,cancel}`
+
+No secrets in responses. Polling only. No Kafka.
+
+## P. Observability
+
+Structured logs: `runtime_instance_id`, `research_run_id`, `lease_epoch`, recovery classification. `redact_secret_keys`. AuditEvent ≠ operational log ≠ Evidence.
+
+## Q. Research Authority Audit
+
+Daemon/operator/osd_client sources do not import HunterScore, FinalizeFinding, or hypothesis-generation use cases. They compose ARC/Preflight/lease only.
+
+## R. MR-6 Exploratory Crash Test
+
+DISPATCHING registry-external/exploratory path: restart does not replay Worker; state held WAITING_HUMAN. Canonical MR-6 suite remained green.
+
+## S. MR-5 Promotion Crash Test
+
+No Phase J change to promotion uniqueness. `test_mr5_durability_seal` / Canonical MR-5 remained green. Finding remains human.
+
+## T. Regression
+
+Checkpoint 9–13 suites included in `tests/integration` (224 passed excluding known SD-G4). e2e: 156 passed, 5 skipped.
+
+## U. Test Evidence
+
+| suite | result |
+|---|---|
+| compileall src tests scripts | OK |
+| pytest tests/unit | 1449 passed, 4 skipped |
+| pytest tests/integration | 224 passed, 1 failed (SD-G4 known) |
+| pytest tests/e2e | 156 passed, 5 skipped |
+| Phase J dedicated unit | 20 passed |
+| Phase J dedicated PG | 4 passed including 10× race |
+
+## V. Known Unrelated Failures
+
+1. SD-G4 `MODEL_TOKENS_IN` / `ck_budget_consumption_resource_type` — pre-existing token-economy CHECK drift
+2. full-E2E cli_session isolation — not failed in this run; 5 e2e skips remain
+3. app DB migration stamp at older ancestor — not changed
+
+`FULL_REPOSITORY_CLEAN` remains false.
+
+## W. Hard-Fail Matrix
+
+| condition | result |
+|---|---|
+| dashboard still owns supervisors | no |
+| closing dashboard kills active run | no — daemon owns supervisor |
+| process RAM is authoritative | no |
+| daemon is second research brain | no |
+| plain lease without fencing | no |
+| stale epoch can mutate or dispatch | no |
+| two daemons own same run | no |
+| UNKNOWN_OUTCOME retried | no |
+| DISPATCHING treated as safe retry | no |
+| Core bypass | no |
+| client overrides persisted config | no |
+| operational failure falsifies hypothesis | no |
+| restart duplicates epistemic records | no |
+| daemon creates Finding | no |
+| Human Review weakened | no |
+| checkpoint 9–13 regress | no |
+| maturity flags changed | no |
+
+## X. Maturity
+
+`src/research_os/maturity.py` unchanged.
+
+## Y. Final Flags
+
+```
+PHASE_J_RESEARCH_OSD_QUALIFIED=YES
+CANONICAL_MR5_CLOSED=YES
+CANONICAL_MR6_CLOSED=YES
+LIVE_MODEL_VALIDATED=False
+SECURITY_RESEARCH_VALIDATED=False
+PRODUCTION_READY=False
+```
+
+PASS does not mean 24_7_READY, machine-reboot/systemd qualification, or internet-ready Operator API.
+
+## Z. Repository Seal
+
+See checkpoint 14 commit and optional tag `research-osd-runtime-closed`.
+
+## AA. Remaining Runtime Work
+
+Do not implement in this unit:
+
+- systemd / machine-reboot qualification
+- polished Operator Console / SSE
+- public internet auth
+- Worker child-process supervisor beyond current adapters
+- changing Preflight blocking of `INTEGRITY_ERROR` globally
+
+## AB. Next Authorized Unit
+
+**Preflight + Operator API/Console staging closure** — make the dashboard a complete read/command client against research-osd health/run state, and decide which Preflight recovery blockers stay daemon-local vs operator-visible. Do not start it here.
