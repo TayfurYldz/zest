@@ -243,6 +243,57 @@ class IdentityAnomalyClassificationTests(unittest.TestCase):
         self.assertNotIn("body", plan.arguments)
         self.assertNotIn("headers", plan.arguments)
 
+    def test_unknown_scope_http_operation_is_not_owned(self) -> None:
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(_node(in_scope=False),),
+            edges=(),
+        )
+        self.assertEqual(owning_identity_families(graph, (_family(),)), ())
+
+    def test_disabled_family_is_not_an_owner(self) -> None:
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(_node(),),
+            edges=(),
+        )
+        self.assertEqual(owning_identity_families(graph, (_family(enabled=False),)), ())
+
+    def test_name_collision_still_fails_closed_to_known_family(self) -> None:
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(_node(),),
+            edges=(),
+        )
+        owned = owning_identity_families(
+            graph,
+            (
+                _family(family_id="hf-object-authz"),
+                _family(family_id="hf-object-authz-dup"),
+            ),
+        )
+        self.assertEqual(owned, ("hf-object-authz", "hf-object-authz-dup"))
+        context = classify_http_authorization_observation(
+            research_run_id="run-1",
+            observation_id="obs-1",
+            observation_kind="HTTP_AUTHORIZATION_DIFFERENTIAL",
+            observation_run_id="run-1",
+            payload={
+                "authorized_origin": "http://127.0.0.1:9",
+                "actor": "alice",
+                "own_object": "alice",
+                "cross_object": "bob",
+                "cross_object_request_status": 200,
+                "registry_external": True,
+            },
+            owning_family_ids=owned,
+        )
+        self.assertEqual(context.classification, IdentityAnomalyClass.KNOWN_FAMILY)
+        self.assertFalse(context.registry_external)
+
 
 if __name__ == "__main__":
     unittest.main()

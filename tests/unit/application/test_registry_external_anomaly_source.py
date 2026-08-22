@@ -263,6 +263,141 @@ class RegistryExternalAnomalySourceTests(unittest.TestCase):
         (canonical,) = store.research_opportunities.values()
         self.assertEqual(canonical.opportunity_id, opportunity.opportunity_id)
 
+    def test_observation_without_worker_result_is_rejected(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        store.observations["obs-orphan"] = _authz_observation(
+            observation_id="obs-orphan", worker_result_id="wr-missing"
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            result = admit_registry_external_anomaly_candidates(
+                uow, research_run_id="run-1", now=CREATED_AT, actor_id="control-plane"
+            )
+            uow.commit()
+        self.assertEqual(result.candidates_created, 0)
+        self.assertEqual(store.opportunity_selection_candidates, {})
+
+    def test_incomplete_identity_context_is_rejected(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        store.worker_results["wr-1"] = _worker_result()
+        store.observations["obs-1"] = ObservationRecord(
+            observation_id="obs-1",
+            worker_result_id="wr-1",
+            observation_kind="HTTP_AUTHORIZATION_DIFFERENTIAL",
+            payload={"cross_object_request_status": 200, "registry_external": True},
+            normalization_version="http.authorization.differential.v1",
+            observed_at=CREATED_AT,
+            created_at=CREATED_AT,
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            result = admit_registry_external_anomaly_candidates(
+                uow, research_run_id="run-1", now=CREATED_AT, actor_id="control-plane"
+            )
+            uow.commit()
+        self.assertEqual(result.candidates_created, 0)
+        self.assertEqual(store.opportunity_selection_candidates, {})
+        self.assertTrue(
+            any(
+                event.event_type == "REGISTRY_EXTERNAL_ANOMALY_SOURCE_REJECTED"
+                and event.payload.get("reason_code") == "MISSING_COMPILER_SEMANTICS"
+                for event in store.audit_events.values()
+            )
+        )
+
+    def test_payload_registry_external_flag_cannot_force_admission(self) -> None:
+        store = _Store()
+        _seed_identity_observation(store, cross_status=403)
+        store.observations["obs-1"] = _authz_observation(cross_status=403)
+        payload = dict(store.observations["obs-1"].payload)
+        payload["registry_external"] = True
+        store.observations["obs-1"] = ObservationRecord(
+            observation_id="obs-1",
+            worker_result_id="wr-1",
+            observation_kind="HTTP_AUTHORIZATION_DIFFERENTIAL",
+            payload=payload,
+            normalization_version="http.authorization.differential.v1",
+            observed_at=CREATED_AT,
+            created_at=CREATED_AT,
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            result = admit_registry_external_anomaly_candidates(
+                uow, research_run_id="run-1", now=CREATED_AT, actor_id="control-plane"
+            )
+            uow.commit()
+        self.assertEqual(result.candidates_created, 0)
+        self.assertEqual(store.opportunity_selection_candidates, {})
+
+    def test_disabled_family_does_not_own_the_anomaly(self) -> None:
+        store = _Store()
+        _seed_identity_observation(store)
+        store.hunter_families["hf-object-authz:1"] = HunterFamilyRecord(
+            family_id="hf-object-authz",
+            name="OBJECT_AUTHORIZATION",
+            target_node_kinds=("HTTP_OPERATION", "RESOURCE_INSTANCE_CANDIDATE"),
+            preconditions={"scope_classification": "IN_SCOPE"},
+            claim_template="Object boundary may allow cross-owner access.",
+            evidence_requirements={"required_observation_kinds": ["HTTP_AUTHORIZATION_DIFFERENTIAL"]},
+            validation_tier="V3",
+            enabled=False,
+            version=1,
+            created_at=CREATED_AT,
+        )
+        store.discovery_facts["fact-1"] = DiscoveryFactRecord(
+            fact_id="fact-1",
+            research_run_id="run-1",
+            fact_kind="HTTP_OPERATION",
+            canonical_key="GET http://127.0.0.1:9/accounts",
+            epistemic_status="OBSERVED",
+            identity_id="alice",
+            target_reference="target-1",
+            created_at=CREATED_AT,
+            normalized_origin="http://127.0.0.1:9",
+            normalized_path="/accounts",
+            http_method="GET",
+            attributes={"scope_classification": "IN_SCOPE"},
+        )
+        store.discovery_fact_sources["src-1"] = DiscoveryFactSourceRecord(
+            source_row_id="src-1",
+            research_run_id="run-1",
+            fact_id="fact-1",
+            created_at=CREATED_AT,
+            observation_id="obs-1",
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            result = admit_registry_external_anomaly_candidates(
+                uow, research_run_id="run-1", now=CREATED_AT, actor_id="control-plane"
+            )
+            uow.commit()
+        self.assertEqual(result.candidates_created, 1)
+        self.assertEqual(result.skipped_known_family, 0)
+
+    def test_distinct_identity_contexts_are_separate_candidates(self) -> None:
+        store = _Store()
+        _seed_identity_observation(store)
+        store.worker_results["wr-2"] = _worker_result(
+            worker_result_id="wr-2", experiment_id="exp-other"
+        )
+        store.observations["obs-2"] = _authz_observation(
+            observation_id="obs-2",
+            worker_result_id="wr-2",
+            actor="carol",
+            own_object="carol",
+            cross_object="dave",
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            result = admit_registry_external_anomaly_candidates(
+                uow, research_run_id="run-1", now=CREATED_AT, actor_id="control-plane"
+            )
+            uow.commit()
+        self.assertEqual(result.candidates_created, 2)
+        self.assertEqual(len(store.opportunity_selection_candidates), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
