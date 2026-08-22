@@ -13,18 +13,19 @@ from typing import Any, Mapping
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.application.registry_external_anomaly_source import (
+    load_identity_anomaly_context,
+)
 from research_os.application.runtime_outcomes import runtime_outcome_from_exception
+from research_os.core.enums import ActorType
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import (
+    AuditEventRecord,
     HypothesisRecord,
     ResearchAdmissionRecord,
     ResearchReasoningRecord,
 )
 from research_os.data.unit_of_work import UnitOfWork
-from research_os.data.records import (
-    HypothesisRecord,
-    ResearchAdmissionRecord,
-    ResearchReasoningRecord,
-)
 from research_os.research.admission import AdmissionDecision, AdmissionOutcome, admit_hypothesis
 from research_os.research.context import (
     ChainContextSource,
@@ -42,6 +43,12 @@ from research_os.research.context import (
     ResearchContextBuilder,
 )
 from research_os.research.cycle import generate_challenge, generate_proposal
+from research_os.research.exploration import OpportunityKind
+from research_os.research.identity_anomaly import (
+    compile_identity_anomaly_experiment,
+    exploratory_hypothesis_origin,
+    identity_anomaly_proposal_and_challenge,
+)
 from research_os.research.model_port import ModelCallResult, ModelPort, ModelPortError, ModelRole, ContentPolicyBlockedError
 from research_os.research.model_runtime import RuntimeOutcome
 from research_os.research.planning import plan_admitted_hypothesis
@@ -232,12 +239,18 @@ class ProposeResearchHypothesis:
                     ),
                 )
             opportunity_sources: tuple[OpportunityContextSource, ...] = ()
+            exploratory_opportunity = None
             if command.opportunity_id is not None:
                 opportunity = uow.research_opportunities.get(command.opportunity_id)
                 if opportunity is None:
                     raise ApplicationError("research opportunity not found")
                 if opportunity.research_run_id != command.research_run_id:
                     raise ApplicationError("research opportunity is cross-run")
+                if (
+                    opportunity.opportunity_kind
+                    == OpportunityKind.REGISTRY_EXTERNAL_EXPLORATORY.value
+                ):
+                    exploratory_opportunity = opportunity
                 opportunity_sources = (
                     OpportunityContextSource(
                         opportunity_id=opportunity.opportunity_id,
@@ -273,6 +286,9 @@ class ProposeResearchHypothesis:
                     ),
                 )
             uow.rollback()
+
+        if exploratory_opportunity is not None:
+            return self._admit_registry_external(command, exploratory_opportunity)
 
         context = self._builder.build(
             research_run_id=command.research_run_id,
@@ -496,6 +512,258 @@ class ProposeResearchHypothesis:
             falsifier_structured=challenge.to_mapping() if challenge is not None else None,
             generator_calls=generator_calls,
             falsifier_calls=falsifier_calls,
+        )
+
+    def _admit_registry_external(
+        self, command: ProposeResearchHypothesisCommand, opportunity
+    ) -> ProposeResearchHypothesisResult:
+        """Deterministic identity-anomaly admission. Does not invoke ModelPort."""
+
+        now = self._clock.now()
+        with self._uow_factory.open() as uow:
+            if not opportunity.source_refs:
+                raise ApplicationError("exploratory opportunity is missing source_refs")
+            source_id = opportunity.source_refs[0]
+            anomaly = load_identity_anomaly_context(
+                uow, research_run_id=command.research_run_id, source_id=source_id
+            )
+            origin = exploratory_hypothesis_origin(anomaly.structural_identity())
+            existing = [
+                item
+                for item in uow.hypotheses.list_for_research_run(command.research_run_id)
+                if item.origin_reference == origin
+            ]
+            observation_sources = tuple(
+                ObservationSource(
+                    observation_id=record.observation_id,
+                    observation_kind=record.observation_kind,
+                    payload=dict(record.payload),
+                )
+                for record in uow.observations.list_for_research_run(command.research_run_id)
+                if record.observation_id in set(anomaly.observation_ids)
+                or record.observation_id == source_id
+            )
+            differential_sources: tuple[DifferentialContextSource, ...] = ()
+            if anomaly.source_kind == "DIFFERENTIAL":
+                differential = uow.differential_observations.get(source_id)
+                if differential is not None:
+                    differential_sources = (
+                        DifferentialContextSource(
+                            differential_id=differential.differential_id,
+                            statement=(
+                                "Identity differential comparison. Difference is not a "
+                                "vulnerability and not Evidence."
+                            ),
+                            source_references=differential.source_refs,
+                            interpretation=differential.interpretation,
+                            payload={
+                                "changed_dimensions": list(differential.changed_dimensions),
+                                "observed_differences": dict(differential.observed_differences),
+                            },
+                        ),
+                    )
+            opportunity_sources = (
+                OpportunityContextSource(
+                    opportunity_id=opportunity.opportunity_id,
+                    statement=(
+                        "Selected registry-external identity-anomaly opportunity. "
+                        "Selection is not Hypothesis truth and not Core authorization."
+                    ),
+                    source_references=opportunity.source_refs,
+                    payload={
+                        "opportunity_kind": opportunity.opportunity_kind,
+                        "mode": opportunity.mode,
+                        "structural_identity": opportunity.structural_identity,
+                        "registry_external": True,
+                    },
+                ),
+            )
+            uow.rollback()
+
+        context = self._builder.build(
+            research_run_id=command.research_run_id,
+            research_question=command.research_question,
+            observations=observation_sources,
+            differentials=differential_sources,
+            research_opportunities=opportunity_sources,
+            budget=command.context_budget,
+        )
+        if not anomaly.registry_external:
+            admission = AdmissionDecision(
+                outcome=AdmissionOutcome.REJECTED_UNSUPPORTED,
+                reason="identity anomaly is not registry-external",
+                reason_code=anomaly.reason_code or "NOT_REGISTRY_EXTERNAL",
+                proposal=None,
+                challenge=None,
+            )
+            return self._persist_exploratory(
+                command, context, admission, origin_reference=origin, now=now
+            )
+        try:
+            proposal, challenge = identity_anomaly_proposal_and_challenge(anomaly)
+        except ResearchInputError as exc:
+            admission = AdmissionDecision(
+                outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
+                reason=str(exc),
+                reason_code="INVALID_IDENTITY_ANOMALY",
+                proposal=None,
+                challenge=None,
+            )
+            return self._persist_exploratory(
+                command, context, admission, origin_reference=origin, now=now
+            )
+        admission = admit_hypothesis(context, proposal, challenge)
+        if not admission.admitted:
+            return self._persist_exploratory(
+                command,
+                context,
+                admission,
+                proposal=proposal,
+                challenge=challenge,
+                origin_reference=origin,
+                now=now,
+            )
+        hypothesis_id = existing[0].hypothesis_id if existing else new_opaque_id()
+        try:
+            plan = compile_identity_anomaly_experiment(
+                anomaly,
+                hypothesis_id=hypothesis_id,
+                budget_id=command.budget_id,
+                target_reference=command.target_reference,
+            )
+        except ResearchInputError as exc:
+            admission = AdmissionDecision(
+                outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
+                reason=str(exc),
+                reason_code="IDENTITY_ANOMALY_COMPILE_REJECTED",
+                proposal=proposal,
+                challenge=challenge,
+            )
+            return self._persist_exploratory(
+                command,
+                context,
+                admission,
+                proposal=proposal,
+                challenge=challenge,
+                origin_reference=origin,
+                now=now,
+                hypothesis_id=hypothesis_id if existing else None,
+            )
+        return self._persist_exploratory(
+            command,
+            context,
+            admission,
+            proposal=proposal,
+            challenge=challenge,
+            origin_reference=origin,
+            now=now,
+            hypothesis_id=hypothesis_id,
+            plan=plan,
+            persist_existing=bool(existing),
+        )
+
+    def _persist_exploratory(
+        self,
+        command: ProposeResearchHypothesisCommand,
+        context: ResearchContext,
+        admission: AdmissionDecision,
+        *,
+        origin_reference: str,
+        now,
+        proposal: HypothesisProposal | None = None,
+        challenge: HypothesisChallenge | None = None,
+        hypothesis_id: str | None = None,
+        plan: ExperimentPlan | None = None,
+        persist_existing: bool = False,
+    ) -> ProposeResearchHypothesisResult:
+        del challenge
+        admission_record_id = new_opaque_id()
+        persist_id = hypothesis_id if admission.admitted else None
+
+        def _persist(uow: UnitOfWork) -> None:
+            nonlocal persist_id
+            if persist_id is not None and proposal is not None and not persist_existing:
+                record = HypothesisRecord(
+                    hypothesis_id=persist_id,
+                    research_run_id=command.research_run_id,
+                    claim=proposal.proposed_claim,
+                    created_at=now,
+                    origin_reference=origin_reference,
+                )
+                try:
+                    uow.hypotheses.insert(record)
+                except PersistenceConflictError:
+                    matched = [
+                        item
+                        for item in uow.hypotheses.list_for_research_run(
+                            command.research_run_id
+                        )
+                        if item.origin_reference == origin_reference
+                    ]
+                    if not matched:
+                        raise
+                    persist_id = matched[0].hypothesis_id
+            uow.research_admissions.insert(
+                ResearchAdmissionRecord(
+                    admission_record_id=admission_record_id,
+                    research_run_id=command.research_run_id,
+                    outcome=admission.outcome.value,
+                    reason=admission.reason,
+                    reason_code=admission.reason_code,
+                    context_fingerprint=context.fingerprint,
+                    created_at=now,
+                    generator_reasoning_record_id=None,
+                    falsifier_reasoning_record_id=None,
+                    admitted_hypothesis_id=persist_id,
+                )
+            )
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id="control-plane:registry-external-anomaly",
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type=(
+                        "REGISTRY_EXTERNAL_HYPOTHESIS_ADMITTED"
+                        if persist_id is not None
+                        else "REGISTRY_EXTERNAL_HYPOTHESIS_NOT_ADMITTED"
+                    ),
+                    subject_type="research_run",
+                    subject_id=command.research_run_id,
+                    payload={
+                        "hypothesis_id": persist_id,
+                        "opportunity_id": command.opportunity_id,
+                        "origin_reference": origin_reference,
+                        "admitted": persist_id is not None,
+                        "reason_code": admission.reason_code,
+                        "registry_external": True,
+                        "not_authorization": True,
+                        "not_a_vulnerability": True,
+                        "not_hunter_family_write": True,
+                    },
+                    correlation_id=command.correlation_id,
+                )
+            )
+            if self._persist_hook is not None:
+                self._persist_hook(uow, hypothesis_id=persist_id)
+
+        if self._cycle_uow is None:
+            with self._uow_factory.open() as uow:
+                _persist(uow)
+                uow.commit()
+        else:
+            _persist(self._cycle_uow)
+        return ProposeResearchHypothesisResult(
+            admission=admission,
+            context=context,
+            experiment_plan=plan if persist_id is not None else None,
+            hypothesis_id=persist_id,
+            generator_reasoning_id=None,
+            falsifier_reasoning_id=None,
+            admission_record_id=admission_record_id,
+            generator_calls=0,
+            falsifier_calls=0,
+            reason_code=admission.reason_code,
         )
 
     def _persist_cycle(

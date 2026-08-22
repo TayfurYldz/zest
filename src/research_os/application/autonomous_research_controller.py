@@ -54,6 +54,10 @@ from research_os.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
+from research_os.application.registry_external_anomaly_source import (
+    load_identity_anomaly_context,
+    record_identity_anomaly_validation_audit,
+)
 from research_os.application.select_research_opportunities import (
     SelectResearchOpportunities,
     SelectResearchOpportunitiesCommand,
@@ -65,6 +69,7 @@ from research_os.application.select_research_runtime import (
 from research_os.core.approval import ApprovalView
 from research_os.core.enums import ActorType, ExecutionDecisionKind, ReasonCode
 from research_os.core.scope import ScopeEvaluationInput
+from research_os.core.scope_compiler import CompiledScope
 from research_os.data.budget_ledger import ledger_totals
 from research_os.data.records import (
     AuditEventRecord,
@@ -76,6 +81,7 @@ from research_os.platform.observability import InMemoryObservability, Observabil
 from research_os.platform.secrets import CompositeSecretPort
 from research_os.platform.worker import WorkerPort
 from research_os.research.admission import AdmissionOutcome
+from research_os.research.assessment import AssessmentOutcome
 from research_os.research.exploration import ResearchPolicyBudget
 from research_os.research.model_port import ModelPort
 from research_os.research.model_runtime import RuntimeOutcome
@@ -94,7 +100,16 @@ from research_os.research.orchestration import (
     orchestration_state_for_stop,
     NextCycleAction,
 )
+from research_os.data.errors import PersistenceConflictError, TerminalOrchestrationStateError
+from research_os.data.uniqueness import UQ_RESEARCH_CYCLE_RUN_NUMBER, is_uniqueness_conflict
+from research_os.research.exploration import OpportunityKind
+from research_os.research.identity_anomaly import (
+    compile_identity_anomaly_experiment,
+    exploratory_experiment_id,
+    is_exploratory_hypothesis_origin,
+)
 from research_os.research.planning import plan_diagnostic_echo
+from research_os.research.types import ResearchInputError
 from research_os.research.routing import ROUTING_POLICY_VERSION, RoutingOutcome, RoutingRequest
 from research_os.application.discovery.runner import (
     SurfaceDiscoveryCycleResult,
@@ -126,6 +141,7 @@ class StartAutonomousResearchCommand:
     routing_request: RoutingRequest | None = None
     selection_budget: ResearchPolicyBudget | None = None
     surface_discovery: SurfaceDiscoveryStart | None = None
+    compiled_scope: CompiledScope | None = None
 
 
 @dataclass(frozen=True)
@@ -391,16 +407,27 @@ class AutonomousResearchController:
         if phase == OrchestrationPhase.HYPOTHESIS_ADMITTED.value and current.last_hypothesis_id:
             return self._resume_admitted_hypothesis(command, current, config)
         if phase == OrchestrationPhase.OPPORTUNITY_SELECTED.value:
-            existing_hypothesis = current.last_hypothesis_id or self._latest_hypothesis_id(
-                command.research_run_id
-            )
-            if existing_hypothesis:
-                current = self._checkpoint(
-                    current,
-                    phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
-                    hypothesis_id=existing_hypothesis,
+            if self._opportunity_is_exploratory(current.last_opportunity_id):
+                if current.last_hypothesis_id and self._hypothesis_is_exploratory(
+                    command.research_run_id, current.last_hypothesis_id
+                ):
+                    current = self._checkpoint(
+                        current,
+                        phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
+                        hypothesis_id=current.last_hypothesis_id,
+                    )
+                    return self._resume_admitted_hypothesis(command, current, config)
+            else:
+                existing_hypothesis = current.last_hypothesis_id or self._latest_hypothesis_id(
+                    command.research_run_id
                 )
-                return self._resume_admitted_hypothesis(command, current, config)
+                if existing_hypothesis:
+                    current = self._checkpoint(
+                        current,
+                        phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
+                        hypothesis_id=existing_hypothesis,
+                    )
+                    return self._resume_admitted_hypothesis(command, current, config)
         if phase in {
             OrchestrationPhase.EXPERIMENT_PLANNED.value,
             OrchestrationPhase.AUTHORIZATION_REQUESTED.value,
@@ -548,16 +575,52 @@ class AutonomousResearchController:
         if plan.side_effect_level > bounds.side_effect_ceiling:
             return self._stop(current, StopReason.CORE_BLOCKED, "side_effect_ceiling")
 
-        experiment_id = new_opaque_id()
-        with self._uow_factory.open() as uow:
-            self._prepare.execute(
-                PreparePlannedExperimentCommand(
-                    experiment_id=experiment_id,
-                    research_run_id=command.research_run_id,
-                    plan=plan,
-                ),
-                unit_of_work=uow,
+        existing_experiment_id = None
+        if proposed.hypothesis_id:
+            existing_experiment_id = self._existing_experiment_id(
+                command.research_run_id, proposed.hypothesis_id
             )
+        if existing_experiment_id:
+            experiment_id = existing_experiment_id
+            current = self._checkpoint(
+                current,
+                phase=OrchestrationPhase.EXPERIMENT_PLANNED,
+                experiment_id=experiment_id,
+                hypothesis_id=proposed.hypothesis_id,
+                opportunity_id=opportunity_id,
+            )
+            return self._resume_planned_experiment(command, current, config)
+
+        experiment_id = (
+            exploratory_experiment_id(command.research_run_id, proposed.hypothesis_id)
+            if proposed.hypothesis_id and self._opportunity_is_exploratory(opportunity_id)
+            else new_opaque_id()
+        )
+        with self._uow_factory.open() as uow:
+            try:
+                self._prepare.execute(
+                    PreparePlannedExperimentCommand(
+                        experiment_id=experiment_id,
+                        research_run_id=command.research_run_id,
+                        plan=plan,
+                    ),
+                    unit_of_work=uow,
+                )
+            except PersistenceConflictError:
+                reused = self._existing_experiment_id(
+                    command.research_run_id, proposed.hypothesis_id or ""
+                )
+                if reused is None:
+                    raise
+                uow.rollback()
+                current = self._checkpoint(
+                    current,
+                    phase=OrchestrationPhase.EXPERIMENT_PLANNED,
+                    experiment_id=reused,
+                    hypothesis_id=proposed.hypothesis_id,
+                    opportunity_id=opportunity_id,
+                )
+                return self._resume_planned_experiment(command, current, config)
             current = replace(
                 current,
                 current_phase=OrchestrationPhase.EXPERIMENT_PLANNED.value,
@@ -598,6 +661,7 @@ class AutonomousResearchController:
                 plan=plan,
                 scope=command.scope,
                 approval=command.approval,
+                compiled_scope=command.compiled_scope,
             ),
             persist_hook=_persist_attempt,
         )
@@ -1076,52 +1140,61 @@ class AutonomousResearchController:
         resolved_stop_reason = (
             stop_reason.value if isinstance(stop_reason, StopReason) else stop_reason
         )
-        with self._uow_factory.open() as uow:
-            updated = replace(
-                current,
-                state=next_state,
-                cycle_number=cycle_number,
-                last_phase=phase,
-                current_phase=(
-                    current_phase.value
-                    if current_phase is not None
-                    else (
-                        OrchestrationPhase.CYCLE_COMPLETE.value
-                        if inserting
-                        else current.current_phase
-                    )
-                ),
-                last_opportunity_id=opportunity_id or current.last_opportunity_id,
-                last_hypothesis_id=hypothesis_id or current.last_hypothesis_id,
-                last_experiment_id=experiment_id or current.last_experiment_id,
-                last_observation_id=observation_id or current.last_observation_id,
-                last_assessment_id=assessment_id or current.last_assessment_id,
-                pause_reason=(
-                    current.pause_reason if pause_reason is _UNSET else pause_reason
-                ),
-                stop_reason=resolved_stop_reason if resolved_stop_reason else current.stop_reason,
-                updated_at=now,
-                checkpoint_at=now,
-            )
-            uow.research_orchestrations.save(updated)
-            if inserting:
-                uow.research_cycles.insert(
-                    ResearchCycleRecord(
-                        cycle_id=new_opaque_id(),
-                        research_run_id=current.research_run_id,
-                        cycle_number=cycle_number,
-                        phase_completed=phase,
-                        outcome=outcome.value,
-                        created_at=now,
-                        stop_reason=resolved_stop_reason or None,
-                        opportunity_id=opportunity_id,
-                        hypothesis_id=hypothesis_id,
-                        experiment_id=experiment_id,
-                    )
+        updated = replace(
+            current,
+            state=next_state,
+            cycle_number=cycle_number,
+            last_phase=phase,
+            current_phase=(
+                current_phase.value
+                if current_phase is not None
+                else (
+                    OrchestrationPhase.CYCLE_COMPLETE.value
+                    if inserting
+                    else current.current_phase
                 )
-            for event in extra_audit_events:
-                uow.audit_events.insert(event)
-            uow.commit()
+            ),
+            last_opportunity_id=opportunity_id or current.last_opportunity_id,
+            last_hypothesis_id=hypothesis_id or current.last_hypothesis_id,
+            last_experiment_id=experiment_id or current.last_experiment_id,
+            last_observation_id=observation_id or current.last_observation_id,
+            last_assessment_id=assessment_id or current.last_assessment_id,
+            pause_reason=(
+                current.pause_reason if pause_reason is _UNSET else pause_reason
+            ),
+            stop_reason=resolved_stop_reason if resolved_stop_reason else current.stop_reason,
+            updated_at=now,
+            checkpoint_at=now,
+        )
+        with self._uow_factory.open() as uow:
+            try:
+                uow.research_orchestrations.save(updated)
+                if inserting:
+                    try:
+                        uow.research_cycles.insert(
+                            ResearchCycleRecord(
+                                cycle_id=new_opaque_id(),
+                                research_run_id=current.research_run_id,
+                                cycle_number=cycle_number,
+                                phase_completed=phase,
+                                outcome=outcome.value,
+                                created_at=now,
+                                stop_reason=resolved_stop_reason or None,
+                                opportunity_id=opportunity_id,
+                                hypothesis_id=hypothesis_id,
+                                experiment_id=experiment_id,
+                            )
+                        )
+                    except PersistenceConflictError as exc:
+                        if not is_uniqueness_conflict(exc, UQ_RESEARCH_CYCLE_RUN_NUMBER):
+                            raise
+                for event in extra_audit_events:
+                    uow.audit_events.insert(event)
+                uow.commit()
+            except TerminalOrchestrationStateError:
+                uow.rollback()
+                durable = self._reload(current.research_run_id)
+                return _result_from_record(durable, outcome)
         self._observability.emit(
             TelemetryEvent(
                 event="orchestration.cycle",
@@ -1182,12 +1255,40 @@ class AutonomousResearchController:
         ARC remains the caller. PromotionPipeline does not select opportunities
         or own research_orchestration.
         """
+        if (
+            feedback.assessment_outcome is AssessmentOutcome.CONSISTENT_WITH_PREDICTION
+            and self._hypothesis_is_exploratory(
+                feedback.research_run_id, feedback.hypothesis_id
+            )
+        ):
+            with self._uow_factory.open() as uow:
+                opportunity = None
+                if command.research_run_id:
+                    current = uow.research_orchestrations.get(command.research_run_id)
+                    if current is not None and current.last_opportunity_id:
+                        opportunity = uow.research_opportunities.get(
+                            current.last_opportunity_id
+                        )
+                source_id = (
+                    opportunity.source_refs[0]
+                    if opportunity is not None and opportunity.source_refs
+                    else feedback.experiment_id
+                )
+                record_identity_anomaly_validation_audit(
+                    uow,
+                    research_run_id=feedback.research_run_id,
+                    hypothesis_id=feedback.hypothesis_id,
+                    now=self._clock.now(),
+                    source_id=source_id,
+                )
+                uow.commit()
         self._promotion.advance(
             AdvancePromotionCommand(
                 research_run_id=feedback.research_run_id,
                 scope=command.scope,
                 approval=command.approval,
                 assessment_id=feedback.assessment_id,
+                compiled_scope=command.compiled_scope,
             )
         )
 
@@ -1223,8 +1324,12 @@ class AutonomousResearchController:
                 updated_at=now,
                 checkpoint_at=now,
             )
-            uow.research_orchestrations.save(updated)
-            uow.commit()
+            try:
+                uow.research_orchestrations.save(updated)
+                uow.commit()
+            except TerminalOrchestrationStateError:
+                uow.rollback()
+                return self._reload(current.research_run_id)
         return updated
 
     def _resume_admitted_hypothesis(
@@ -1240,11 +1345,19 @@ class AutonomousResearchController:
             command.research_run_id, hypothesis_id
         )
         if experiment_id is None:
-            experiment_id = new_opaque_id()
-            plan = plan_diagnostic_echo(
+            if self._opportunity_is_exploratory(
+                current.last_opportunity_id
+            ) or self._hypothesis_is_exploratory(command.research_run_id, hypothesis_id):
+                experiment_id = exploratory_experiment_id(
+                    command.research_run_id, hypothesis_id
+                )
+            else:
+                experiment_id = new_opaque_id()
+            plan = self._plan_for_admitted_hypothesis(
+                command.research_run_id,
                 hypothesis_id,
-                budget_id=config.budget_id,
-                target_reference=config.target_reference,
+                current.last_opportunity_id,
+                config,
                 message=f"ping-{current.cycle_number + 1}",
             )
             with self._uow_factory.open() as uow:
@@ -1312,6 +1425,7 @@ class AutonomousResearchController:
                 plan=plan,
                 scope=command.scope,
                 approval=command.approval,
+                compiled_scope=command.compiled_scope,
             ),
             persist_hook=_persist_attempt,
         )
@@ -1405,6 +1519,63 @@ class AutonomousResearchController:
         if not records:
             return None
         return records[-1].hypothesis_id
+
+    def _opportunity_is_exploratory(self, opportunity_id: str | None) -> bool:
+        if not opportunity_id:
+            return False
+        with self._uow_factory.open() as uow:
+            record = uow.research_opportunities.get(opportunity_id)
+            uow.rollback()
+        return (
+            record is not None
+            and record.opportunity_kind == OpportunityKind.REGISTRY_EXTERNAL_EXPLORATORY.value
+        )
+
+    def _hypothesis_is_exploratory(self, research_run_id: str, hypothesis_id: str) -> bool:
+        with self._uow_factory.open() as uow:
+            record = uow.hypotheses.get(hypothesis_id)
+            uow.rollback()
+        return record is not None and is_exploratory_hypothesis_origin(record.origin_reference)
+
+    def _plan_for_admitted_hypothesis(
+        self,
+        research_run_id: str,
+        hypothesis_id: str,
+        opportunity_id: str | None,
+        config,
+        *,
+        message: str,
+    ):
+        if not self._opportunity_is_exploratory(
+            opportunity_id
+        ) and not self._hypothesis_is_exploratory(research_run_id, hypothesis_id):
+            return plan_diagnostic_echo(
+                hypothesis_id,
+                budget_id=config.budget_id,
+                target_reference=config.target_reference,
+                message=message,
+            )
+        with self._uow_factory.open() as uow:
+            opportunity = (
+                uow.research_opportunities.get(opportunity_id) if opportunity_id else None
+            )
+            source_id = opportunity.source_refs[0] if opportunity and opportunity.source_refs else None
+            if source_id is None:
+                uow.rollback()
+                raise ApplicationError("exploratory resume is missing source_refs")
+            anomaly = load_identity_anomaly_context(
+                uow, research_run_id=research_run_id, source_id=source_id
+            )
+            uow.rollback()
+        try:
+            return compile_identity_anomaly_experiment(
+                anomaly,
+                hypothesis_id=hypothesis_id,
+                budget_id=config.budget_id,
+                target_reference=config.target_reference,
+            )
+        except ResearchInputError as exc:
+            raise ApplicationError(str(exc)) from exc
 
     def _existing_experiment_id(self, research_run_id: str, hypothesis_id: str) -> str | None:
         with self._uow_factory.open() as uow:

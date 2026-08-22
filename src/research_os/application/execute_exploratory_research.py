@@ -1,9 +1,11 @@
-"""Execute registry-external exploratory research through ARC + PromotionPipeline.
+"""Legacy/manual adapter for operator-supplied exploratory compile.
 
-Not Slice 7 diagnostic.echo plumbing. Compiles via typed non-diagnostic
-compilers, then the same Prepare/Execute/Evaluate path ARC uses. Does not
-write hunter_family. Does not create Finding. Model args are not Worker
-payloads.
+Not the ARC-connected production path. MR-6A admits a durable
+registry-external identity anomaly through SelectResearchOpportunities and
+AutonomousResearchController.step(). This module remains a compatibility
+helper for tests that still pass ExploratorySignalInput / compile_arguments.
+It must not own global next-action selection, dispatch a Worker on its own,
+or replace ARC.
 """
 
 from __future__ import annotations
@@ -113,7 +115,19 @@ class ExecuteExploratoryResearchResult:
 
 
 class ExecuteExploratoryResearch:
-    """Run-scoped exploratory research. ARC remains the sole next-action owner."""
+    """Legacy/manual adapter. Not the authoritative ARC-connected production path.
+
+    Canonical MR-6A execution is:
+
+        durable identity anomaly → SelectResearchOpportunities → ARC.step()
+        → registry-external Hypothesis → typed compiler → Core → Worker → MR-5
+
+    This use case remains for compatibility tests that already hold an
+    ExploratoryHypothesisDraft and operator compile_arguments. It still
+    delegates Worker dispatch to AutonomousResearchController.run_managed_cycle
+    so it cannot become a second next-action owner. New production callers
+    must use ARC.step() after a durable anomaly is persisted.
+    """
 
     def __init__(
         self,

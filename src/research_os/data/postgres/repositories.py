@@ -110,8 +110,16 @@ def _raise_integrity(exc: IntegrityError) -> None:
 
 
 def _execute_write(connection: Connection, statement) -> None:
+    """Execute one write. Unique conflicts do not abort the outer transaction.
+
+    Callers catch PersistenceConflictError and continue in the same Unit of Work.
+    A PostgreSQL unique violation otherwise poisons the transaction, so each
+    write runs inside a SAVEPOINT.
+    """
+
     try:
-        connection.execute(statement)
+        with connection.begin_nested():
+            connection.execute(statement)
     except IntegrityError as exc:
         _raise_integrity(exc)
     except SQLAlchemyError as exc:

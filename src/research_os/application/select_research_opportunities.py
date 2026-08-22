@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.application.registry_external_anomaly_source import (
+    admit_registry_external_anomaly_candidates,
+)
 from research_os.core.enums import ActorType
+from research_os.data.errors import PersistenceConflictError
 from research_os.data.records import (
     AuditEventRecord,
     OpportunitySelectionCandidateRecord,
@@ -145,10 +149,22 @@ class SelectResearchOpportunities:
                     command.research_run_id
                 )
             )
+            now = self._clock.now()
+            anomaly_result = admit_registry_external_anomaly_candidates(
+                uow,
+                research_run_id=command.research_run_id,
+                now=now,
+                actor_id=self._actor_id,
+            )
+            identity_diff_ids = frozenset(anomaly_result.identity_differential_ids)
             generated = propose_diagnostic_opportunities(
                 command.research_run_id,
                 DiagnosticOpportunitySources(
-                    differential_ids=tuple(item.differential_id for item in differentials),
+                    differential_ids=tuple(
+                        item.differential_id
+                        for item in differentials
+                        if item.differential_id not in identity_diff_ids
+                    ),
                     invariant_ids=tuple(item.invariant_id for item in invariants),
                     chain_ids=tuple(item.chain_id for item in chains),
                     change_event_ids=tuple(item.change_event_id for item in changes),
@@ -184,32 +200,42 @@ class SelectResearchOpportunities:
                 negative_knowledge=tuple(negatives),
                 previously_selected_identities=previously,
             )
-            now = self._clock.now()
             for decision in decisions:
                 opportunity = decision.opportunity
                 if decision.outcome is SelectionOutcome.SELECT:
-                    uow.research_opportunities.insert(
-                        ResearchOpportunityRecord(
-                            opportunity_id=opportunity.opportunity_id,
-                            research_run_id=opportunity.research_run_id,
-                            opportunity_kind=opportunity.opportunity_kind.value,
-                            mode=opportunity.mode.value,
-                            source_refs=opportunity.source_refs,
-                            proposed_direction=opportunity.proposed_direction,
-                            unresolved_question=opportunity.unresolved_question,
-                            expected_information_value_description=(
-                                opportunity.expected_information_value_description
-                            ),
-                            assumptions=opportunity.assumptions,
-                            dimensions=opportunity.dimensions.to_mapping(),
-                            context_signature=opportunity.context_signature,
-                            novelty_composition_marker=opportunity.novelty_composition_marker,
-                            prior_attempt_refs=opportunity.prior_attempt_refs,
-                            structural_identity=opportunity.structural_identity,
-                            strategy_version=opportunity.strategy_version,
-                            created_at=now,
+                    try:
+                        uow.research_opportunities.insert(
+                            ResearchOpportunityRecord(
+                                opportunity_id=opportunity.opportunity_id,
+                                research_run_id=opportunity.research_run_id,
+                                opportunity_kind=opportunity.opportunity_kind.value,
+                                mode=opportunity.mode.value,
+                                source_refs=opportunity.source_refs,
+                                proposed_direction=opportunity.proposed_direction,
+                                unresolved_question=opportunity.unresolved_question,
+                                expected_information_value_description=(
+                                    opportunity.expected_information_value_description
+                                ),
+                                assumptions=opportunity.assumptions,
+                                dimensions=opportunity.dimensions.to_mapping(),
+                                context_signature=opportunity.context_signature,
+                                novelty_composition_marker=opportunity.novelty_composition_marker,
+                                prior_attempt_refs=opportunity.prior_attempt_refs,
+                                structural_identity=opportunity.structural_identity,
+                                strategy_version=opportunity.strategy_version,
+                                created_at=now,
+                            )
                         )
-                    )
+                    except PersistenceConflictError:
+                        existing = [
+                            item
+                            for item in uow.research_opportunities.list_for_research_run(
+                                command.research_run_id
+                            )
+                            if item.structural_identity == opportunity.structural_identity
+                        ]
+                        if not existing:
+                            raise
                 uow.research_selections.insert(
                     ResearchSelectionRecord(
                         selection_id=new_opaque_id(),

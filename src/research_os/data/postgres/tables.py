@@ -214,6 +214,13 @@ hypothesis = Table(
     Column("identity_id", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("hypothesis_id", "research_run_id", name="uq_hypothesis_id_run"),
+    Index(
+        "uq_hypothesis_exploratory_origin",
+        "research_run_id",
+        "origin_reference",
+        unique=True,
+        postgresql_where=text("origin_reference LIKE 'exh:%'"),
+    ),
 )
 
 experiment = Table(
@@ -1027,7 +1034,7 @@ opportunity_selection_candidate = Table(
     Column("resulting_opportunity_id", Text, nullable=True),
     Column("decided_at", DateTime(timezone=True), nullable=True),
     CheckConstraint(
-        "source_system IN ('HUNTER_COVERAGE')",
+        "source_system IN ('HUNTER_COVERAGE', 'REGISTRY_EXTERNAL_ANOMALY')",
         name="ck_opportunity_selection_candidate_source_system",
     ),
     CheckConstraint(

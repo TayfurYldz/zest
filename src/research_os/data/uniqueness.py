@@ -10,6 +10,7 @@ UQ_VERIFICATION_CANDIDATE = "uq_verification_candidate"
 UQ_FINDING_PROPOSAL_CANDIDATE = "uq_finding_proposal_candidate"
 UQ_PROMOTION_RUN_REPRODUCTION_EXPERIMENT = "uq_promotion_run_reproduction_experiment"
 UQ_PROMOTION_RUN_ASSESSMENT = "uq_promotion_run_assessment"
+UQ_RESEARCH_CYCLE_RUN_NUMBER = "uq_research_cycle_run_number"
 
 
 def is_uniqueness_conflict(exc: BaseException, constraint_name: str) -> bool:

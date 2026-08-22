@@ -362,6 +362,19 @@ class _HypothesisRepo(_Repo):
         super().__init__(store.hypotheses, fail_on_insert=fail_on_insert)
         self._root = store
 
+    def insert(self, record: HypothesisRecord) -> None:
+        if self._fail_on_insert:
+            raise PersistenceError("injected persistence failure")
+        origin = record.origin_reference
+        if isinstance(origin, str) and origin.startswith("exh:"):
+            for existing in self._root.hypotheses.values():
+                if (
+                    existing.research_run_id == record.research_run_id
+                    and existing.origin_reference == origin
+                ):
+                    raise PersistenceConflictError("duplicate exploratory hypothesis origin")
+        super().insert(record)
+
     def list_for_research_run(self, research_run_id: str) -> list[HypothesisRecord]:
         return sorted(
             [

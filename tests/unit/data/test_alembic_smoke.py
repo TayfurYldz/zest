@@ -45,6 +45,7 @@ A36_MIGRATION = ALEMBIC_VERSIONS / "a36_001_opportunity_candidate.py"
 A37_MIGRATION = ALEMBIC_VERSIONS / "a37_001_impact_edge_proof.py"
 A38_MIGRATION = ALEMBIC_VERSIONS / "a38_001_promotion_run.py"
 A39_MIGRATION = ALEMBIC_VERSIONS / "a39_001_mr5_durability_uq.py"
+A40_MIGRATION = ALEMBIC_VERSIONS / "a40_001_mr6a_identity_anomaly.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -528,6 +529,17 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a38 = A38_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("a39_001_mr5_durability_uq", a38)
+
+    def test_a40_migration_adds_identity_anomaly_admission(self) -> None:
+        source = A40_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a40_001_mr6a_identity_anomaly", source)
+        self.assertIn("a39_001_mr5_durability_uq", source)
+        self.assertIn("REGISTRY_EXTERNAL_ANOMALY", source)
+        self.assertIn("uq_hypothesis_exploratory_origin", source)
+        self.assertNotIn("DELETE FROM", source)
+        self.assertNotIn("create_all", source)
+        a39 = A39_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("a40_001_mr6a_identity_anomaly", a39)
 
 
 if __name__ == "__main__":
