@@ -2227,6 +2227,44 @@ class RuntimeInstanceRecord:
             require_aware_datetime(self.stopped_at, "stopped_at")
 
 
+ALLOWED_PREFLIGHT_REPORT_STATUSES = frozenset({"READY_TO_START", "NOT_READY"})
+
+
+@dataclass(frozen=True)
+class PreflightReportRecord:
+    """Append-only operator Preflight evidence. Not START authority."""
+
+    preflight_report_id: str
+    research_run_id: str
+    runtime_instance_id: str
+    created_at: datetime
+    release_version: str
+    configuration_fingerprint: str
+    status: str
+    checks: tuple[Mapping[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.preflight_report_id, "preflight_report_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.runtime_instance_id, "runtime_instance_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.release_version, str) or not self.release_version.strip():
+            raise PersistenceInputError("release_version must be a non-empty string")
+        if (
+            not isinstance(self.configuration_fingerprint, str)
+            or not self.configuration_fingerprint.strip()
+        ):
+            raise PersistenceInputError(
+                "configuration_fingerprint must be a non-empty string"
+            )
+        if self.status not in ALLOWED_PREFLIGHT_REPORT_STATUSES:
+            raise PersistenceInputError("status is not a valid preflight_report status")
+        sanitized = tuple(dict(item) for item in self.checks)
+        for item in sanitized:
+            reject_secret_structure(item, "preflight_report.checks")
+        object.__setattr__(self, "checks", sanitized)
+
+
 @dataclass(frozen=True)
 class LeaseAcquireResult:
     """Outcome of one acquire_lease() call. record is populated only on ACQUIRED."""

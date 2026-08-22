@@ -67,6 +67,7 @@ from research_os.data.records import (
     HunterFamilyRecord,
     HuntV3QueueRecord,
     OastTokenRecord,
+    PreflightReportRecord,
     PromotionRunRecord,
 )
 
@@ -1136,4 +1137,19 @@ def runtime_instance_from_row(row: Mapping[str, Any]) -> RuntimeInstanceRecord:
         started_at=data["started_at"],
         last_seen_at=data["last_seen_at"],
         stopped_at=data["stopped_at"],
+    )
+
+
+def preflight_report_from_row(row: Mapping[str, Any]) -> PreflightReportRecord:
+    data = _mapping(row)
+    raw_checks = data["checks"] or []
+    return PreflightReportRecord(
+        preflight_report_id=data["preflight_report_id"],
+        research_run_id=data["research_run_id"],
+        runtime_instance_id=data["runtime_instance_id"],
+        created_at=data["created_at"],
+        release_version=data["release_version"],
+        configuration_fingerprint=data["configuration_fingerprint"],
+        status=data["status"],
+        checks=tuple(dict(item) for item in raw_checks),
     )

@@ -47,6 +47,7 @@ A38_MIGRATION = ALEMBIC_VERSIONS / "a38_001_promotion_run.py"
 A39_MIGRATION = ALEMBIC_VERSIONS / "a39_001_mr5_durability_uq.py"
 A40_MIGRATION = ALEMBIC_VERSIONS / "a40_001_mr6a_identity_anomaly.py"
 A41_MIGRATION = ALEMBIC_VERSIONS / "a41_001_runtime_instance.py"
+A42_MIGRATION = ALEMBIC_VERSIONS / "a42_001_preflight_report.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -132,6 +133,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "impact_chain_node",
                 "impact_chain_edge",
                 "runtime_instance",
+                "preflight_report",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -553,6 +555,17 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a40 = A40_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("a41_001_runtime_instance", a40)
+
+    def test_a42_migration_adds_preflight_report(self) -> None:
+        source = A42_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a42_001_preflight_report", source)
+        self.assertIn("a41_001_runtime_instance", source)
+        self.assertIn("preflight_report", source)
+        self.assertIn("ck_preflight_report_status", source)
+        self.assertNotIn("DELETE FROM", source)
+        self.assertNotIn("create_all", source)
+        a41 = A41_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("a42_001_preflight_report", a41)
 
 
 if __name__ == "__main__":

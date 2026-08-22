@@ -183,8 +183,9 @@ class ResearchOsdPostgresTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a41_001_runtime_instance")
+        self.assertEqual(version, "a42_001_preflight_report")
         self.assertIn("runtime_instance", tables)
+        self.assertIn("preflight_report", tables)
 
     def test_runtime_instance_persists_and_new_start_gets_new_id(self) -> None:
         factory = PostgresUnitOfWork(self.engine)

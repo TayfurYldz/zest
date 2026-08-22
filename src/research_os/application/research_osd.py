@@ -36,7 +36,18 @@ from research_os.application.lease_fencing import (
     SingleRunFencedUowFactory,
 )
 from research_os.application.local_run_supervisor import LocalRunSupervisorRegistry
+from research_os.application.operator_errors import OperatorError, OperatorErrorCode
+from research_os.application.operator_run_read_model import (
+    build_program_list,
+    build_run_detail,
+    build_run_list,
+)
 from research_os.application.orchestration_lease import LeaseConfig
+from research_os.application.persist_preflight import (
+    configuration_fingerprint_for_command,
+    persist_preflight_report,
+    preflight_record_to_mapping,
+)
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.application.preflight import (
     ModelReadinessInput,
@@ -95,6 +106,7 @@ class ResearchOsdRuntime:
         engine_version: str = ENGINE_VERSION,
         host_identity: str = "research-osd",
         process_id: str = "0",
+        environment_name: str = "local",
     ) -> None:
         self._uow_factory = uow_factory
         self._worker = worker
@@ -109,6 +121,7 @@ class ResearchOsdRuntime:
         self._engine_version = engine_version
         self._host_identity = host_identity
         self._process_id = process_id
+        self._environment_name = environment_name
         self._instance: RuntimeInstanceRecord | None = None
         self._registry: LocalRunSupervisorRegistry | None = None
         self._unfenced_controller = AutonomousResearchController(
@@ -220,8 +233,9 @@ class ResearchOsdRuntime:
             return self._status_from_sor(research_run_id)
         except PersistenceError as exc:
             self._mark_pg_unavailable(exc)
-            raise ApplicationError(
-                "postgresql unavailable; refusing new authoritative work"
+            raise OperatorError(
+                OperatorErrorCode.DATABASE_UNAVAILABLE,
+                "postgresql unavailable; refusing new authoritative work",
             ) from exc
 
     def _start_run_locked(self, research_run_id: str) -> OrchestrationTickResult:
@@ -238,14 +252,19 @@ class ResearchOsdRuntime:
             self._attach_supervisor(research_run_id, recovery=True)
             return self._status_from_sor(research_run_id)
         allocate_daily_budget_if_required(self._uow_factory, research_run_id)
-        command = reconstruct_start_command(
-            self._uow_factory, research_run_id, recovery=False
-        )
+        try:
+            command = reconstruct_start_command(
+                self._uow_factory, research_run_id, recovery=False
+            )
+        except ApplicationError as exc:
+            if "not found" in str(exc).lower():
+                raise OperatorError(OperatorErrorCode.RUN_NOT_FOUND, str(exc)) from exc
+            raise
         report = self._run_preflight(command)
         if report.status is not PreflightStatus.READY_TO_START:
             if self._preflight_is_lease_conflict_only(report):
                 return self._status_from_sor(research_run_id)
-            raise ApplicationError("; ".join(report.reasons) or "preflight not ready")
+            raise self._operator_error_from_preflight(report)
         result = self._unfenced_controller.start(command)
         if result.state == OrchestrationState.READY.value:
             attached = self._attach_supervisor(
@@ -296,7 +315,7 @@ class ResearchOsdRuntime:
             run = uow.research_runs.get(research_run_id)
             uow.rollback()
         if run is None:
-            raise ApplicationError("research run not found")
+            raise OperatorError(OperatorErrorCode.RUN_NOT_FOUND, "research run not found")
         payload: dict[str, object] = {
             "research_run_id": research_run_id,
             "runtime_instance_id": self.runtime_instance_id,
@@ -319,12 +338,151 @@ class ResearchOsdRuntime:
         )
         return redact_secret_keys(payload)
 
+    def execute_preflight(self, research_run_id: str) -> dict[str, object]:
+        self._require_pg()
+        try:
+            command = reconstruct_start_command(
+                self._uow_factory, research_run_id, recovery=False
+            )
+        except ApplicationError as exc:
+            if "not found" in str(exc).lower():
+                raise OperatorError(OperatorErrorCode.RUN_NOT_FOUND, str(exc)) from exc
+            raise OperatorError(OperatorErrorCode.PREFLIGHT_FAILED, str(exc)) from exc
+        report = self._run_preflight(command)
+        latest = self.latest_preflight(research_run_id)
+        payload = {
+            "ok": True,
+            "status": report.status.value,
+            "result": report.status.value,
+            "authorizes_start": False,
+            "reasons": list(report.reasons),
+            "checks": [
+                {"name": check.name.value, "passed": check.passed, "detail": check.detail}
+                for check in report.checks
+            ],
+            "latest": latest,
+        }
+        return redact_secret_keys(payload)
+
+    def latest_preflight(self, research_run_id: str) -> dict[str, object] | None:
+        self._require_pg()
+        with self._uow_factory.open() as uow:
+            run = uow.research_runs.get(research_run_id)
+            record = uow.preflight_reports.latest_for_research_run(research_run_id)
+            uow.rollback()
+        if run is None:
+            raise OperatorError(OperatorErrorCode.RUN_NOT_FOUND, "research run not found")
+        if record is None:
+            return None
+        return preflight_record_to_mapping(record)
+
+    def run_detail(self, research_run_id: str) -> dict[str, object]:
+        self._require_pg()
+        return build_run_detail(
+            self._uow_factory,
+            research_run_id,
+            runtime_instance_id=None if self._instance is None else self.runtime_instance_id,
+            locally_supervised=self.is_supervising(research_run_id),
+        )
+
+    def list_runs(self) -> list[dict[str, object]]:
+        self._require_pg()
+        supervised = (
+            frozenset()
+            if self._registry is None
+            else frozenset(self._registry.owned_run_ids())
+        )
+        return build_run_list(
+            self._uow_factory,
+            runtime_instance_id=None if self._instance is None else self.runtime_instance_id,
+            supervised_ids=supervised,
+        )
+
+    def list_programs(self) -> list[dict[str, object]]:
+        self._require_pg()
+        return build_program_list(self._uow_factory)
+
+    def console_snapshot(self) -> dict[str, object]:
+        runs = self.list_runs()
+        details = [self.run_detail(str(row["research_run_id"])) for row in runs]
+        return redact_secret_keys(
+            {
+                "health": self.health(),
+                "programs": self.list_programs(),
+                "runs": runs,
+                "run_details": details,
+                "live_update": "rest_poll",
+                "sse_deferred": True,
+            }
+        )
+
     def health(self) -> dict[str, object]:
+        from research_os.maturity import GATE_04B_STATUS
+        from research_os.platform.health import ComponentHealth
+
+        worker = self._probe_worker()
+        model = self._probe_model()
+        schema = self._probe_schema()
+        worker_health = worker.health.health
+        model_health = model.health.health
+        candidate = model.candidate
+        model_installed = True
+        model_configured = candidate is not None
+        model_authenticated = bool(candidate is not None and candidate.authenticated)
+        model_structured = bool(
+            candidate is not None and candidate.structured_output_compatible
+        )
+        model_available = (
+            model_configured
+            and model_authenticated
+            and model_structured
+            and model_health is ComponentHealth.HEALTHY
+            and bool(candidate is not None and candidate.available)
+        )
+        worker_available = worker_health is ComponentHealth.HEALTHY
+        db_available = not self._pg_unavailable
         payload: dict[str, object] = {
-            "ok": not self._pg_unavailable and self._instance is not None,
+            "ok": db_available and self._instance is not None,
             "pg_unavailable": self._pg_unavailable,
             "engine_version": self._engine_version,
+            "environment_name": self._environment_name,
             "not_research_truth": True,
+            "ready_for_start": db_available
+            and worker_available
+            and model_available
+            and schema.at_expected_head,
+            "database": {
+                "installed": True,
+                "configured": True,
+                "available_now": db_available,
+                "schema_at_expected_head": schema.at_expected_head,
+                "health": (
+                    ComponentHealth.HEALTHY.value
+                    if db_available
+                    else ComponentHealth.UNAVAILABLE.value
+                ),
+                "detail": "reachable" if db_available else "unavailable",
+            },
+            "worker": {
+                "installed": True,
+                "configured": True,
+                "available_now": worker_available,
+                "health": worker_health.value,
+                "detail": worker.health.detail,
+                "capabilities": sorted(worker.available_capabilities),
+            },
+            "model": {
+                "installed": model_installed,
+                "configured": model_configured,
+                "authenticated": model_authenticated,
+                "structured_output_compatible": model_structured,
+                "available_now": model_available,
+                "health": model_health.value,
+                "detail": model.health.detail,
+                "rate_limited": model_health is ComponentHealth.RATE_LIMITED,
+                "gate_04b": GATE_04B_STATUS,
+                "gate_04b_is_not_availability": True,
+            },
         }
         if self._instance is not None:
             payload["runtime_instance_id"] = self._instance.runtime_instance_id
@@ -440,7 +598,7 @@ class ResearchOsdRuntime:
         return supervisor
 
     def _run_preflight(self, command: StartAutonomousResearchCommand) -> PreflightReport:
-        return self._preflight.execute(
+        report = self._preflight.execute(
             PreflightCommand(
                 research_run_id=command.research_run_id,
                 target_reference=command.target_reference,
@@ -451,6 +609,44 @@ class ResearchOsdRuntime:
                 requesting_owner_runtime_instance_id=self.runtime_instance_id,
             )
         )
+        persist_preflight_report(
+            self._uow_factory,
+            report,
+            runtime_instance_id=self.runtime_instance_id,
+            release_version=self._engine_version,
+            configuration_fingerprint=configuration_fingerprint_for_command(command),
+            actor_id=CONTROL_PLANE_ACTOR_ID,
+        )
+        return report
+
+    def _operator_error_from_preflight(self, report: PreflightReport) -> OperatorError:
+        detail = "; ".join(report.reasons) or "preflight not ready"
+        failing = [check for check in report.checks if not check.passed]
+        if not failing:
+            return OperatorError(OperatorErrorCode.PREFLIGHT_FAILED, detail)
+        first = failing[0]
+        if first.name is PreflightCheckName.AUTHORIZATION_SOURCE_ACTIVE:
+            return OperatorError(OperatorErrorCode.AUTHORIZATION_UNAVAILABLE, detail)
+        if first.name is PreflightCheckName.BUDGET_AVAILABLE:
+            return OperatorError(OperatorErrorCode.BUDGET_EXHAUSTED, detail)
+        if first.name is PreflightCheckName.NO_CONFLICTING_LEASE:
+            return OperatorError(OperatorErrorCode.LEASE_CONFLICT, detail)
+        if first.name is PreflightCheckName.WORKER_RUNTIME_HEALTHY:
+            return OperatorError(OperatorErrorCode.WORKER_UNAVAILABLE, detail)
+        if first.name is PreflightCheckName.WORKER_CAPABILITIES_PRESENT:
+            return OperatorError(OperatorErrorCode.WORKER_UNAVAILABLE, detail)
+        if first.name is PreflightCheckName.MODEL_RUNTIME_READY:
+            joined = " ".join(check.detail for check in failing)
+            if "AUTH_REQUIRED" in joined:
+                return OperatorError(OperatorErrorCode.MODEL_AUTH_REQUIRED, detail)
+            if "RATE_LIMITED" in joined:
+                return OperatorError(OperatorErrorCode.MODEL_RATE_LIMITED, detail)
+            return OperatorError(OperatorErrorCode.PREFLIGHT_FAILED, detail)
+        if first.name is PreflightCheckName.ORCHESTRATION_RECOVERABLE:
+            return OperatorError(OperatorErrorCode.RECONCILIATION_REQUIRED, detail)
+        if first.name is PreflightCheckName.DATABASE_REACHABLE:
+            return OperatorError(OperatorErrorCode.DATABASE_UNAVAILABLE, detail)
+        return OperatorError(OperatorErrorCode.PREFLIGHT_FAILED, detail)
 
     def _lease_held_by_other(self, record) -> bool:
         owner = record.owner_runtime_instance_id
@@ -545,4 +741,7 @@ class ResearchOsdRuntime:
 
     def _require_pg(self) -> None:
         if self._pg_unavailable:
-            raise ApplicationError("postgresql unavailable; refusing new authoritative work")
+            raise OperatorError(
+                OperatorErrorCode.DATABASE_UNAVAILABLE,
+                "postgresql unavailable; refusing new authoritative work",
+            )

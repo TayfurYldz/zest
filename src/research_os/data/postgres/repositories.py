@@ -59,6 +59,7 @@ from research_os.data.records import (
     LeaseAcquireResult,
     ObservationRecord,
     OastTokenRecord,
+    PreflightReportRecord,
     ProgramPolicyRecord,
     ProgramRecord,
     PromotionRunRecord,
@@ -184,6 +185,19 @@ class PostgresProgramRepository:
             program_id,
             map_row.program_from_row,
         )
+
+    def list_recent(self, *, limit: int = 50) -> list[ProgramRecord]:
+        if not isinstance(limit, int) or limit <= 0:
+            raise PersistenceInputError("limit must be a positive integer")
+        try:
+            rows = self._connection.execute(
+                select(tables.program)
+                .order_by(tables.program.c.created_at.desc())
+                .limit(limit)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.program_from_row(row) for row in rows]
 
 
 class PostgresScopeRuleV2Repository:
@@ -499,6 +513,19 @@ class PostgresResearchRunRepository:
             research_run_id,
             map_row.research_run_from_row,
         )
+
+    def list_recent(self, *, limit: int = 50) -> list[ResearchRunRecord]:
+        if not isinstance(limit, int) or limit <= 0:
+            raise PersistenceInputError("limit must be a positive integer")
+        try:
+            rows = self._connection.execute(
+                select(tables.research_run)
+                .order_by(tables.research_run.c.started_at.desc())
+                .limit(limit)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.research_run_from_row(row) for row in rows]
 
 
 class PostgresIssuedBudgetRepository:
@@ -2257,6 +2284,23 @@ class PostgresAuditEventRepository:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.audit_event_from_row(row) for row in rows]
 
+    def list_for_subject(
+        self, subject_type: str, subject_id: str
+    ) -> list[AuditEventRecord]:
+        if not isinstance(subject_type, str) or not subject_type.strip():
+            raise PersistenceInputError("subject_type must be a non-empty string")
+        require_opaque_id(subject_id, "subject_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.audit_event)
+                .where(tables.audit_event.c.subject_type == subject_type)
+                .where(tables.audit_event.c.subject_id == subject_id)
+                .order_by(tables.audit_event.c.occurred_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.audit_event_from_row(row) for row in rows]
+
 
 class PostgresResearchOrchestrationRepository:
     def __init__(self, connection: Connection) -> None:
@@ -3070,4 +3114,65 @@ class PostgresRuntimeInstanceRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.runtime_instance_from_row(row) for row in rows]
+
+
+class PostgresPreflightReportRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: PreflightReportRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.preflight_report.insert().values(
+                preflight_report_id=record.preflight_report_id,
+                research_run_id=record.research_run_id,
+                runtime_instance_id=record.runtime_instance_id,
+                created_at=record.created_at,
+                release_version=record.release_version,
+                configuration_fingerprint=record.configuration_fingerprint,
+                status=record.status,
+                checks=[dict(item) for item in record.checks],
+            ),
+        )
+
+    def get(self, preflight_report_id: str) -> PreflightReportRecord | None:
+        require_opaque_id(preflight_report_id, "preflight_report_id")
+        return _fetch_one(
+            self._connection,
+            tables.preflight_report,
+            tables.preflight_report.c.preflight_report_id,
+            preflight_report_id,
+            map_row.preflight_report_from_row,
+        )
+
+    def latest_for_research_run(
+        self, research_run_id: str
+    ) -> PreflightReportRecord | None:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            row = self._connection.execute(
+                select(tables.preflight_report)
+                .where(tables.preflight_report.c.research_run_id == research_run_id)
+                .order_by(tables.preflight_report.c.created_at.desc())
+                .limit(1)
+            ).mappings().first()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        if row is None:
+            return None
+        return map_row.preflight_report_from_row(row)
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[PreflightReportRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.preflight_report)
+                .where(tables.preflight_report.c.research_run_id == research_run_id)
+                .order_by(tables.preflight_report.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.preflight_report_from_row(row) for row in rows]
 

@@ -91,6 +91,7 @@ from research_os.data.records import (
     FrontierSourceRecord,
     HunterFamilyRecord,
     HuntV3QueueRecord,
+    PreflightReportRecord,
     RuntimeInstanceRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
@@ -158,6 +159,7 @@ class _Store:
         self.hunter_families: dict[str, HunterFamilyRecord] = {}
         self.hunt_v3_queue: dict[str, HuntV3QueueRecord] = {}
         self.runtime_instances: dict[str, RuntimeInstanceRecord] = {}
+        self.preflight_reports: dict[str, PreflightReportRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
 
@@ -177,6 +179,26 @@ class _Repo:
 
     def get(self, record_id: str) -> Any | None:
         return self._store.get(record_id)
+
+
+class _ProgramRepo(_Repo):
+    def list_recent(self, *, limit: int = 50) -> list[ProgramRecord]:
+        records = sorted(
+            self._store.values(),
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+        return records[:limit]
+
+
+class _ResearchRunRepo(_Repo):
+    def list_recent(self, *, limit: int = 50) -> list[ResearchRunRecord]:
+        records = sorted(
+            self._store.values(),
+            key=lambda record: record.started_at,
+            reverse=True,
+        )
+        return records[:limit]
 
 
 class _ScopeRuleV2Repo(_Repo):
@@ -358,6 +380,8 @@ def _id_of(record: Any) -> str:
         return record.queue_id
     if isinstance(record, RuntimeInstanceRecord):
         return record.runtime_instance_id
+    if isinstance(record, PreflightReportRecord):
+        return record.preflight_report_id
     raise PersistenceError("unknown record identity")
 
 
@@ -609,6 +633,18 @@ class _AuditEventRepo(_Repo):
                 if record.subject_type == subject_type
             ],
             key=lambda record: record.audit_event_id,
+        )
+
+    def list_for_subject(
+        self, subject_type: str, subject_id: str
+    ) -> list[AuditEventRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.audit_events.values()
+                if record.subject_type == subject_type and record.subject_id == subject_id
+            ],
+            key=lambda record: record.occurred_at,
         )
 
 
@@ -1832,19 +1868,43 @@ class _RuntimeInstanceRepo(_Repo):
         ]
 
 
+class _PreflightReportRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.preflight_reports)
+        self._root = store
+
+    def latest_for_research_run(
+        self, research_run_id: str
+    ) -> PreflightReportRecord | None:
+        matches = self.list_for_research_run(research_run_id)
+        return matches[-1] if matches else None
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[PreflightReportRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.preflight_reports.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.created_at,
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
         self._fail_on = fail_on
         self._committed = False
         self._snapshot: _Store | None = None
-        self.programs = _Repo(self._store.programs)
+        self.programs = _ProgramRepo(self._store.programs)
         self.scope_rules_v2 = _ScopeRuleV2Repo(self._store)
         self.program_policies = _Repo(self._store.program_policies)
         self.rate_limit_profiles = _RateLimitProfileRepo(self._store)
         self.bounty_tables = _BountyTableRepo(self._store)
         self.authorization_sources = _Repo(self._store.authorization_sources)
-        self.research_runs = _Repo(self._store.research_runs)
+        self.research_runs = _ResearchRunRepo(self._store.research_runs)
         self.issued_budgets = _IssuedBudgetRepo(self._store)
         self.hypotheses = _HypothesisRepo(
             self._store, fail_on_insert=fail_on == "hypotheses"
@@ -1964,6 +2024,7 @@ class FakeUnitOfWork:
             self._store, fail_on_insert=fail_on == "hunt_v3_queue"
         )
         self.runtime_instances = _RuntimeInstanceRepo(self._store)
+        self.preflight_reports = _PreflightReportRepo(self._store)
 
     def __enter__(self) -> FakeUnitOfWork:
         self._store.open_transactions += 1
@@ -2111,6 +2172,8 @@ class FakeUnitOfWork:
         self._store.hunt_v3_queue.update(snapshot.hunt_v3_queue)
         self._store.runtime_instances.clear()
         self._store.runtime_instances.update(snapshot.runtime_instances)
+        self._store.preflight_reports.clear()
+        self._store.preflight_reports.update(snapshot.preflight_reports)
 
 
 class FakeUnitOfWorkFactory:

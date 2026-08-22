@@ -40,6 +40,7 @@ from research_os.data.ports import (
     VerificationRepository,
     WorkerResultRepository,
     OpportunitySelectionCandidateRepository,
+    PreflightReportRepository,
     ResearchOpportunityRepository,
     ResearchSelectionRepository,
     SnapshotRepository,
@@ -125,6 +126,7 @@ class UnitOfWork(Protocol):
     hunt_v3_queue: HuntV3QueueRepository
     impact_chains: ImpactChainRepository
     runtime_instances: RuntimeInstanceRepository
+    preflight_reports: PreflightReportRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

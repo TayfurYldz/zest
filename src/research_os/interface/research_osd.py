@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from research_os.application.orchestration_lease import LeaseConfig
+from research_os.application.osd_settings import load_osd_settings
 from research_os.application.preflight import (
     ModelReadinessInput,
     SchemaHealthInput,
@@ -17,24 +18,13 @@ from research_os.application.preflight import (
 )
 from research_os.application.research_osd import ResearchOsdRuntime
 from research_os.data.postgres.engine import (
-    DATABASE_URL_ENV,
     check_schema_head,
     create_sync_engine,
 )
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.interface.operator_api import (
-    OPERATOR_API_DEFAULT_HOST,
-    OPERATOR_API_DEFAULT_PORT,
-    OperatorApiServer,
-)
+from research_os.interface.operator_api import OperatorApiServer
 from research_os.platform.health import ComponentHealth, HealthCheck
 from research_os.platform.worker_health import probe_local_python_worker
-
-
-def _lease_config_from_env(env: dict[str, str]) -> LeaseConfig:
-    heartbeat = float(env.get("RESEARCH_OSD_HEARTBEAT_INTERVAL_SECONDS", "30"))
-    ttl = float(env.get("RESEARCH_OSD_LEASE_TTL_SECONDS", "90"))
-    return LeaseConfig(heartbeat_interval_seconds=heartbeat, lease_ttl_seconds=ttl)
 
 
 def _alembic_ini() -> str:
@@ -42,16 +32,22 @@ def _alembic_ini() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(prog="research-osd")
-    parser.add_argument("--host", default=OPERATOR_API_DEFAULT_HOST)
-    parser.add_argument("--port", type=int, default=OPERATOR_API_DEFAULT_PORT)
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--port", type=int, default=None)
     args = parser.parse_args(argv)
-    url = os.environ.get(DATABASE_URL_ENV)
-    if not url:
-        print(f"{DATABASE_URL_ENV} is required", file=sys.stderr)
+    try:
+        settings = load_osd_settings(dict(os.environ))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-    engine = create_sync_engine(url)
+    log_kwargs: dict[str, object] = {"level": logging.INFO, "format": "%(message)s"}
+    if settings.log_path:
+        log_kwargs["filename"] = settings.log_path
+    logging.basicConfig(**log_kwargs)
+    host = args.host or settings.bind_host
+    port = settings.api_port if args.port is None else args.port
+    engine = create_sync_engine(settings.database_url)
     factory = PostgresUnitOfWork(engine)
     from research_os.integrations.models.cli_session import (
         CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
@@ -110,15 +106,20 @@ def main(argv: list[str] | None = None) -> int:
         factory,
         worker,
         model,
-        lease_config=_lease_config_from_env(dict(os.environ)),
+        lease_config=LeaseConfig(
+            heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+            lease_ttl_seconds=settings.lease_ttl_seconds,
+        ),
         probe_schema=probe_schema,
         probe_worker=probe_worker,
         probe_model=model_probe,
         host_identity=os.uname().nodename or "research-osd",
         process_id=str(os.getpid()),
+        engine_version=settings.release_version,
+        environment_name=settings.environment_name,
     )
     runtime.start_process()
-    server = OperatorApiServer(runtime, host=args.host, port=args.port)
+    server = OperatorApiServer(runtime, host=host, port=port)
 
     def _handle_stop(_signum, _frame) -> None:
         server.shutdown()
@@ -126,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
     print(
-        f"research-osd listening on http://{args.host}:{args.port}",
+        f"research-osd listening on http://{host}:{port}",
         flush=True,
     )
     try:

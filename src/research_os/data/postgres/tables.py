@@ -1715,6 +1715,34 @@ runtime_instance = Table(
     ),
 )
 
+preflight_report = Table(
+    "preflight_report",
+    metadata,
+    Column("preflight_report_id", Text, primary_key=True),
+    Column(
+        "research_run_id",
+        Text,
+        ForeignKey("research_run.research_run_id"),
+        nullable=False,
+    ),
+    Column(
+        "runtime_instance_id",
+        Text,
+        ForeignKey("runtime_instance.runtime_instance_id"),
+        nullable=False,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("release_version", Text, nullable=False),
+    Column("configuration_fingerprint", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("checks", JSONB, nullable=False),
+    CheckConstraint(
+        "status IN ('READY_TO_START', 'NOT_READY')",
+        name="ck_preflight_report_status",
+    ),
+    Index("ix_preflight_report_run_created", "research_run_id", "created_at"),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1783,6 +1811,7 @@ SPINE_TABLES = (
     impact_chain_node,
     impact_chain_edge,
     runtime_instance,
+    preflight_report,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1828,4 +1857,5 @@ APPEND_ONLY_TABLES = (
     "impact_chain",
     "impact_chain_node",
     "impact_chain_edge",
+    "preflight_report",
 )

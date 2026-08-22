@@ -265,7 +265,7 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
             version = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        self.assertEqual(version, "a41_001_runtime_instance")
+        self.assertEqual(version, "a42_001_preflight_report")
 
 
 if __name__ == "__main__":

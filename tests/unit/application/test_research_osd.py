@@ -568,6 +568,60 @@ class ResearchOsdRuntimeTests(unittest.TestCase):
         self.assertNotIn("password", rendered.lower())
         self.assertNotIn("api_key", rendered.lower())
 
+    def test_execute_preflight_persists_and_does_not_authorize_start(self) -> None:
+        store = _seed()
+        self._runtime = _runtime(store)
+        self._runtime.start_process()
+        payload = self._runtime.execute_preflight("run-1")
+        self.assertEqual(payload["status"], "READY_TO_START")
+        self.assertFalse(payload["authorizes_start"])
+        latest = self._runtime.latest_preflight("run-1")
+        self.assertIsNotNone(latest)
+        self.assertFalse(latest["authorizes_start"])
+        self.assertEqual(len(store.preflight_reports), 1)
+
+    def test_stale_preflight_does_not_authorize_start(self) -> None:
+        from research_os.application.operator_errors import OperatorError, OperatorErrorCode
+
+        store = _seed()
+        self._runtime = _runtime(store)
+        self._runtime.start_process()
+        payload = self._runtime.execute_preflight("run-1")
+        self.assertEqual(payload["status"], "READY_TO_START")
+        current = store.authorization_sources["as-1"]
+        store.authorization_sources["as-1"] = replace(current, state="EXPIRED")
+        with self.assertRaises(OperatorError) as caught:
+            self._runtime.start_run("run-1")
+        self.assertEqual(caught.exception.code, OperatorErrorCode.AUTHORIZATION_UNAVAILABLE)
+        latest = self._runtime.latest_preflight("run-1")
+        self.assertEqual(latest["status"], "NOT_READY")
+        self.assertFalse(self._runtime.is_supervising("run-1"))
+
+    def test_health_does_not_claim_ready_when_model_auth_missing(self) -> None:
+        store = _seed()
+        factory = FakeUnitOfWorkFactory(store=store)
+        runtime = ResearchOsdRuntime(
+            factory,
+            RecordingWorkerPort(store=store),
+            ScriptedModelPort(),
+            lease_config=LeaseConfig(heartbeat_interval_seconds=0.2, lease_ttl_seconds=0.8),
+            cadence_seconds=0.05,
+            probe_schema=_ok_schema,
+            probe_worker=_healthy_worker,
+            probe_model=lambda: ModelReadinessInput(
+                candidate=None,
+                health=HealthCheck("model", ComponentHealth.AUTH_REQUIRED, "login required"),
+            ),
+        )
+        self._runtime = runtime
+        runtime.start_process()
+        health = runtime.health()
+        self.assertTrue(health["ok"])
+        self.assertFalse(health["ready_for_start"])
+        self.assertFalse(health["model"]["available_now"])
+        self.assertEqual(health["model"]["health"], "AUTH_REQUIRED")
+        self.assertEqual(health["model"]["gate_04b_is_not_availability"], True)
+
 
 class ResearchOsdAuthorityAuditTests(unittest.TestCase):
     def test_daemon_sources_do_not_contain_research_authority(self) -> None:
@@ -604,5 +658,7 @@ class ResearchOsdAuthorityAuditTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertNotIn("LocalRunSupervisorRegistry", source)
+        self.assertNotIn("ResearchOsdRuntime", source)
         self.assertIn("RESEARCH_OSD_URL", source)
         self.assertIn("must not own run supervisors", source)
+        self.assertIn("client_only", source)

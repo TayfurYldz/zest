@@ -23,6 +23,7 @@ from research_os.data.postgres.engine import (
     create_sync_engine,
     redacted_database_url,
 )
+from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.autonomous_research_controller import (
     OrchestrationTickResult,
@@ -37,6 +38,7 @@ from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.research.orchestration import OrchestrationBounds
 from research_os.research.finding_proposal import HumanReviewDecision
 from research_os.interface.osd_client import OperatorApiRunControl, RESEARCH_OSD_URL_ENV
+from research_os.application.operator_errors import OperatorError
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -227,15 +229,45 @@ def _operator_run_action(
     }
 
 
+def _operator_preflight(research_run_id: str) -> dict[str, Any]:
+    runtime = _RUN_CONTROL_RUNTIME
+    if runtime is None:
+        raise RuntimeError("run control runtime is not configured")
+    control = runtime.control
+    if not hasattr(control, "execute_preflight"):
+        raise RuntimeError("operator API client does not expose preflight")
+    return control.execute_preflight(research_run_id)
+
+
 def collect_dashboard_payload(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
     source = dict(os.environ if env is None else env)
     snapshot = build_status_snapshot(env=source)
+    database = _database_payload(source)
+    operator = None
+    osd_url = source.get(RESEARCH_OSD_URL_ENV)
+    if osd_url and osd_url.strip():
+        try:
+            client = OperatorApiRunControl(osd_url)
+            console = client.console_snapshot()
+            operator = console.get("health")
+            database["operator_source"] = "research-osd"
+            if isinstance(console.get("programs"), list) and console["programs"]:
+                database["programs"] = console["programs"]
+            if isinstance(console.get("runs"), list):
+                database["runs"] = console["runs"]
+            if isinstance(console.get("run_details"), list):
+                database["run_details"] = console["run_details"]
+        except (ApplicationError, OperatorError, OSError, ValueError) as exc:
+            database["operator_source"] = "research-osd-unreachable"
+            database["operator_error"] = exc.__class__.__name__
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": asdict(snapshot),
-        "database": _database_payload(source),
+        "database": database,
         "git": _git_payload(),
         "oast": _oast_payload(source),
+        "operator": operator,
+        "client_only": True,
     }
 
 
@@ -894,12 +926,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             and parts[0] == "api"
             and parts[1] == "runs"
             and parts[2]
-            and parts[3] in {"start", "pause", "resume", "cancel"}
+            and parts[3] in {"start", "pause", "resume", "cancel", "preflight"}
         ):
             try:
-                result = _operator_run_action(
-                    parts[3], unquote(parts[2]), self._read_json_body() if parts[3] in {"start", "resume"} else {}
-                )
+                if parts[3] == "preflight":
+                    result = _operator_preflight(unquote(parts[2]))
+                else:
+                    result = _operator_run_action(
+                        parts[3],
+                        unquote(parts[2]),
+                        self._read_json_body() if parts[3] in {"start", "resume"} else {},
+                    )
+            except OperatorError as exc:
+                self._send_json(exc.to_payload(), status=exc.http_status)
+                return
             except ValueError as exc:
                 self._send_json(
                     {"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST
@@ -1457,7 +1497,7 @@ HTML = r"""<!doctype html>
             <div class="panelHead"><span>Authoritative Run Detail</span><span class="pill" id="runDetailCount">0</span></div>
             <div class="panelBody">
               <table>
-                <thead><tr><th>Run</th><th>Authorization</th><th>Cycle</th><th>Budget</th><th>Research Progress</th><th>Approval</th></tr></thead>
+                <thead><tr><th>Run</th><th>Authorization</th><th>Cycle</th><th>Budget</th><th>Research Progress</th><th>Approval</th><th>Preflight</th><th>Held / recon</th></tr></thead>
                 <tbody id="runDetails"></tbody>
               </table>
             </div>
@@ -1571,17 +1611,18 @@ out-of-scope probing</textarea></div>
       const state = runState(row);
       const runId = encodeURIComponent(String(row.research_run_id || ''));
       const button = (action, label) => `<button type="button" class="controlButton" data-run-action="${action}" data-run-id="${runId}">${label}</button>`;
-      if (state === 'CREATED' || state === 'STARTABLE') {
-        return `<div class="runControls">${button('start', 'START')}<span class="controlStatus" data-run-status></span></div>`;
+      if (state === 'CREATED' || state === 'STARTABLE' || state === '') {
+        return `<div class="runControls">${button('preflight', 'PREFLIGHT')}${button('start', 'START')}<span class="controlStatus" data-run-status></span></div>`;
       }
       if (state === 'READY' || state === 'RUNNING') {
         return `<div class="runControls">${button('pause', 'PAUSE')}${button('cancel', 'CANCEL')}<span class="controlStatus" data-run-status></span></div>`;
       }
       if (state === 'PAUSED') {
-        return `<div class="runControls">${button('resume', 'RESUME')}${button('cancel', 'CANCEL')}<span class="controlStatus" data-run-status></span></div>`;
+        return `<div class="runControls">${button('preflight', 'PREFLIGHT')}${button('resume', 'RESUME')}${button('cancel', 'CANCEL')}<span class="controlStatus" data-run-status></span></div>`;
       }
-      if (state === 'WAITING_HUMAN') {
-        return `<div class="runControls"><span class="controlStatus">Approval required; review queue</span></div>`;
+      if (state === 'WAITING_HUMAN' || state === 'RECONCILIATION_REQUIRED') {
+        const reason = row.pause_reason || (row.reconciliation && row.reconciliation.classification) || 'human review required';
+        return `<div class="runControls"><span class="controlStatus">Held: ${escapeHtml(reason)}</span></div>`;
       }
       return `<div class="runControls"><span class="controlStatus">Terminal: ${escapeHtml(state)}</span></div>`;
     };
@@ -1629,13 +1670,15 @@ out-of-scope probing</textarea></div>
       $('metricOastSub').textContent = (data.oast || {}).adapter || '-';
       $('maturity').textContent = status.gate_16 === 'PASS' ? 'SD-G16 PASS' : 'check';
 
+      const operator = data.operator || {};
       const system = [
         ['Application DB', status.postgresql],
         ['Test DB', status.test_postgresql],
-        ['Model API', (status.model_runtimes || {}).API],
-        ['CLI Session', (status.model_runtimes || {}).CLI_SESSION],
-        ['Local Model', (status.model_runtimes || {}).LOCAL_MODEL],
-        ['Strix', status.strix],
+        ['research-osd', operator.ok === false ? 'unavailable' : (operator.status || (db.operator_source === 'research-osd' ? 'connected' : 'not attached'))],
+        ['Worker now', ((operator.worker || {}).available_now === false) ? 'unavailable' : ((operator.worker || {}).health || Object.values(status.worker || {})[0])],
+        ['Model now', ((operator.model || {}).available_now === false) ? ((operator.model || {}).health || 'unavailable') : ((operator.model || {}).health || (status.model_runtimes || {}).API)],
+        ['Model auth', (operator.model || {}).authenticated === false ? 'AUTH_REQUIRED' : ((operator.model || {}).authenticated === true ? 'authenticated' : status.auth)],
+        ['GATE 04B (separate)', status.gate_04b],
         ['Budget', status.budget_ledger],
         ['OAST Adapter', (data.oast || {}).adapter],
       ];
@@ -1699,7 +1742,9 @@ out-of-scope probing</textarea></div>
           <td>${escapeHtml(row.model_count ?? 0)} model · ${escapeHtml(row.worker_count ?? 0)} worker</td>
           <td>${escapeHtml(row.hypothesis_count ?? 0)} H · ${escapeHtml(row.experiment_count ?? 0)} E · ${escapeHtml(row.observation_count ?? 0)} O · ${escapeHtml(row.evidence_count ?? 0)} Ev · ${escapeHtml(row.candidate_count ?? 0)} C · ${escapeHtml(row.finding_proposal_count ?? 0)} FP · ${escapeHtml(row.finding_count ?? 0)} F</td>
           <td>${escapeHtml(row.pending_approval_count ?? 0)}</td>
-        </tr>`).join('') : `<tr><td colspan="6" class="empty">No authoritative run detail</td></tr>`;
+          <td>${escapeHtml((row.latest_preflight && row.latest_preflight.status) || row.latest_preflight_status || '-')}</td>
+          <td>${escapeHtml((row.reconciliation && row.reconciliation.classification) || row.pause_reason || '-')}</td>
+        </tr>`).join('') : `<tr><td colspan="8" class="empty">No authoritative run detail</td></tr>`;
 
       const coverage = db.coverage || [];
       $('coverageCount').textContent = coverage.length;
@@ -1732,7 +1777,7 @@ out-of-scope probing</textarea></div>
       const runId = button.dataset.runId;
       const controls = button.closest('.runControls');
       const status = controls ? controls.querySelector('[data-run-status]') : null;
-      const labels = { start: 'starting', pause: 'pausing', resume: 'resuming', cancel: 'cancelling' };
+      const labels = { start: 'starting', pause: 'pausing', resume: 'resuming', cancel: 'cancelling', preflight: 'preflight' };
       const actionLabel = labels[action] || 'updating';
       const rowButtons = controls ? controls.querySelectorAll('button[data-run-action]') : [button];
       rowButtons.forEach(item => { item.disabled = true; });
@@ -1744,8 +1789,10 @@ out-of-scope probing</textarea></div>
           body: JSON.stringify({}),
         });
         const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || `${action} failed`);
-        if (status) status.textContent = `${action} accepted`;
+        if (!response.ok || !result.ok) throw new Error(result.detail || result.error || `${action} failed`);
+        if (action === 'preflight') {
+          if (status) status.textContent = `preflight ${result.result && result.result.status ? result.result.status : 'done'}`;
+        } else if (status) status.textContent = `${action} accepted`;
         await load();
       } catch (err) {
         if (status) status.textContent = `error: ${err.message}`;
