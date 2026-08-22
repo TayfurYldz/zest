@@ -342,7 +342,7 @@ class MutationAndProtocolCompilerTests(unittest.TestCase):
                 self.assertTrue(result.plan.disconfirming_observation)
                 assert_plan_not_understated(result.plan)
 
-    def test_mutation_cell_without_dimensions_stays_blocked_missing_semantics(self) -> None:
+    def test_known_mutation_cell_without_caller_dimensions_compiles_from_matrix(self) -> None:
         result = ExperimentCompilerRegistry().compile(
             CompilerRequest(
                 hypothesis_id="hyp-1",
@@ -356,7 +356,31 @@ class MutationAndProtocolCompilerTests(unittest.TestCase):
                 },
             )
         )
-        self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_MISSING_SEMANTICS)
+        self.assertTrue(result.compiled)
+        assert result.plan is not None
+        self.assertEqual(result.plan.required_capability, HTTP_TRANSACTION_CAPABILITY)
+
+    def test_fabricated_mutation_cell_with_complete_dimensions_is_unknown_cell(self) -> None:
+        family = _seed_family("hf-sqli")
+        matrix = build_mutation_matrix(family)
+        cell = matrix.cells[0]
+        result = ExperimentCompilerRegistry().compile(
+            CompilerRequest(
+                hypothesis_id="hyp-1",
+                budget_id="budget-1",
+                target_reference="target-1",
+                family_name="SQL_INJECTION",
+                arguments={
+                    "cell_id": "fabricated-cell-not-in-matrix",
+                    "dimension_values": dict(cell.dimension_values),
+                    "control": cell.control,
+                    "authorized_origin": "http://127.0.0.1:8090",
+                    "path": "/api/users",
+                },
+            )
+        )
+        self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_UNKNOWN_CELL)
+        self.assertEqual(result.reason_code, "MUTATION_MATRIX_UNKNOWN_CELL")
         self.assertIsNone(result.plan)
 
     def test_mutation_engine_variant_compiles_to_http_transaction(self) -> None:

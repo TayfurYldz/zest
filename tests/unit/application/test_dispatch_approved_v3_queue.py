@@ -283,7 +283,6 @@ class DispatchApprovedV3QueueTests(unittest.TestCase):
             action="plan",
             arguments={
                 "family_name": "SQL_INJECTION",
-                "matrix_hash": "a" * 64,
                 "cell_count": 1,
                 "authorized_origin": "http://127.0.0.1:8094",
                 "path": "/ok",

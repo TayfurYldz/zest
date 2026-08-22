@@ -23,8 +23,13 @@ from research_os.research.http_transaction import (
     HTTP_TRANSACTION_EXPECTED_OBSERVATION,
 )
 from research_os.research.mutation.cell_contract import (
+    FAMILY_REQUIRED_DIMENSIONS,
     MutationCellContractError,
     bind_mutation_matrix_cell,
+)
+from research_os.research.mutation.identity import (
+    MutationCellIdentityError,
+    lookup_authoritative_mutation_cell,
 )
 from research_os.research.planning import (
     HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
@@ -108,6 +113,7 @@ class CompilerOutcome(Enum):
     COMPILED = "COMPILED"
     BLOCKED_UNSUPPORTED_CAPABILITY = "BLOCKED_UNSUPPORTED_CAPABILITY"
     BLOCKED_MISSING_SEMANTICS = "BLOCKED_MISSING_SEMANTICS"
+    BLOCKED_UNKNOWN_CELL = "BLOCKED_UNKNOWN_CELL"
     BLOCKED_INVALID_INPUT = "BLOCKED_INVALID_INPUT"
 
 
@@ -290,7 +296,9 @@ class MutationMatrixCellCompiler:
     """Bind a selected MutationMatrixCell onto http.transaction.
 
     The compiler owns the payload catalog. Incoming query/body/headers are not
-    Worker authority and are ignored. AI may select a cell_id only.
+    Worker authority and are ignored. AI may select a cell_id only. The selected
+    id must exist in the rebuilt authoritative MutationMatrix; caller dimensions
+    cannot mint or rewrite cell identity.
     """
 
     compiler_id = COMPILER_MUTATION_MATRIX_CELL
@@ -306,18 +314,11 @@ class MutationMatrixCellCompiler:
                 family_name=family_name,
             )
         cell_id = _text_arg(arguments, "cell_id") or _text_arg(arguments, "selected_cell_id")
-        control = _text_arg(arguments, "control")
         origin = _text_arg(arguments, "authorized_origin") or _text_arg(arguments, "origin")
         path = _text_arg(arguments, "path") or "/"
-        dimensions = arguments.get("dimension_values")
-        if not isinstance(dimensions, Mapping):
-            return _blocked(
-                self.compiler_id,
-                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
-                "MUTATION_MATRIX_CELL_DIMENSIONS_INCOMPLETE",
-                family_name=family_name,
-            )
-        if cell_id is None or control is None or origin is None:
+        family_id = request.family_id.strip() if isinstance(request.family_id, str) and request.family_id.strip() else None
+        matrix_hash = _text_arg(arguments, "matrix_hash")
+        if cell_id is None:
             return _blocked(
                 self.compiler_id,
                 CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
@@ -325,11 +326,41 @@ class MutationMatrixCellCompiler:
                 family_name=family_name,
             )
         try:
-            binding = bind_mutation_matrix_cell(
+            cell = lookup_authoritative_mutation_cell(
                 family_name=family_name,
                 cell_id=cell_id,
-                dimension_values=dimensions,
-                control=control,
+                family_id=family_id,
+                matrix_hash=matrix_hash,
+            )
+        except MutationCellIdentityError as exc:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_UNKNOWN_CELL,
+                exc.reason_code,
+                family_name=family_name,
+            )
+        if origin is None:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "MUTATION_MATRIX_CELL_TARGET_REQUIRED",
+                family_name=family_name,
+            )
+        required = FAMILY_REQUIRED_DIMENSIONS.get(family_name, ())
+        missing = [name for name in required if not str(cell.dimension_values.get(name) or "").strip()]
+        if missing:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "MUTATION_MATRIX_CELL_DIMENSIONS_INCOMPLETE",
+                family_name=family_name,
+            )
+        try:
+            binding = bind_mutation_matrix_cell(
+                family_name=family_name,
+                cell_id=cell.cell_id,
+                dimension_values=cell.dimension_values,
+                control=cell.control,
                 authorized_origin=origin,
                 path=path,
             )

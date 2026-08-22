@@ -174,6 +174,73 @@ class Slice4B4CExecutionIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(observations), 1)
         self.assertEqual(item.state, "APPROVED")
 
+    def test_unknown_mutation_cell_is_blocked_with_zero_worker_and_no_attempt(self) -> None:
+        cell = build_mutation_matrix(_seed_family("hf-sqli")).cells[0]
+        with PostgresUnitOfWork(self.engine) as uow:
+            uow.hunt_v3_queue.insert(
+                HuntV3QueueRecord(
+                    queue_id="queue-sqli-unknown",
+                    research_run_id="run-1",
+                    hypothesis_id="hyp-1",
+                    family_id="hf-sqli",
+                    node_canonical_key=f"origin:{self.origin}|path:/ok|method:GET",
+                    identity_id=None,
+                    capability="mutation.matrix",
+                    action="plan",
+                    arguments={
+                        "family_name": "SQL_INJECTION",
+                        "family_id": "hf-sqli",
+                        "authorized_origin": self.origin,
+                        "path": "/ok",
+                        "cells": [
+                            {
+                                "cell_id": cell.cell_id,
+                                "dimension_values": dict(cell.dimension_values),
+                                "control": cell.control,
+                            }
+                        ],
+                    },
+                    side_effect_level=0,
+                    state="APPROVED",
+                    created_at=NOW,
+                )
+            )
+            uow.commit()
+        worker = _in_process_worker()
+        result = DispatchApprovedV3Queue(PostgresUnitOfWorkFactory(self.engine), worker).execute(
+            DispatchApprovedV3QueueCommand(
+                research_run_id="run-1",
+                queue_id="queue-sqli-unknown",
+                budget_id="budget-1",
+                target_reference="target-1",
+                scope=ScopeEvaluationInput(
+                    matches=(ScopeRuleMatch("rule-allow", ScopeRuleEffect.ALLOW, True, "scope-src"),),
+                    ambiguous=False,
+                ),
+                compiled_scope=_compiled_scope(self.origin),
+                selected_cell_id="fabricated-cell-not-in-matrix",
+                compile_arguments={
+                    "dimension_values": dict(cell.dimension_values),
+                    "control": cell.control,
+                    "query": {"injected": "1"},
+                    "body": "attacker",
+                },
+            )
+        )
+        self.assertEqual(result.outcome, "BLOCKED_UNKNOWN_CELL")
+        self.assertEqual(result.reason_code, "MUTATION_MATRIX_UNKNOWN_CELL")
+        self.assertEqual(len(worker.calls), 0)
+        self.assertFalse(result.coverage_recorded)
+        self.assertFalse(result.worker_invoked)
+        with PostgresUnitOfWork(self.engine) as uow:
+            attempts = uow.execution_attempts.list_for_research_run("run-1")
+            observations = uow.observations.list_for_research_run("run-1")
+            item = uow.hunt_v3_queue.get("queue-sqli-unknown")
+            uow.rollback()
+        self.assertEqual(len(attempts), 0)
+        self.assertEqual(len(observations), 0)
+        self.assertEqual(item.state, "APPROVED")
+
     def test_protocol_step_fresh_core_deny_is_zero_worker(self) -> None:
         plan = build_protocol_parser_plan(_seed_family("hf-http-smuggling-desync"))
         step = plan.steps[0]
