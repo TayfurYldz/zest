@@ -65,6 +65,20 @@ CODEX_USAGE_LIMIT_MARKERS = (
 )
 USAGE_LIMIT_DETAIL = "Codex CLI usage/rate limit reached"
 ALLOWED_SANDBOX = "read-only"
+CODEX_DIAGNOSTIC_TIMEOUT_MS = 60_000
+CODEX_SKIP_GIT_REPO_CHECK_FLAG = "--skip-git-repo-check"
+NON_GIT_WORKING_DIRECTORY_DETAIL = (
+    "Codex CLI refused a non-git working directory; isolated diagnostics require "
+    "--skip-git-repo-check"
+)
+CODEX_NON_GIT_WORKING_DIRECTORY_MARKERS = (
+    "not a git repository",
+    "not inside a git repository",
+    "must be run from a git repository",
+    "must be run inside a git repository",
+    "outside a git repository",
+    "requires a git repository",
+)
 CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
 CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
 DEFAULT_CODEX_EXECUTABLE = "codex"
@@ -115,6 +129,8 @@ class CodexCliRuntimeConfiguration:
     sandbox: str = ALLOWED_SANDBOX
     ephemeral: bool = True
     ignore_user_config: bool = True
+    isolated_non_repository_cwd: bool = True
+    skip_git_repo_check: bool = True
     runtime_kind: str = RuntimeKind.CLI_SESSION.value
     runtime_class: str = RuntimeClass.AGENT_RUNTIME.value
 
@@ -131,6 +147,10 @@ class CodexCliRuntimeConfiguration:
             raise CodexCliConfigurationError("ephemeral must be true")
         if self.ignore_user_config is not True:
             raise CodexCliConfigurationError("ignore_user_config must be true")
+        if self.isolated_non_repository_cwd is not True:
+            raise CodexCliConfigurationError("isolated_non_repository_cwd must be true")
+        if self.skip_git_repo_check is not True:
+            raise CodexCliConfigurationError("skip_git_repo_check must be true")
         if self.runtime_kind != RuntimeKind.CLI_SESSION.value:
             raise CodexCliConfigurationError("runtime_kind must be CLI_SESSION")
         if self.runtime_class != RuntimeClass.AGENT_RUNTIME.value:
@@ -143,6 +163,8 @@ class CodexCliRuntimeConfiguration:
             "sandbox": self.sandbox,
             "ephemeral": self.ephemeral,
             "ignore_user_config": self.ignore_user_config,
+            "isolated_non_repository_cwd": self.isolated_non_repository_cwd,
+            "skip_git_repo_check": self.skip_git_repo_check,
             "executable": self.executable,
         }
 
@@ -256,12 +278,29 @@ def _run(
     )
 
 
-def _codex_exec_argv(executable: str, model: str, schema_path: Path) -> tuple[str, ...]:
+def _codex_exec_argv(
+    executable: str,
+    model: str,
+    schema_path: Path,
+    *,
+    skip_git_repo_check: bool,
+) -> tuple[str, ...]:
+    """Build the documented Codex exec argv for a bounded diagnostic request.
+
+    ``--skip-git-repo-check`` is only used for the adapter-owned diagnostic temp
+    cwd. The cwd is a freshly created private directory, repository source is not
+    exposed through it, the sandbox remains read-only, the session is ephemeral,
+    the request asks for structured diagnostic output only, and no tools are
+    requested. This is not repository trust and not a production authorization
+    bypass.
+    """
+
     argv = (
         executable,
         "exec",
         "--ignore-user-config",
         "--ephemeral",
+        *((CODEX_SKIP_GIT_REPO_CHECK_FLAG,) if skip_git_repo_check else ()),
         "--sandbox",
         ALLOWED_SANDBOX,
         "-m",
@@ -489,7 +528,7 @@ def _probe_model_exec(
         context_fingerprint="codex-diagnostic",
         instructions='Return a JSON object {"diagnostic": true} only. Do not call tools.',
         payload={"diagnostic": True},
-        timeout_ms=15_000,
+        timeout_ms=CODEX_DIAGNOSTIC_TIMEOUT_MS,
     )
     try:
         result = adapter.complete(request)
@@ -561,6 +600,7 @@ class CodexCliSessionAdapter:
         self._working_directory = working_directory
         self._runner = runner
         self._model = model.strip() if model is not None else None
+        self._skip_git_repo_check = working_directory is None
         runtime_id = configuration_id or "codex-cli"
         runtime_configuration = None
         if self._model is not None:
@@ -568,6 +608,8 @@ class CodexCliSessionAdapter:
                 "sandbox": sandbox,
                 "ephemeral": ephemeral,
                 "ignore_user_config": True,
+                "isolated_non_repository_cwd": self._skip_git_repo_check,
+                "skip_git_repo_check": self._skip_git_repo_check,
                 "executable": executable or DEFAULT_CODEX_EXECUTABLE,
             }
         self._identity = cli_session_runtime_identity(
@@ -603,12 +645,17 @@ class CodexCliSessionAdapter:
                 encoding="utf-8",
             )
             cwd = self._working_directory or Path(tmp)
-            argv = _codex_exec_argv(executable, self._model, schema_path)
+            argv = _codex_exec_argv(
+                executable,
+                self._model,
+                schema_path,
+                skip_git_repo_check=self._skip_git_repo_check,
+            )
             result = _run(
                 self._runner,
                 argv,
                 stdin_bytes=prompt.encode("utf-8"),
-                timeout_ms=request.timeout_ms or 15_000,
+                timeout_ms=request.timeout_ms or CODEX_DIAGNOSTIC_TIMEOUT_MS,
                 working_directory=cwd,
             )
         return _result_from_process(request, result, self._identity, self._version, self._model)
@@ -670,6 +717,8 @@ def _result_from_process(
             raise ProviderAuthError("codex CLI authentication failed")
         if "policy" in combined or "safety" in combined or "content" in combined:
             raise ContentPolicyBlockedError("codex CLI content/safety policy blocked the request")
+        if _codex_non_git_working_directory_error(combined):
+            raise RuntimeProcessError(NON_GIT_WORKING_DIRECTORY_DETAIL)
         raise RuntimeProcessError(result.reason or "codex CLI process failed")
     raw = result.stdout.strip()
     if not raw:
@@ -688,6 +737,10 @@ def _result_from_process(
 
 def _codex_usage_limited(text: str) -> bool:
     return any(marker in text for marker in CODEX_USAGE_LIMIT_MARKERS)
+
+
+def _codex_non_git_working_directory_error(text: str) -> bool:
+    return any(marker in text for marker in CODEX_NON_GIT_WORKING_DIRECTORY_MARKERS)
 
 
 def _load_json_object(raw: str) -> dict[str, object]:
