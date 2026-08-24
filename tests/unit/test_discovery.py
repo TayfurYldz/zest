@@ -7,6 +7,8 @@ import pathsetup  # noqa: F401
 
 from integrations.models.discovery import Readiness, discover_configured_runtimes, gate_04b_status
 
+API_KEY_PREFIX = "sk" + "-"
+
 
 class RuntimeDiscoveryTests(unittest.TestCase):
     def test_empty_env_does_not_fabricate_availability(self) -> None:
@@ -32,7 +34,7 @@ class RuntimeDiscoveryTests(unittest.TestCase):
             )
         )
         serialized = json.dumps(mapping)
-        self.assertNotIn("sk-", serialized)
+        self.assertNotIn(API_KEY_PREFIX, serialized)
         self.assertNotIn("WINNER", serialized)
         strix = next(item for item in report.entries if item.runtime_kind == "STRIX")
         self.assertFalse(strix.counts_as_model_runtime)
@@ -67,8 +69,23 @@ class RuntimeDiscoveryTests(unittest.TestCase):
             harness_invariant_failed=False,
             runs_per_scenario=3,
             development_suite=True,
+            operationally_comparable=True,
+            contract_qualified=True,
+            full_comparison_completed=True,
         )
         self.assertEqual(eligible["status"], "PASS")
+        operational_only = gate_04b_status(
+            available_model_configurations=("openai", "codex-cli"),
+            executed_live_configurations=("openai", "codex-cli"),
+            comparable=True,
+            harness_invariant_failed=False,
+            runs_per_scenario=3,
+            development_suite=True,
+            operationally_comparable=True,
+            contract_qualified=False,
+            full_comparison_completed=True,
+        )
+        self.assertEqual(operational_only["status"], "PENDING")
         self.assertFalse(eligible["sealed_holdout_is_unseen_generalization"])
         leaky = gate_04b_status(
             available_model_configurations=("openai", "anthropic"),
@@ -88,6 +105,39 @@ class RuntimeDiscoveryTests(unittest.TestCase):
             development_suite=True,
         )
         self.assertEqual(single_run["status"], "PENDING")
+
+    def test_gate_04b_does_not_pass_systemic_contract_failure(self) -> None:
+        status = gate_04b_status(
+            available_model_configurations=("openai", "anthropic"),
+            executed_live_configurations=("openai", "anthropic"),
+            comparable=True,
+            harness_invariant_failed=False,
+            runs_per_scenario=3,
+            development_suite=True,
+            operationally_comparable=True,
+            contract_qualified=False,
+            full_comparison_completed=True,
+            contract_status={
+                "contract_qualified": False,
+                "per_runtime": [
+                    {
+                        "configuration_id": "openai",
+                        "generator_calls": 3,
+                        "falsifier_calls": 0,
+                        "structured_output_failures": 3,
+                    },
+                    {
+                        "configuration_id": "anthropic",
+                        "generator_calls": 3,
+                        "falsifier_calls": 0,
+                        "structured_output_failures": 3,
+                    },
+                ],
+            },
+        )
+        self.assertEqual(status["status"], "PENDING")
+        self.assertTrue(status["gate_04b_state"]["OPERATIONALLY_COMPARABLE"])
+        self.assertFalse(status["gate_04b_state"]["CONTRACT_QUALIFIED"])
 
 
 if __name__ == "__main__":

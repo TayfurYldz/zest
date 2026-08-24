@@ -10,6 +10,7 @@ from integrations.models.availability import UnavailableReason
 from integrations.models.common import JsonSchemaModelAdapter, ProviderInvocation, parse_structured_object
 from integrations.models.errors import classify_provider_exception
 from integrations.models.factory import probe_live_adapter
+from integrations.models.json_schemas import FALSIFIER_OUTPUT_SCHEMA, GENERATOR_OUTPUT_SCHEMA
 from integrations.models.secrets import REDACTED, SecretReference, redact_secret
 from research_os.research.model_port import (
     ModelCallRequest,
@@ -19,6 +20,8 @@ from research_os.research.model_port import (
     StructuredOutputTransportError,
 )
 
+API_KEY_PREFIX = "sk" + "-"
+
 
 class _FakeTransport:
     adapter_identity = "test.adapter"
@@ -27,10 +30,11 @@ class _FakeTransport:
     def __init__(self, invocation: ProviderInvocation) -> None:
         self._invocation = invocation
         self.requests: list[ModelCallRequest] = []
+        self.schemas: list[object] = []
 
     def invoke(self, request: ModelCallRequest, schema):
-        del schema
         self.requests.append(request)
+        self.schemas.append(schema)
         return self._invocation
 
 
@@ -53,7 +57,7 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
         self.assertEqual(availability.reason, UnavailableReason.UNKNOWN_ADAPTER)
 
     def test_secret_is_redacted_and_not_copied_into_request(self) -> None:
-        secret = "sk-live-secret-value"
+        secret = "synthetic-live-secret-value"
         self.assertEqual(redact_secret(f"failed {secret}", secret), f"failed {REDACTED}")
         request = ModelCallRequest(
             role=ModelRole.GENERATOR,
@@ -83,6 +87,30 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
         with self.assertRaises(StructuredOutputTransportError):
             adapter.complete(request)
 
+    def test_api_adapter_uses_canonical_role_schemas(self) -> None:
+        transport = _FakeTransport(ProviderInvocation(text='{"ok": true}'))
+        adapter = JsonSchemaModelAdapter(transport)
+        adapter.complete(
+            ModelCallRequest(
+                role=ModelRole.GENERATOR,
+                correlation_id="c1",
+                context_fingerprint="fp",
+                instructions="propose",
+                payload={"task": "x"},
+            )
+        )
+        adapter.complete(
+            ModelCallRequest(
+                role=ModelRole.FALSIFIER,
+                correlation_id="c2",
+                context_fingerprint="fp",
+                instructions="challenge",
+                payload={"proposal": {"proposed_claim": "x"}},
+            )
+        )
+        self.assertEqual(transport.schemas[0], GENERATOR_OUTPUT_SCHEMA)
+        self.assertEqual(transport.schemas[1], FALSIFIER_OUTPUT_SCHEMA)
+
     def test_auth_and_rate_limit_are_distinct(self) -> None:
         auth = classify_provider_exception(RuntimeError("401 unauthorized"))
         rate = classify_provider_exception(RuntimeError("429 rate limit"))
@@ -98,7 +126,7 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
     def test_secret_reference_does_not_echo_value(self) -> None:
         ref = SecretReference("OPENAI_API_KEY")
         self.assertEqual(ref.env_name, "OPENAI_API_KEY")
-        self.assertNotIn("sk-", ref.env_name)
+        self.assertNotIn(API_KEY_PREFIX, ref.env_name)
 
     def test_openai_transport_maps_auth_without_leaking_key(self) -> None:
         from integrations.models.openai_adapter import OpenAIResponsesTransport
@@ -111,12 +139,12 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
                 @staticmethod
                 def create(**kwargs):
                     del kwargs
-                    raise RuntimeError("invalid api_key sk-secret-live")
+                    raise RuntimeError("invalid api_key synthetic-secret-live")
 
         transport = OpenAIResponsesTransport(
             model_id="gpt-test",
             secret=SecretReference("OPENAI_API_KEY"),
-            env={"OPENAI_API_KEY": "sk-secret-live"},
+            env={"OPENAI_API_KEY": "synthetic-secret-live"},
         )
         request = ModelCallRequest(
             role=ModelRole.GENERATOR,
@@ -128,7 +156,7 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
         with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=Boom)}):
             with self.assertRaises(ProviderAuthError) as ctx:
                 transport.invoke(request, {"type": "object"})
-        self.assertNotIn("sk-secret-live", str(ctx.exception))
+        self.assertNotIn("synthetic-secret-live", str(ctx.exception))
 
 
 if __name__ == "__main__":

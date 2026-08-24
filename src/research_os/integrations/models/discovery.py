@@ -290,8 +290,12 @@ def gate_04b_status(
     runs_per_scenario: int,
     development_suite: bool,
     source_authoritative: bool = True,
+    operationally_comparable: bool = False,
+    contract_qualified: bool = False,
+    full_comparison_completed: bool = False,
+    contract_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """GATE 04B PASS requires >=2 executed comparable live ModelRuntime configurations.
+    """GATE 04B PASS requires contract-qualified comparable live configurations.
 
     Availability alone is not PASS. Scripted baselines and Strix do not count.
     """
@@ -299,15 +303,31 @@ def gate_04b_status(
     if harness_invariant_failed:
         status = "NEEDS_REVIEW"
         reason = "comparison leaked or failed harness invariants"
+    elif contract_status is not None and contract_status.get("harness_invariant_failed"):
+        status = "NEEDS_REVIEW"
+        reason = "contract qualification leaked or failed harness invariants"
     elif not source_authoritative:
         status = "PENDING"
         reason = "dirty or untracked source cannot be labelled authoritative GATE 04B"
     elif len(executed_live_configurations) >= 2 and not comparable:
         status = "NEEDS_REVIEW"
         reason = "live runtimes executed but reports are not comparable"
-    elif len(executed_live_configurations) >= 2 and runs_per_scenario > 1 and comparable:
+    elif (
+        len(executed_live_configurations) >= 2
+        and runs_per_scenario > 1
+        and comparable
+        and operationally_comparable
+        and contract_qualified
+        and full_comparison_completed
+    ):
         status = "PASS"
-        reason = ">=2 real comparable runtime configurations executed"
+        reason = ">=2 real configurations are contract-qualified and full comparison completed"
+    elif operationally_comparable and not contract_qualified:
+        status = "PENDING"
+        reason = "live runtimes are operationally comparable but not contract-qualified"
+    elif contract_qualified and not full_comparison_completed:
+        status = "PENDING"
+        reason = "contract qualification passed but full comparison has not completed"
     else:
         status = "PENDING"
         if len(available_model_configurations) < 2:
@@ -323,8 +343,17 @@ def gate_04b_status(
         "available_model_configurations": list(available_model_configurations),
         "executed_live_configurations": list(executed_live_configurations),
         "comparable": comparable,
+        "operationally_comparable": operationally_comparable,
+        "contract_qualified": contract_qualified,
+        "full_comparison_completed": full_comparison_completed,
         "runs_per_scenario": runs_per_scenario,
         "development_suite": development_suite,
+        "gate_04b_harness_version": "gate-04b.2",
+        "gate_04b_state": {
+            "OPERATIONALLY_COMPARABLE": operationally_comparable,
+            "CONTRACT_QUALIFIED": contract_qualified,
+            "FULL_COMPARISON_COMPLETED": full_comparison_completed,
+        },
         "source_authoritative": source_authoritative,
         "sealed_holdout_is_unseen_generalization": False,
         "strix_counted_as_model_runtime": False,

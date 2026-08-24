@@ -28,6 +28,11 @@ from research_os.integrations.models.discovery import (
     discover_configured_runtimes,
     gate_04b_status,
 )
+from research_os.integrations.models.json_schemas import (
+    DIAGNOSTIC_OUTPUT_SCHEMA,
+    FALSIFIER_OUTPUT_SCHEMA,
+    GENERATOR_OUTPUT_SCHEMA,
+)
 from research_os.interface.cli import build_status_snapshot
 from research_os.maturity import GATE_04B_STATUS
 from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
@@ -45,9 +50,11 @@ from research_os.research.model_port import (
 from research_os.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
+API_KEY_PREFIX = "sk" + "-"
+
 
 def _transport_stdout(inner: dict) -> str:
-    return json.dumps({"result_json": json.dumps(inner, separators=(",", ":"))})
+    return json.dumps(inner, separators=(",", ":"))
 
 
 def _request() -> ModelCallRequest:
@@ -225,9 +232,10 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         self.assertNotIn("dangerously-bypass-approvals-and-sandbox", argv)
         self.assertNotIn("--full-auto", argv)
         self.assertIn(b"propose", captured["stdin"] or b"")
-        self.assertIn(b"result_json", captured["stdin"] or b"")
+        self.assertIn(b"Do not wrap it in result_json", captured["stdin"] or b"")
         self.assertEqual(captured["schema"]["additionalProperties"], False)
-        self.assertEqual(captured["schema"]["required"], ["result_json"])
+        self.assertNotIn("result_json", captured["schema"]["properties"])
+        self.assertEqual(captured["schema"], GENERATOR_OUTPUT_SCHEMA)
 
     def test_caller_supplied_working_directory_does_not_skip_git_check(self) -> None:
         captured = {}
@@ -362,7 +370,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         self.assertNotEqual(first.configuration_fingerprint, second.configuration_fingerprint)
         self.assertEqual(first.runtime_kind.value, "CLI_SESSION")
         serialized = json.dumps(first.to_mapping())
-        self.assertNotIn("sk-", serialized)
+        self.assertNotIn(API_KEY_PREFIX, serialized)
         self.assertNotIn("token=", serialized)
 
     def test_no_credential_leakage_in_probe_payload(self) -> None:
@@ -380,7 +388,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         )
         serialized = json.dumps(result.to_mapping())
         self.assertNotIn("synthetic-secret-value", serialized)
-        self.assertNotIn("sk-", serialized)
+        self.assertNotIn(API_KEY_PREFIX, serialized)
 
     def test_host_probe_without_model_is_not_benchmark_compatible(self) -> None:
         availability = probe_codex_cli(runner=_argv_runner(frozenset({"gpt-5.5"})))
@@ -424,7 +432,7 @@ class CodexDiscoveryTests(unittest.TestCase):
         self.assertEqual(pending["status"], "PENDING")
         self.assertFalse(pending["strix_counted_as_model_runtime"])
         serialized = json.dumps(both.to_mapping())
-        self.assertNotIn("sk-", serialized)
+        self.assertNotIn(API_KEY_PREFIX, serialized)
         terra = next(item for item in both.entries if item.configuration_id == "codex-cli-terra")
         gpt55 = next(item for item in both.entries if item.configuration_id == "codex-cli-gpt55")
         self.assertEqual(terra.readiness, Readiness.AVAILABLE)
@@ -460,14 +468,11 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
     def test_strict_schema_requires_additional_properties_false(self) -> None:
         self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["additionalProperties"], False)
         self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["type"], "object")
-        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["required"], ["result_json"])
-        self.assertEqual(
-            STRUCTURED_OUTPUT_SCHEMA["properties"]["result_json"],
-            {"type": "string"},
-        )
+        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA, DIAGNOSTIC_OUTPUT_SCHEMA)
+        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["required"], ["diagnostic"])
         self.assertNotEqual(STRUCTURED_OUTPUT_SCHEMA.get("additionalProperties"), True)
 
-    def test_result_json_envelope_decoding(self) -> None:
+    def test_direct_application_object_decoding(self) -> None:
         result = self._complete(_transport_stdout({"claim": "ok", "count": 2}))
         self.assertEqual(result.structured_output, {"claim": "ok", "count": 2})
         self.assertNotIn("result_json", result.structured_output)
@@ -503,8 +508,8 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         )
         self.assertEqual(result.structured_output, {"diagnostic": True})
         stdin = captured["stdin"] or b""
-        self.assertIn(b"result_json", stdin)
-        self.assertIn(b"JSON-serialize", stdin)
+        self.assertIn(b"Do not wrap it in result_json", stdin)
+        self.assertIn(b"application_json_schema", stdin)
         probe = probe_codex_cli(
             configuration=parse_codex_model_configurations(
                 "codex-cli-terra=gpt-5.6-terra", executable="codex"
@@ -516,27 +521,57 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         self.assertTrue(probe.readiness.benchmark_compatible)
         self.assertIn("gpt-5.6-terra", probe.detail)
 
-    def test_invalid_outer_payload_is_transport_error(self) -> None:
-        with self.assertRaises(StructuredOutputTransportError):
-            self._complete('{"diagnostic": true}')
+    def test_direct_object_is_not_rejected_by_transport_shape(self) -> None:
+        result = self._complete('{"diagnostic": true}')
+        self.assertEqual(result.structured_output, {"diagnostic": True})
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": "{}", "extra": true}')
 
-    def test_missing_result_json_is_transport_error(self) -> None:
-        with self.assertRaises(StructuredOutputTransportError):
-            self._complete("{}")
+    def test_empty_direct_object_is_transport_shape_valid(self) -> None:
+        result = self._complete("{}")
+        self.assertEqual(result.structured_output, {})
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": null}')
 
-    def test_invalid_inner_json_is_transport_error(self) -> None:
+    def test_legacy_result_json_envelope_is_transport_error(self) -> None:
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": "{not-json}"}')
-
-    def test_inner_json_not_object_is_transport_error(self) -> None:
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": "[1]"}')
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": "\\"text\\""}')
+
+    def test_falsifier_schema_is_role_specific(self) -> None:
+        captured = {}
+
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            schema_path = argv[argv.index("--output-schema") + 1]
+            captured["schema"] = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.COMPLETED,
+                argv=argv,
+                exit_code=0,
+                stdout=_transport_stdout({"proposed_disconfirming_observation": "mismatch"}),
+            )
+
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.5",
+            configuration_id="codex-cli-gpt55",
+            runner=runner,
+        )
+        adapter.complete(
+            ModelCallRequest(
+                role=ModelRole.FALSIFIER,
+                correlation_id="c1",
+                context_fingerprint="fp",
+                instructions="challenge",
+                payload={"proposal": {"proposed_claim": "x"}},
+            )
+        )
+        self.assertEqual(captured["schema"], FALSIFIER_OUTPUT_SCHEMA)
 
     def test_both_configured_models_remain_independent_and_gate04b_pending(self) -> None:
         env = {

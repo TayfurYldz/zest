@@ -6,51 +6,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 
+from research_os.research.output_contracts import (
+    FALSIFIER_CONTRACT,
+    FORBIDDEN_AUTHORITY_KEYS,
+    GENERATOR_CONTRACT,
+)
 from research_os.research.types import ResearchInputError
 
-FORBIDDEN_AUTHORITY_KEYS = frozenset(
-    {
-        "severity",
-        "exploitability",
-        "finding",
-        "evidence",
-        "authorization",
-        "confidence",
-        "novelty_score",
-        "n4",
-        "zero_day",
-        "scope",
-        "budget_change",
-        "declares_evidence",
-        "declares_finding",
-    }
-)
-
-PROPOSAL_KEYS = frozenset(
-    {
-        "proposed_claim",
-        "rationale",
-        "source_references",
-        "assumptions",
-        "expected_security_relevance",
-        "unresolved_questions",
-        "suggested_disconfirming_test",
-        "suggested_capability",
-        "novelty_basis",
-    }
-)
-
-CHALLENGE_KEYS = frozenset(
-    {
-        "alternative_explanations",
-        "missing_preconditions",
-        "contradictory_source_references",
-        "required_negative_controls",
-        "ambiguity",
-        "reasons_not_to_test",
-        "proposed_disconfirming_observation",
-    }
-)
+PROPOSAL_KEYS = GENERATOR_CONTRACT.allowed_keys
+CHALLENGE_KEYS = FALSIFIER_CONTRACT.allowed_keys
 
 
 class NoveltyBasis(Enum):

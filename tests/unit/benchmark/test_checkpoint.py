@@ -99,6 +99,32 @@ class StagedErrorModelPort:
         return create_baseline(GOOD_BASELINE).complete(request)
 
 
+class ContractAwareModelPort:
+    def __init__(self, full_model) -> None:
+        self.full_model = full_model
+        self.contract_model = create_baseline(GOOD_BASELINE)
+        self.calls: list[ModelCallRequest] = []
+
+    def complete(self, request: ModelCallRequest) -> ModelCallResult:
+        self.calls.append(request)
+        context = request.payload.get("research_context")
+        if (
+            isinstance(context, dict)
+            and context.get("research_run_id") == "run-gate04b-clean-contract"
+        ):
+            return self.contract_model.complete(request)
+        return self.full_model.complete(request)
+
+
+class RecordingContractFailurePort:
+    def __init__(self) -> None:
+        self.calls: list[ModelCallRequest] = []
+
+    def complete(self, request: ModelCallRequest) -> ModelCallResult:
+        self.calls.append(request)
+        return create_baseline(GOOD_BASELINE).complete(request)
+
+
 def _normalize_report(report) -> dict:
     payload = report.to_mapping()
     payload.pop("run_id", None)
@@ -150,7 +176,7 @@ def fake_resolve_live(adapter_id: str, model_id: str | None):
     del model_id
     baseline = GOOD_BASELINE if adapter_id == "openai" else BAD_HALLUCINATOR
     return (
-        create_baseline(baseline),
+        ContractAwareModelPort(create_baseline(baseline)),
         identity_for_live(
             adapter_identity=f"{adapter_id}.test",
             provider_adapter_identity=adapter_id,
@@ -173,10 +199,19 @@ def fake_resolve_no_call(adapter_id: str, model_id: str | None):
 
 def fake_gate_status(**kwargs):
     return {
-        "status": "PASS" if len(kwargs["executed_live_configurations"]) == 2 else "PENDING",
+        "status": "PASS"
+        if (
+            len(kwargs["executed_live_configurations"]) == 2
+            and kwargs.get("contract_qualified") is True
+            and kwargs.get("full_comparison_completed") is True
+        )
+        else "PENDING",
         "reason": "test-only status",
         "available_model_configurations": list(kwargs["available_model_configurations"]),
         "executed_live_configurations": list(kwargs["executed_live_configurations"]),
+        "operationally_comparable": kwargs.get("operationally_comparable", False),
+        "contract_qualified": kwargs.get("contract_qualified", False),
+        "full_comparison_completed": kwargs.get("full_comparison_completed", False),
         "no_automatic_winner": True,
     }
 
@@ -671,6 +706,18 @@ class BenchmarkCheckpointTests(unittest.TestCase):
                     identity,
                     "commit-a",
                 ),
+                "v1_schema_version": (
+                    scenarios,
+                    replace(
+                        config,
+                        instruction_identity=replace(
+                            instr,
+                            structured_output_spec_version="research.structured-output.v1",
+                        ),
+                    ),
+                    identity,
+                    "commit-a",
+                ),
                 "adapter": (
                     scenarios,
                     config,
@@ -955,10 +1002,10 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                     resolve_live=fake_resolve_live,
                     discover_runtimes=fake_discover_runtimes,
                     evaluate_live_status=fake_gate_status,
-                )
+            )
             self.assertEqual(code, 0)
-            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/paired-plan.json"))), 1)
-            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/models/*/*/plan.json"))), 2)
+            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/paired-plan.json"))), 2)
+            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/models/*/*/plan.json"))), 4)
 
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 resumed = run_cli(
@@ -980,7 +1027,8 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
     def test_discover_and_compare_json_report_persists_paired_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "paired.json"
-            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
                 code = run_cli(
                     [
                         "--discover-and-compare",
@@ -1007,6 +1055,9 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
             self.assertEqual(payload["paired_comparison"]["kind"], "PairedComparison")
             self.assertEqual(payload["gate_04b_status"]["status"], "PASS")
             self.assertEqual(len(payload["executed_model_configurations"]), 2)
+            self.assertEqual(payload["paired_comparison"]["left_configuration"], "openai")
+            self.assertEqual(payload["paired_comparison"]["right_configuration"], "anthropic")
+            self.assertIn("paired comparison: openai (openai-model) vs anthropic (anthropic-model)", out.getvalue())
             self.assertTrue(payload["reports"][0]["no_aggregate_model_score"])
             self.assertTrue(payload["reports"][1]["no_aggregate_model_score"])
             self.assertNotIn('"WINNER"', json.dumps(payload))
@@ -1123,6 +1174,57 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                     "research_quality_failures"
                 ],
                 0,
+            )
+
+    def test_contract_failure_prevents_full_suite_execution_and_final_bundle(self) -> None:
+        failing = ScriptedModelPort(
+            adapter_identity="anthropic.test",
+            generator={"unsupported": True},
+            falsifier=cautious_falsifier,
+        )
+        good = RecordingContractFailurePort()
+
+        def resolve_contract_failure(adapter_id: str, model_id: str | None):
+            del model_id
+            port = good if adapter_id == "openai" else failing
+            return (
+                port,
+                identity_for_live(
+                    adapter_identity=f"{adapter_id}.test",
+                    provider_adapter_identity=adapter_id,
+                    provider_model_id=f"{adapter_id}-model",
+                ),
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "paired.json"
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                    ],
+                    resolve_live=resolve_contract_failure,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(code, 0)
+            self.assertFalse(report.exists())
+            self.assertIn("GATE 04B CONTRACT", out.getvalue())
+            self.assertNotIn("suite: research-os.development.v1", out.getvalue())
+            self.assertTrue(failing.calls)
+            self.assertTrue(
+                all(
+                    request.payload.get("research_context", {}).get("research_run_id")
+                    == "run-gate04b-clean-contract"
+                    for request in failing.calls
+                )
             )
 
     def test_ordered_paired_checkpoint_refuses_reversed_or_replaced_pair(self) -> None:
@@ -1312,12 +1414,14 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
             del model_id
             if adapter_id == "openai":
                 return (
-                    ScriptedModelPort(
-                        adapter_identity="openai.test",
-                        generator=good_generator,
-                        falsifier=cautious_falsifier,
-                        error=ProviderTimeoutError("provider timeout"),
-                        fail_role=ModelRole.GENERATOR,
+                    ContractAwareModelPort(
+                        ScriptedModelPort(
+                            adapter_identity="openai.test",
+                            generator=good_generator,
+                            falsifier=cautious_falsifier,
+                            error=ProviderTimeoutError("provider timeout"),
+                            fail_role=ModelRole.GENERATOR,
+                        )
                     ),
                     identity_for_live(
                         adapter_identity="openai.test",

@@ -14,14 +14,16 @@ from research_os.research.cycle import (
     GENERATOR_INSTRUCTIONS,
     STRUCTURED_OUTPUT_SPEC_VERSION,
 )
-from research_os.research.proposals import CHALLENGE_KEYS, PROPOSAL_KEYS
+from research_os.research.output_contracts import combined_contract_fingerprint
 
-HARNESS_VERSION = "gate-04b.1"
+HARNESS_VERSION = "gate-04b.2"
+CONTRACT_QUALIFICATION_HARNESS_VERSION = "gate-04b.2.contract"
 CONTEXT_BUILDER_VERSION = "ResearchContextBuilder.v1"
 ADMISSION_VERSION = "admit_hypothesis.v1"
 EVALUATOR_VERSION = "benchmark.evaluator.v1"
 DEFAULT_RUNS_PER_SCENARIO = 3
 DEFAULT_SUITE_ID = "research-os.development.v1"
+CONTRACT_QUALIFICATION_SUITE_ID = "research-os.clean-contract.v2"
 
 
 def fingerprint_text(value: str) -> str:
@@ -29,14 +31,13 @@ def fingerprint_text(value: str) -> str:
 
 
 def current_instruction_identity() -> InstructionIdentity:
-    spec = ",".join(sorted(PROPOSAL_KEYS) + sorted(CHALLENGE_KEYS))
     return InstructionIdentity(
         generator_instruction_version=GENERATOR_INSTRUCTION_VERSION,
         generator_instruction_fingerprint=fingerprint_text(GENERATOR_INSTRUCTIONS),
         falsifier_instruction_version=FALSIFIER_INSTRUCTION_VERSION,
         falsifier_instruction_fingerprint=fingerprint_text(FALSIFIER_INSTRUCTIONS),
         structured_output_spec_version=STRUCTURED_OUTPUT_SPEC_VERSION,
-        structured_output_spec_fingerprint=fingerprint_text(spec),
+        structured_output_spec_fingerprint=combined_contract_fingerprint(),
     )
 
 

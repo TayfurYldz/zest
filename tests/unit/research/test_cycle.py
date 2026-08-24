@@ -16,8 +16,13 @@ from research_os.research.cycle import (
     generate_proposal,
     instructions_contain_untrusted,
 )
+from research_os.integrations.models.json_schemas import (
+    FALSIFIER_OUTPUT_SCHEMA,
+    GENERATOR_OUTPUT_SCHEMA,
+)
 from research_os.research.epistemic import EpistemicClass
 from research_os.research.model_port import ModelRole
+from research_os.research.output_contracts import FALSIFIER_CONTRACT, GENERATOR_CONTRACT
 from research_os.research.planning import (
     DIAGNOSTIC_CLAIM,
     DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
@@ -106,6 +111,18 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
         )
         self.assertEqual(self.model.calls[1].instructions, FALSIFIER_INSTRUCTIONS)
         self.assertNotIn(HOSTILE, self.model.calls[1].instructions)
+
+    def test_canonical_contract_drives_parser_schema_and_instructions(self) -> None:
+        self.assertEqual(GENERATOR_OUTPUT_SCHEMA, GENERATOR_CONTRACT.json_schema())
+        self.assertEqual(FALSIFIER_OUTPUT_SCHEMA, FALSIFIER_CONTRACT.json_schema())
+        for key in GENERATOR_CONTRACT.allowed_keys:
+            self.assertIn(key, GENERATOR_INSTRUCTIONS)
+        for key in FALSIFIER_CONTRACT.allowed_keys:
+            self.assertIn(key, FALSIFIER_INSTRUCTIONS)
+        self.assertIn("additionalProperties=false", GENERATOR_INSTRUCTIONS)
+        self.assertIn("additionalProperties=false", FALSIFIER_INSTRUCTIONS)
+        self.assertIn("confidence", GENERATOR_INSTRUCTIONS)
+        self.assertIn("authorization", FALSIFIER_INSTRUCTIONS)
 
     def test_prior_hypothesis_payload_is_marked_not_a_fact(self) -> None:
         payload = generate_proposal(

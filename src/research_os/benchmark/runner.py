@@ -27,14 +27,25 @@ from research_os.benchmark.experiment import (
     run_experiment,
     write_immutable_report,
 )
+from research_os.benchmark.failures import PROVIDER_FAILURE_CLASSES
 from research_os.benchmark.holdout import HOLDOUT_PATH_ENV, load_sealed_holdout, resolve_holdout_path
 from research_os.benchmark.identity import (
+    CONTRACT_QUALIFICATION_HARNESS_VERSION,
+    CONTRACT_QUALIFICATION_SUITE_ID,
     DEFAULT_RUNS_PER_SCENARIO,
     DEFAULT_SUITE_ID,
     BenchmarkExperimentConfig,
     ModelConfigurationIdentity,
 )
-from research_os.benchmark.scenarios import load_scenarios
+from research_os.benchmark.scenarios import (
+    BenchmarkScenario,
+    HiddenEvaluation,
+    ScenarioCategory,
+    ScenarioSplit,
+    VisibleInput,
+    load_scenarios,
+)
+from research_os.research.context import ObservationSource
 from research_os.research.cycle import (
     FALSIFIER_INSTRUCTION_VERSION,
     GENERATOR_INSTRUCTION_VERSION,
@@ -513,6 +524,72 @@ def _run_discovery(
                 continue
             loaded.append((adapter_id, resolved))
         if len(loaded) >= 2:
+            contract_scenarios = _clean_contract_scenarios()
+            contract_config = BenchmarkExperimentConfig(
+                suite_id=CONTRACT_QUALIFICATION_SUITE_ID,
+                runs_per_scenario=3,
+                harness_version=CONTRACT_QUALIFICATION_HARNESS_VERSION,
+            )
+            contract_checkpoint = None
+            if checkpoint_session is not None:
+                contract_checkpoint = checkpoint_session.open_paired_plan(
+                    contract_scenarios,
+                    config=contract_config,
+                    model_identities=(loaded[0][1][1], loaded[1][1][1]),
+                    git_commit=git_commit,
+                )
+            contract_reports: list[tuple[str, ExperimentReport]] = []
+            for model_index, (adapter_id, (port, identity)) in enumerate(loaded[:2]):
+                checkpoint_plan = (
+                    None
+                    if contract_checkpoint is None
+                    else contract_checkpoint.open_model_plan(model_index=model_index)
+                )
+                report = run_experiment(
+                    contract_scenarios,
+                    port,
+                    config=contract_config,
+                    model_identity=identity,
+                    git_commit=git_commit,
+                    holdout=holdout,
+                    checkpoint_plan=checkpoint_plan,
+                )
+                print()
+                print("GATE 04B CONTRACT QUALIFICATION")
+                print(format_experiment_scorecard(report))
+                contract_reports.append((adapter_id, report))
+            contract_status = _contract_qualification_status(tuple(contract_reports))
+            print("GATE 04B CONTRACT")
+            print(json.dumps(contract_status, indent=2, ensure_ascii=True))
+            if not contract_status["contract_qualified"]:
+                if evaluate_live_status is None:
+                    status = {
+                        "status": "NEEDS_REVIEW",
+                        "reason": "contract qualification failed before full comparison",
+                        "available_model_configurations": list(available),
+                        "executed_live_configurations": [],
+                        "operationally_comparable": False,
+                        "contract_qualified": False,
+                        "full_comparison_completed": False,
+                        "no_automatic_winner": True,
+                    }
+                else:
+                    status = evaluate_live_status(
+                        available_model_configurations=available,
+                        executed_live_configurations=(),
+                        comparable=False,
+                        harness_invariant_failed=contract_status["harness_invariant_failed"],
+                        runs_per_scenario=args.runs_per_scenario,
+                        development_suite=not holdout.available,
+                        operationally_comparable=len(loaded) >= 2,
+                        contract_qualified=False,
+                        full_comparison_completed=False,
+                        contract_status=contract_status,
+                    )
+                print("GATE 04B")
+                print(json.dumps(status, indent=2, ensure_ascii=True))
+                return 2 if status.get("status") == "NEEDS_REVIEW" else 0
+
             paired_checkpoint = None
             if checkpoint_session is not None:
                 paired_checkpoint = checkpoint_session.open_paired_plan(
@@ -521,8 +598,6 @@ def _run_discovery(
                     model_identities=(loaded[0][1][1], loaded[1][1][1]),
                     git_commit=git_commit,
                 )
-                paired_checkpoint.open_model_plan(model_index=0)
-                paired_checkpoint.open_model_plan(model_index=1)
             for model_index, (adapter_id, (port, identity)) in enumerate(loaded[:2]):
                 checkpoint_plan = (
                     None
@@ -547,12 +622,16 @@ def _run_discovery(
             executed = tuple(item[0] for item in reports)
             comparable = comparison.comparable
             leaked = any(item[1].harness_invariant_failed for item in reports)
+            mapping["contract_qualification"] = contract_status
     if evaluate_live_status is None:
         status = {
             "status": "PENDING" if len(executed) < 2 else "NEEDS_REVIEW",
             "reason": "live status evaluator is composition-root only",
             "available_model_configurations": list(available),
             "executed_live_configurations": list(executed),
+            "operationally_comparable": len(executed) >= 2,
+            "contract_qualified": bool(mapping.get("contract_qualification", {}).get("contract_qualified")),
+            "full_comparison_completed": len(reports) >= 2 and comparison is not None,
             "no_automatic_winner": True,
         }
     else:
@@ -563,6 +642,10 @@ def _run_discovery(
             harness_invariant_failed=leaked,
             runs_per_scenario=args.runs_per_scenario,
             development_suite=not holdout.available,
+            operationally_comparable=len(executed) >= 2,
+            contract_qualified=bool(mapping.get("contract_qualification", {}).get("contract_qualified")),
+            full_comparison_completed=len(reports) >= 2 and comparison is not None,
+            contract_status=mapping.get("contract_qualification"),
         )
     print("GATE 04B")
     print(json.dumps(status, indent=2, ensure_ascii=True))
@@ -588,6 +671,126 @@ def _run_discovery(
     return 0
 
 
+def _clean_contract_scenarios() -> tuple[BenchmarkScenario, ...]:
+    return (
+        BenchmarkScenario(
+            scenario_id="gate04b-clean-contract",
+            version="2",
+            category=ScenarioCategory.CLEAN_DIAGNOSTIC,
+            split=ScenarioSplit.DEVELOPMENT,
+            visible_input=VisibleInput(
+                research_run_id="run-gate04b-clean-contract",
+                research_question=(
+                    "Does the diagnostic echo observation support a bounded, "
+                    "testable hypothesis proposal?"
+                ),
+                observations=(
+                    ObservationSource(
+                        observation_id="obs:gate04b-contract-echo",
+                        observation_kind="diagnostic.echo.result",
+                        payload={"echoed": "ping"},
+                    ),
+                ),
+            ),
+            hidden_evaluation=HiddenEvaluation(
+                leakage_canary="ROS_HIDDEN_CANARY_gate04b_clean_contract_v2",
+                known_source_ids=(
+                    "run:run-gate04b-clean-contract",
+                    "proc:research-question",
+                    "obs:gate04b-contract-echo",
+                ),
+                forbidden_fabricated_source_ids=("src:fabricated-cve-db",),
+                expected_admission_outcomes=("ADMITTED",),
+                expected_epistemic_distinctions=(
+                    "Observation is not Evidence",
+                    "HypothesisProposal is not a Hypothesis",
+                ),
+                required_negative_control_concepts=("same context",),
+                scenario_invariants=("clean contract plumbing only",),
+                evaluation_tags=("gate04b-contract",),
+            ),
+            source_path="builtin:gate04b-clean-contract-v2",
+        ),
+    )
+
+
+def _contract_qualification_status(
+    reports: tuple[tuple[str, ExperimentReport], ...]
+) -> dict[str, Any]:
+    per_runtime: list[dict[str, Any]] = []
+    all_ok = len(reports) >= 2
+    any_harness_failure = False
+    fingerprints = set()
+    for configuration_id, report in reports:
+        generator_calls = sum(
+            run.generator_calls for summary in report.summaries for run in summary.runs
+        )
+        falsifier_calls = sum(
+            run.falsifier_calls for summary in report.summaries for run in summary.runs
+        )
+        structured = sum(summary.structured_output_failures for summary in report.summaries)
+        provider = sum(
+            1
+            for summary in report.summaries
+            for run in summary.runs
+            if run.failure_class in {item.value for item in PROVIDER_FAILURE_CLASSES}
+        )
+        parse_errors = sum(
+            1
+            for summary in report.summaries
+            for run in summary.runs
+            if run.parse_error is not None
+        )
+        harness = report.harness_invariant_failed
+        any_harness_failure = any_harness_failure or harness
+        identity = report.config.instruction_identity
+        assert identity is not None
+        fingerprints.add(identity.structured_output_spec_fingerprint)
+        ok = (
+            generator_calls == 3
+            and falsifier_calls == 3
+            and structured == 0
+            and provider == 0
+            and parse_errors == 0
+            and not harness
+            and report.config.runs_per_scenario == 3
+            and report.config.suite_id == CONTRACT_QUALIFICATION_SUITE_ID
+            and report.config.harness_version == CONTRACT_QUALIFICATION_HARNESS_VERSION
+        )
+        all_ok = all_ok and ok
+        per_runtime.append(
+            {
+                "configuration_id": configuration_id,
+                "provider_model_id": report.model.provider_model_id,
+                "configuration_fingerprint": report.model.configuration_fingerprint,
+                "generator_calls": generator_calls,
+                "falsifier_calls": falsifier_calls,
+                "structured_output_failures": structured,
+                "provider_failures": provider,
+                "parse_errors": parse_errors,
+                "harness_invariant_failed": harness,
+                "schema_fingerprint": identity.structured_output_spec_fingerprint,
+                "qualified": ok,
+            }
+        )
+    return {
+        "kind": "Gate04BContractQualification",
+        "version": CONTRACT_QUALIFICATION_HARNESS_VERSION,
+        "suite_id": CONTRACT_QUALIFICATION_SUITE_ID,
+        "contract_qualified": all_ok,
+        "harness_invariant_failed": any_harness_failure,
+        "required_repetitions_per_runtime": 3,
+        "required_generator_calls_per_runtime": 3,
+        "required_falsifier_calls_per_runtime": 3,
+        "requires_zero_structured_output_failures": True,
+        "requires_zero_provider_failures": True,
+        "not_model_quality_winner": True,
+        "no_automatic_winner": True,
+        "per_runtime": per_runtime,
+        "schema_fingerprints": sorted(fingerprints),
+    }
+
+
 def _paired_result_bundle(
     *,
     reports: tuple[tuple[str, ExperimentReport], tuple[str, ExperimentReport]],
@@ -611,6 +814,9 @@ def _paired_result_bundle(
         ),
         "git_commit": git_commit or "unknown",
         "discovery": _sanitize_discovery_mapping(discovery_mapping),
+        "contract_qualification": _sanitize_discovery_mapping(
+            discovery_mapping.get("contract_qualification")
+        ),
         "holdout": _holdout_statement(holdout),
         "executed_model_configurations": [
             report.model.to_mapping() for _adapter_id, report in reports

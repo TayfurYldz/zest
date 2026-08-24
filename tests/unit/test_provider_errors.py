@@ -109,7 +109,7 @@ class CodexReadinessTests(unittest.TestCase):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout=json.dumps({"result_json": json.dumps({"ok": True}, separators=(",", ":"))}),
+                stdout=json.dumps({"ok": True}, separators=(",", ":")),
             )
 
         adapter = CodexCliSessionAdapter(
@@ -130,7 +130,7 @@ class CodexReadinessTests(unittest.TestCase):
         self.assertEqual(result.structured_output["ok"], True)
         self.assertIn(b"unique-instruction-text", captured["stdin"] or b"")
         self.assertIn(b"payload-marker", captured["stdin"] or b"")
-        self.assertIn(b"result_json", captured["stdin"] or b"")
+        self.assertIn(b"Do not wrap it in result_json", captured["stdin"] or b"")
         self.assertNotIn("unique-instruction-text", captured["argv"])
         self.assertTrue(adapter.MODELPORT_COMPATIBLE)
 

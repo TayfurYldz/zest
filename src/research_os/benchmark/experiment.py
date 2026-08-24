@@ -149,6 +149,10 @@ class PairedComparison:
     reason: str
     left_adapter: str
     right_adapter: str
+    left_configuration: str | None = None
+    right_configuration: str | None = None
+    left_model_id: str | None = None
+    right_model_id: str | None = None
     scenarios: tuple[PairedScenarioObservation, ...] = ()
 
     def to_mapping(self) -> dict[str, Any]:
@@ -158,6 +162,10 @@ class PairedComparison:
             "reason": self.reason,
             "left_adapter": self.left_adapter,
             "right_adapter": self.right_adapter,
+            "left_configuration": self.left_configuration,
+            "right_configuration": self.right_configuration,
+            "left_model_id": self.left_model_id,
+            "right_model_id": self.right_model_id,
             "no_automatic_winner": True,
             "scenarios": [item.to_mapping() for item in self.scenarios],
         }
@@ -298,6 +306,10 @@ def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> Pair
             reason="Research OS commit differs; results are not directly comparable",
             left_adapter=left.model.adapter_identity,
             right_adapter=right.model.adapter_identity,
+            left_configuration=left.model.runtime_id,
+            right_configuration=right.model.runtime_id,
+            left_model_id=left.model.provider_model_id,
+            right_model_id=right.model.provider_model_id,
         )
     if left.suite.suite_fingerprint != right.suite.suite_fingerprint:
         return PairedComparison(
@@ -305,6 +317,10 @@ def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> Pair
             reason="suite fingerprints differ; results are not directly comparable",
             left_adapter=left.model.adapter_identity,
             right_adapter=right.model.adapter_identity,
+            left_configuration=left.model.runtime_id,
+            right_configuration=right.model.runtime_id,
+            left_model_id=left.model.provider_model_id,
+            right_model_id=right.model.provider_model_id,
         )
     if left.config.comparable_key != right.config.comparable_key:
         return PairedComparison(
@@ -312,6 +328,10 @@ def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> Pair
             reason="experiment config/instruction versions differ; not directly comparable",
             left_adapter=left.model.adapter_identity,
             right_adapter=right.model.adapter_identity,
+            left_configuration=left.model.runtime_id,
+            right_configuration=right.model.runtime_id,
+            left_model_id=left.model.provider_model_id,
+            right_model_id=right.model.provider_model_id,
         )
     right_by_id = {(item.scenario_id, item.version): item for item in right.summaries}
     paired: list[PairedScenarioObservation] = []
@@ -323,6 +343,10 @@ def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> Pair
                 reason=f"missing paired scenario {item.scenario_id}@{item.version}",
                 left_adapter=left.model.adapter_identity,
                 right_adapter=right.model.adapter_identity,
+                left_configuration=left.model.runtime_id,
+                right_configuration=right.model.runtime_id,
+                left_model_id=left.model.provider_model_id,
+                right_model_id=right.model.provider_model_id,
             )
         paired.append(
             PairedScenarioObservation(
@@ -337,6 +361,10 @@ def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> Pair
         reason="same suite fingerprint, instruction identity, and runs_per_scenario",
         left_adapter=left.model.adapter_identity,
         right_adapter=right.model.adapter_identity,
+        left_configuration=left.model.runtime_id,
+        right_configuration=right.model.runtime_id,
+        left_model_id=left.model.provider_model_id,
+        right_model_id=right.model.provider_model_id,
         scenarios=tuple(paired),
     )
 
@@ -362,6 +390,9 @@ def format_experiment_scorecard(report: ExperimentReport) -> str:
     lines = [
         f"run_id: {report.run_id}",
         f"adapter: {report.model.adapter_identity}",
+        f"configuration: {report.model.runtime_id or report.model.provider_adapter_identity}",
+        f"model: {report.model.provider_model_id or 'unknown'}",
+        f"configuration_fingerprint: {report.model.configuration_fingerprint or 'unknown'}",
         f"suite: {report.suite.suite_id} fingerprint={report.suite.suite_fingerprint[:12]}",
         f"scenarios: {report.suite.scenario_count}",
         f"runs_per_scenario: {report.config.runs_per_scenario}",
@@ -399,8 +430,11 @@ def format_experiment_scorecard(report: ExperimentReport) -> str:
 
 
 def format_paired(comparison: PairedComparison) -> str:
+    left_label = comparison.left_configuration or comparison.left_adapter
+    right_label = comparison.right_configuration or comparison.right_adapter
     lines = [
-        f"paired comparison: {comparison.left_adapter} vs {comparison.right_adapter}",
+        f"paired comparison: {left_label} ({comparison.left_model_id or comparison.left_adapter}) "
+        f"vs {right_label} ({comparison.right_model_id or comparison.right_adapter})",
         f"comparable: {comparison.comparable}",
         f"reason: {comparison.reason}",
         "no automatic winner",
@@ -409,8 +443,8 @@ def format_paired(comparison: PairedComparison) -> str:
         return "\n".join(lines)
     for item in comparison.scenarios:
         lines.append(f"{item.scenario_id}@{item.version}:")
-        lines.append(f"  {comparison.left_adapter}: {item.left}")
-        lines.append(f"  {comparison.right_adapter}: {item.right}")
+        lines.append(f"  {left_label}: {item.left}")
+        lines.append(f"  {right_label}: {item.right}")
     return "\n".join(lines)
 
 

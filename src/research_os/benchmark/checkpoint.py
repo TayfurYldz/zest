@@ -433,6 +433,7 @@ class BenchmarkCheckpointSession:
         )
         paired_dir = self.root / "paired-plans" / plan.fingerprint
         plan_file = paired_dir / PAIRED_PLAN_FILE
+        allow_create_missing_resume_stage = False
         if plan_file.exists():
             stored = _read_json(plan_file)
             if (
@@ -442,7 +443,11 @@ class BenchmarkCheckpointSession:
                 raise BenchmarkError("checkpoint paired experiment plan fingerprint mismatch")
         else:
             if self.resume:
-                raise BenchmarkError("checkpoint paired experiment plan not found for resume")
+                allow_create_missing_resume_stage = self._resume_may_create_missing_paired_stage(
+                    plan.material
+                )
+                if not allow_create_missing_resume_stage:
+                    raise BenchmarkError("checkpoint paired experiment plan not found for resume")
             _atomic_write_json(
                 plan_file,
                 {
@@ -465,6 +470,35 @@ class BenchmarkCheckpointSession:
             boundary_budget=self.boundary_budget,
             pause_path=self.root / PAUSE_FILE,
         )
+
+    def _resume_may_create_missing_paired_stage(self, material: Mapping[str, Any]) -> bool:
+        paired_root = self.root / "paired-plans"
+        if not paired_root.is_dir():
+            return False
+        current_config = material.get("config")
+        if not isinstance(current_config, Mapping):
+            return False
+        current_stage = (
+            current_config.get("suite_id"),
+            current_config.get("harness_version"),
+        )
+        saw_existing = False
+        for path in paired_root.glob(f"*/{PAIRED_PLAN_FILE}"):
+            stored = _read_json(path)
+            stored_material = stored.get("material")
+            if not isinstance(stored_material, Mapping):
+                raise BenchmarkError("checkpoint paired experiment plan material is invalid")
+            stored_config = stored_material.get("config")
+            if not isinstance(stored_config, Mapping):
+                raise BenchmarkError("checkpoint paired experiment plan config is invalid")
+            saw_existing = True
+            stored_stage = (
+                stored_config.get("suite_id"),
+                stored_config.get("harness_version"),
+            )
+            if stored_stage == current_stage:
+                raise BenchmarkError("checkpoint paired experiment plan fingerprint mismatch")
+        return saw_existing
 
 
 @dataclass(frozen=True)
@@ -514,8 +548,6 @@ class BenchmarkPairedCheckpoint:
             ):
                 raise BenchmarkError("checkpoint paired model plan fingerprint mismatch")
         else:
-            if self.resume:
-                raise BenchmarkError("checkpoint paired model plan not found for resume")
             _atomic_write_json(
                 plan_file,
                 {

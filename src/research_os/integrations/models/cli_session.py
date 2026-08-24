@@ -23,6 +23,10 @@ from research_os.platform.argv_process import (
     run_argv,
 )
 from research_os.platform.readiness import RuntimeReadiness, readiness_from_flags
+from research_os.integrations.models.json_schemas import (
+    DIAGNOSTIC_OUTPUT_SCHEMA,
+    schema_for_request,
+)
 from research_os.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
@@ -43,6 +47,7 @@ from research_os.research.model_runtime import (
     RuntimeOutcome,
     cli_session_runtime_identity,
 )
+from research_os.research.output_contracts import diagnostic_readiness_instructions
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 UNRESTRICTED_MARKERS = frozenset({"*", "all", "unrestricted", "shell", "yolo", "danger-full-access"})
@@ -83,17 +88,7 @@ CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
 CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
 DEFAULT_CODEX_EXECUTABLE = "codex"
 CONFIGURATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-TRANSPORT_RESULT_JSON_KEY = "result_json"
-STRUCTURED_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        TRANSPORT_RESULT_JSON_KEY: {
-            "type": "string",
-        },
-    },
-    "required": [TRANSPORT_RESULT_JSON_KEY],
-    "additionalProperties": False,
-}
+STRUCTURED_OUTPUT_SCHEMA = DIAGNOSTIC_OUTPUT_SCHEMA
 DIAGNOSTIC_APPLICATION_OUTPUT = {"diagnostic": True}
 
 # Operational defaults only. Override with RESEARCH_OS_CODEX_MODELS.
@@ -526,7 +521,7 @@ def _probe_model_exec(
         role=ModelRole.GENERATOR,
         correlation_id="research-os.codex.diagnostic",
         context_fingerprint="codex-diagnostic",
-        instructions='Return a JSON object {"diagnostic": true} only. Do not call tools.',
+        instructions=diagnostic_readiness_instructions(),
         payload={"diagnostic": True},
         timeout_ms=CODEX_DIAGNOSTIC_TIMEOUT_MS,
     )
@@ -637,11 +632,12 @@ class CodexCliSessionAdapter:
         executable = self._executable or resolve_executable(DEFAULT_CODEX_EXECUTABLE)
         if executable is None:
             raise RuntimeUnavailableError("codex CLI is UNAVAILABLE")
-        prompt = _prompt_for_request(request)
+        schema = schema_for_request(request)
+        prompt = _prompt_for_request(request, schema)
         with tempfile.TemporaryDirectory(prefix="research-os-codex-") as tmp:
             schema_path = Path(tmp) / "output-schema.json"
             schema_path.write_text(
-                json.dumps(STRUCTURED_OUTPUT_SCHEMA, separators=(",", ":")),
+                json.dumps(schema, separators=(",", ":")),
                 encoding="utf-8",
             )
             cwd = self._working_directory or Path(tmp)
@@ -677,8 +673,9 @@ class CodexDiagnosticEchoAdapter:
         )
 
 
-def _prompt_for_request(request: ModelCallRequest) -> str:
+def _prompt_for_request(request: ModelCallRequest, schema: Mapping[str, object]) -> str:
     payload = json.dumps(dict(request.payload), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    schema_payload = json.dumps(dict(schema), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return (
         "SYSTEM:\nYou are a structured-output reasoning runtime. Do not call tools.\n\n"
         f"INSTRUCTIONS:\n{request.instructions}\n\n"
@@ -687,12 +684,9 @@ def _prompt_for_request(request: ModelCallRequest) -> str:
         f"context_fingerprint={request.context_fingerprint}\n"
         f"payload={payload}\n\n"
         "TRANSPORT:\n"
-        "Produce the requested application-level JSON object.\n"
-        "JSON-serialize that object.\n"
-        "Place the serialized JSON string in result_json.\n"
-        "Emit only the schema-compliant outer object "
-        '{"result_json":"<serialized application JSON object>"}.\n'
-        "Do not emit the application object at the top level.\n"
+        "Emit only the requested application-level JSON object at the top level.\n"
+        "Do not wrap it in result_json or any transport envelope.\n"
+        f"application_json_schema={schema_payload}\n"
     )
 
 
@@ -766,16 +760,7 @@ def _load_json_object(raw: str) -> dict[str, object]:
 
 
 def _parse_structured_stdout(raw: str) -> dict[str, object]:
-    outer = _load_json_object(raw)
-    if set(outer.keys()) != {TRANSPORT_RESULT_JSON_KEY}:
-        raise StructuredOutputTransportError("codex CLI transport envelope was invalid")
-    encoded = outer[TRANSPORT_RESULT_JSON_KEY]
-    if not isinstance(encoded, str):
-        raise StructuredOutputTransportError("codex CLI result_json must be a string")
-    try:
-        inner = json.loads(encoded)
-    except json.JSONDecodeError as exc:
-        raise StructuredOutputTransportError("codex CLI result_json was not valid JSON") from exc
-    if not isinstance(inner, dict):
-        raise StructuredOutputTransportError("codex CLI inner JSON was not an object")
-    return inner
+    parsed = _load_json_object(raw)
+    if "result_json" in parsed:
+        raise StructuredOutputTransportError("codex CLI returned legacy result_json envelope")
+    return parsed
