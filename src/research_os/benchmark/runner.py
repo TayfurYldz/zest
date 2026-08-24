@@ -12,7 +12,10 @@ from typing import Any
 from importlib.resources import as_file, files
 
 from research_os.benchmark.baselines import BASELINE_NAMES, create_baseline
-from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
+from research_os.benchmark.checkpoint import (
+    BenchmarkCheckpointSession,
+    BenchmarkOperationalPause,
+)
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import evaluate_suite, format_scorecard
 from research_os.benchmark.experiment import (
@@ -41,6 +44,7 @@ from research_os.research.model_port import ModelPortError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESULTS_DIR = Path.cwd() / "var" / "benchmark-results"
+BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE = 75
 
 
 def packaged_scenario_directory_context():
@@ -264,10 +268,27 @@ def run_cli(
             "completed calls are replayed only on exact fingerprint match"
         ),
     )
+    parser.add_argument(
+        "--max-new-model-calls",
+        type=int,
+        default=None,
+        help=(
+            "pause at a checkpointed ModelPort boundary after N new provider "
+            "invocations in this process; replayed completed calls do not count"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.checkpoint_dir and args.resume_checkpoint:
         print("--checkpoint-dir and --resume-checkpoint are mutually exclusive", file=sys.stderr)
+        return 2
+    if args.max_new_model_calls is not None and args.max_new_model_calls <= 0:
+        print("--max-new-model-calls must be a positive integer", file=sys.stderr)
+        return 2
+    if args.max_new_model_calls is not None and not (
+        args.checkpoint_dir or args.resume_checkpoint
+    ):
+        print("--max-new-model-calls requires --checkpoint-dir or --resume-checkpoint", file=sys.stderr)
         return 2
 
     if args.include_holdout:
@@ -291,6 +312,9 @@ def run_cli(
                 discover_runtimes=discover_runtimes,
                 evaluate_live_status=evaluate_live_status,
             )
+        except BenchmarkOperationalPause as exc:
+            _print_operational_pause(exc)
+            return BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE
         except BenchmarkError as exc:
             print(f"benchmark invariant failure: {exc}", file=sys.stderr)
             return 2
@@ -401,6 +425,9 @@ def run_cli(
                 encoding="utf-8",
             )
             print(f"json report: {path}")
+    except BenchmarkOperationalPause as exc:
+        _print_operational_pause(exc)
+        return BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE
     except (BenchmarkError, ModelPortError) as exc:
         print(f"benchmark invariant failure: {exc}", file=sys.stderr)
         return 2
@@ -689,10 +716,33 @@ def _write_immutable_paired_bundle(directory: Path, payload: dict[str, Any]) -> 
 
 def _checkpoint_session_from_args(args) -> BenchmarkCheckpointSession | None:
     if args.checkpoint_dir:
-        return BenchmarkCheckpointSession(Path(args.checkpoint_dir), resume=False)
+        return BenchmarkCheckpointSession(
+            Path(args.checkpoint_dir),
+            resume=False,
+            max_new_model_calls=args.max_new_model_calls,
+        )
     if args.resume_checkpoint:
-        return BenchmarkCheckpointSession(Path(args.resume_checkpoint), resume=True)
+        return BenchmarkCheckpointSession(
+            Path(args.resume_checkpoint),
+            resume=True,
+            max_new_model_calls=args.max_new_model_calls,
+        )
     return None
+
+
+def _print_operational_pause(exc: BenchmarkOperationalPause) -> None:
+    payload = {
+        "status": "PAUSED_AT_BOUNDARY",
+        "exit_code": BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE,
+        "reason": exc.payload.get("reason"),
+        "max_new_model_calls": exc.payload.get("max_new_model_calls"),
+        "new_model_calls": exc.payload.get("new_model_calls"),
+        "replayed_completed_calls": exc.payload.get("replayed_completed_calls"),
+        "not_gate_pass": True,
+        "not_benchmark_failure": True,
+    }
+    print("benchmark operational pause", file=sys.stderr)
+    print(json.dumps(payload, indent=2, ensure_ascii=True), file=sys.stderr)
 
 
 def _load_configured_adapter(

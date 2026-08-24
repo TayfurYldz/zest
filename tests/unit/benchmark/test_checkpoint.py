@@ -19,7 +19,10 @@ from research_os.benchmark.baselines import (
     create_baseline,
     good_generator,
 )
-from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
+from research_os.benchmark.checkpoint import (
+    BenchmarkCheckpointSession,
+    BenchmarkOperationalPause,
+)
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.experiment import compare_experiments, run_experiment
 from research_os.benchmark.identity import (
@@ -27,7 +30,11 @@ from research_os.benchmark.identity import (
     ModelConfigurationIdentity,
     current_instruction_identity,
 )
-from research_os.benchmark.runner import identity_for_live, run_cli
+from research_os.benchmark.runner import (
+    BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE,
+    identity_for_live,
+    run_cli,
+)
 from research_os.benchmark.scenarios import load_scenarios
 from research_os.research.model_port import (
     ModelCallRequest,
@@ -154,6 +161,100 @@ def fake_gate_status(**kwargs):
 
 
 class BenchmarkCheckpointTests(unittest.TestCase):
+    def test_max_new_model_calls_pauses_before_next_intent(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = ScriptedModelPort(
+                adapter_identity=GOOD_BASELINE,
+                generator=good_generator,
+                falsifier=cautious_falsifier,
+            )
+            with self.assertRaises(BenchmarkOperationalPause) as ctx:
+                run_experiment(
+                    scenarios,
+                    model,
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(
+                        root,
+                        resume=False,
+                        max_new_model_calls=1,
+                    ),
+                )
+            self.assertEqual([call.role for call in model.calls], [ModelRole.GENERATOR])
+            records = sorted(root.glob("plans/*/calls/*.json"))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(
+                json.loads(records[0].read_text(encoding="utf-8"))["status"],
+                "COMPLETED",
+            )
+            self.assertFalse(
+                any(
+                    json.loads(path.read_text(encoding="utf-8"))["status"] == "INTENT"
+                    for path in records
+                )
+            )
+            pause = json.loads((root / "pause.json").read_text(encoding="utf-8"))
+            self.assertEqual(pause["status"], "PAUSED_AT_BOUNDARY")
+            self.assertEqual(pause["new_model_calls"], 1)
+            self.assertEqual(pause["next_call"]["slot"]["role"], "FALSIFIER")
+            self.assertTrue(pause["not_gate_pass"])
+            self.assertTrue(pause["not_benchmark_failure"])
+            self.assertEqual(ctx.exception.payload["status"], "PAUSED_AT_BOUNDARY")
+
+    def test_resume_replays_completed_generator_then_calls_pending_falsifier(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(BenchmarkOperationalPause):
+                run_experiment(
+                    scenarios,
+                    ScriptedModelPort(
+                        adapter_identity=GOOD_BASELINE,
+                        generator=good_generator,
+                        falsifier=cautious_falsifier,
+                    ),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(
+                        root,
+                        resume=False,
+                        max_new_model_calls=1,
+                    ),
+                )
+
+            resumed_model = ScriptedModelPort(
+                adapter_identity=GOOD_BASELINE,
+                generator=good_generator,
+                falsifier=cautious_falsifier,
+            )
+            report = run_experiment(
+                scenarios,
+                resumed_model,
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(
+                    root,
+                    resume=True,
+                    max_new_model_calls=1,
+                ),
+            )
+            self.assertEqual([call.role for call in resumed_model.calls], [ModelRole.FALSIFIER])
+            self.assertEqual(report.summaries[0].completed, 1)
+            records = sorted(root.glob("plans/*/calls/*.json"))
+            self.assertEqual(len(records), 2)
+            self.assertEqual(
+                {
+                    json.loads(path.read_text(encoding="utf-8"))["status"]
+                    for path in records
+                },
+                {"COMPLETED"},
+            )
+
     def test_completed_generator_replay_causes_zero_additional_provider_calls(self) -> None:
         scenarios = _scenarios()
         config = _config()
@@ -435,6 +536,64 @@ class BenchmarkCheckpointTests(unittest.TestCase):
 
 
 class BenchmarkCheckpointCliTests(unittest.TestCase):
+    def test_max_new_model_calls_cli_pause_is_not_gate_pass_or_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "checkpoint"
+            report = Path(tmp) / "paired.json"
+            err = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                        "--checkpoint-dir",
+                        str(checkpoint),
+                        "--max-new-model-calls",
+                        "1",
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(code, BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE)
+            self.assertFalse(report.exists())
+            pause = json.loads((checkpoint / "pause.json").read_text(encoding="utf-8"))
+            self.assertEqual(pause["status"], "PAUSED_AT_BOUNDARY")
+            self.assertTrue(pause["not_gate_pass"])
+            self.assertTrue(pause["not_benchmark_failure"])
+            self.assertIn("PAUSED_AT_BOUNDARY", err.getvalue())
+
+    def test_invalid_max_new_model_calls_fails_closed(self) -> None:
+        cases = [
+            [
+                "--baseline",
+                GOOD_BASELINE,
+                "--max-new-model-calls",
+                "0",
+            ],
+            [
+                "--baseline",
+                GOOD_BASELINE,
+                "--max-new-model-calls",
+                "-1",
+            ],
+            [
+                "--baseline",
+                GOOD_BASELINE,
+                "--max-new-model-calls",
+                "1",
+            ],
+        ]
+        for args in cases:
+            with self.subTest(args=args):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(run_cli(args), 2)
+
     def test_checkpoint_and_resume_cli_options_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = Path(tmp) / "checkpoint"
@@ -802,6 +961,64 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
             self.assertEqual(
                 _normalize_bundle(json.loads(uninterrupted.read_text(encoding="utf-8"))),
                 _normalize_bundle(json.loads(resumed.read_text(encoding="utf-8"))),
+            )
+
+    def test_repeated_bounded_resumes_match_uninterrupted_paired_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uninterrupted = Path(tmp) / "uninterrupted.json"
+            bounded = Path(tmp) / "bounded.json"
+            checkpoint = Path(tmp) / "checkpoint"
+            args = [
+                "--discover-and-compare",
+                "--scenarios",
+                str(SCENARIO_DIR),
+                "--runs-per-scenario",
+                "1",
+            ]
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    run_cli(
+                        args + ["--json-report", str(uninterrupted)],
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    ),
+                    0,
+                )
+
+            first = True
+            exits: list[int] = []
+            for _attempt in range(20):
+                checkpoint_args = (
+                    ["--checkpoint-dir", str(checkpoint)]
+                    if first
+                    else ["--resume-checkpoint", str(checkpoint)]
+                )
+                first = False
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    code = run_cli(
+                        args
+                        + [
+                            "--json-report",
+                            str(bounded),
+                            "--max-new-model-calls",
+                            "7",
+                        ]
+                        + checkpoint_args,
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    )
+                exits.append(code)
+                if code == 0:
+                    break
+                self.assertEqual(code, BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE)
+                self.assertFalse(bounded.exists())
+            self.assertEqual(exits[-1], 0)
+            self.assertIn(BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE, exits)
+            self.assertEqual(
+                _normalize_bundle(json.loads(uninterrupted.read_text(encoding="utf-8"))),
+                _normalize_bundle(json.loads(bounded.read_text(encoding="utf-8"))),
             )
 
 

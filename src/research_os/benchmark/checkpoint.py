@@ -38,6 +38,7 @@ from research_os.research.model_runtime import (
 CHECKPOINT_VERSION = "gate04b.model-call-journal.v1"
 PLAN_FILE = "plan.json"
 PAIRED_PLAN_FILE = "paired-plan.json"
+PAUSE_FILE = "pause.json"
 CALL_DIR = "calls"
 
 
@@ -98,6 +99,71 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+class BenchmarkOperationalPause(BenchmarkError):
+    """Planned checkpoint pause before a new ModelPort call boundary."""
+
+    def __init__(self, payload: Mapping[str, Any]) -> None:
+        self.payload = dict(payload)
+        super().__init__("benchmark paused at ModelPort call boundary")
+
+
+@dataclass
+class ModelCallBoundaryBudget:
+    """Counts only new provider invocations in this process."""
+
+    max_new_model_calls: int
+    new_model_calls: int = 0
+    replayed_completed_calls: int = 0
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_new_model_calls, int)
+            or isinstance(self.max_new_model_calls, bool)
+            or self.max_new_model_calls <= 0
+        ):
+            raise BenchmarkError("--max-new-model-calls must be a positive integer")
+
+    def record_replay(self) -> None:
+        self.replayed_completed_calls += 1
+
+    def reserve_new_call_or_pause(
+        self,
+        *,
+        pause_path: Path,
+        slot: Mapping[str, Any],
+        slot_id: str,
+        call_identity: str,
+        request_fingerprint: str,
+    ) -> None:
+        if self.new_model_calls < self.max_new_model_calls:
+            self.new_model_calls += 1
+            return
+        payload = {
+            "kind": "BenchmarkOperationalPause",
+            "checkpoint_version": CHECKPOINT_VERSION,
+            "status": "PAUSED_AT_BOUNDARY",
+            "reason": "max_new_model_calls reached before writing next INTENT",
+            "created_at": _now(),
+            "max_new_model_calls": self.max_new_model_calls,
+            "new_model_calls": self.new_model_calls,
+            "replayed_completed_calls": self.replayed_completed_calls,
+            "next_call": {
+                "slot": dict(slot),
+                "slot_id": slot_id,
+                "call_identity": call_identity,
+                "request_fingerprint": request_fingerprint,
+            },
+            "not_evidence": True,
+            "not_finding": True,
+            "not_candidate": True,
+            "not_sor_truth": True,
+            "not_gate_pass": True,
+            "not_benchmark_failure": True,
+        }
+        _atomic_write_json(pause_path, payload)
+        raise BenchmarkOperationalPause(payload)
 
 
 def request_fingerprint(request: ModelCallRequest) -> str:
@@ -238,9 +304,20 @@ def build_paired_experiment_plan_fingerprint(
 class BenchmarkCheckpointSession:
     """Root checkpoint directory. One subdirectory is created per plan fingerprint."""
 
-    def __init__(self, root: Path, *, resume: bool) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        resume: bool,
+        max_new_model_calls: int | None = None,
+    ) -> None:
         self.root = root
         self.resume = resume
+        self.boundary_budget = (
+            None
+            if max_new_model_calls is None
+            else ModelCallBoundaryBudget(max_new_model_calls=max_new_model_calls)
+        )
         if resume:
             if not root.is_dir():
                 raise BenchmarkError(f"checkpoint resume directory does not exist: {root}")
@@ -289,7 +366,12 @@ class BenchmarkCheckpointSession:
                 },
             )
         _mkdir_private(calls_dir)
-        return BenchmarkPlanCheckpoint(plan_dir=plan_dir, plan=plan)
+        return BenchmarkPlanCheckpoint(
+            plan_dir=plan_dir,
+            plan=plan,
+            boundary_budget=self.boundary_budget,
+            pause_path=self.root / PAUSE_FILE,
+        )
 
     def open_paired_plan(
         self,
@@ -338,6 +420,8 @@ class BenchmarkCheckpointSession:
             git_commit=git_commit,
             suite_version=suite_version,
             resume=self.resume,
+            boundary_budget=self.boundary_budget,
+            pause_path=self.root / PAUSE_FILE,
         )
 
 
@@ -351,6 +435,8 @@ class BenchmarkPairedCheckpoint:
     git_commit: str
     suite_version: str = "1"
     resume: bool = False
+    boundary_budget: ModelCallBoundaryBudget | None = None
+    pause_path: Path | None = None
 
     def open_model_plan(
         self,
@@ -398,13 +484,20 @@ class BenchmarkPairedCheckpoint:
                 },
             )
         _mkdir_private(calls_dir)
-        return BenchmarkPlanCheckpoint(plan_dir=plan_dir, plan=plan)
+        return BenchmarkPlanCheckpoint(
+            plan_dir=plan_dir,
+            plan=plan,
+            boundary_budget=self.boundary_budget,
+            pause_path=self.pause_path,
+        )
 
 
 @dataclass(frozen=True)
 class BenchmarkPlanCheckpoint:
     plan_dir: Path
     plan: ExperimentPlanFingerprint
+    boundary_budget: ModelCallBoundaryBudget | None = None
+    pause_path: Path | None = None
 
     def wrap_model(
         self,
@@ -448,12 +541,24 @@ class BenchmarkPlanCheckpoint:
             )
             status = record.get("status")
             if status == "COMPLETED":
+                if self.boundary_budget is not None:
+                    self.boundary_budget.record_replay()
                 return _result_from_record(record)
             if status == "INTENT":
                 raise BenchmarkError(
                     "checkpoint call is UNKNOWN_OUTCOME; automatic retry is refused"
                 )
             raise BenchmarkError(f"checkpoint call has invalid status: {status!r}")
+        if self.boundary_budget is not None:
+            if self.pause_path is None:
+                raise BenchmarkError("checkpoint pause path is not configured")
+            self.boundary_budget.reserve_new_call_or_pause(
+                pause_path=self.pause_path,
+                slot=slot,
+                slot_id=slot_id,
+                call_identity=call_identity,
+                request_fingerprint=req_fp,
+            )
         _atomic_write_json(
             path,
             {
