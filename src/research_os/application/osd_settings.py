@@ -1,19 +1,22 @@
 """Operational research-osd settings. Secrets stay in env, not in VCS.
 
-Linux-native layout for later VDS/systemd (Checkpoint 16):
+Linux-native layout (Checkpoint 16 deploy assets; this module still only
+reads env and documents paths):
 
-    /opt/research-os/
-    /etc/research-os/
+    /opt/research-os/releases/<immutable-release-id>/
+    /opt/research-os/current -> releases/<immutable-release-id>
+    /etc/research-os/research-os.env
     /var/lib/research-os/
     /var/log/research-os/
 
-This module documents those paths and reads env. It does not create
-directories, install units, or bind publicly.
+Units live in deploy/systemd/. This module does not create directories,
+install units, or bind publicly.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from research_os.application.runtime_instance import ENGINE_VERSION
@@ -22,6 +25,7 @@ LINUX_OPT_DIR = "/opt/research-os"
 LINUX_CONFIG_DIR = "/etc/research-os"
 LINUX_STATE_DIR = "/var/lib/research-os"
 LINUX_LOG_DIR = "/var/log/research-os"
+LINUX_ENV_FILE = "/etc/research-os/research-os.env"
 
 DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8766
@@ -39,6 +43,7 @@ LOG_PATH_ENV = "RESEARCH_OSD_LOG_PATH"
 RELEASE_VERSION_ENV = "RESEARCH_OSD_RELEASE_VERSION"
 MODEL_RUNTIME_REF_ENV = "RESEARCH_OSD_MODEL_RUNTIME_REF"
 WORKER_RUNTIME_REF_ENV = "RESEARCH_OSD_WORKER_RUNTIME_REF"
+ALEMBIC_INI_ENV = "RESEARCH_OS_ALEMBIC_INI"
 
 
 @dataclass(frozen=True)
@@ -72,6 +77,7 @@ class OsdSettings:
                 "config": LINUX_CONFIG_DIR,
                 "state": LINUX_STATE_DIR,
                 "log": LINUX_LOG_DIR,
+                "env_file": LINUX_ENV_FILE,
             },
             "database_url_configured": bool(self.database_url),
         }
@@ -101,4 +107,38 @@ def load_osd_settings(env: Mapping[str, str]) -> OsdSettings:
         log_path=log_path,
         model_runtime_ref=model_ref,
         worker_runtime_ref=worker_ref,
+    )
+
+
+def resolve_alembic_ini(
+    env: Mapping[str, str],
+    *,
+    cwd: Path | None = None,
+    source_file: Path | None = None,
+) -> Path:
+    """Locate alembic.ini for a source-tree release.
+
+    Order: RESEARCH_OS_ALEMBIC_INI, $PWD/alembic.ini (systemd
+    WorkingDirectory=/opt/research-os/current), then the repository root
+    relative to this module when running from a checkout.
+
+    Wheel-only installs without a release tree are not a supported
+    migration layout. Do not invent a second Alembic config.
+    """
+
+    configured = env.get(ALEMBIC_INI_ENV, "").strip()
+    if configured:
+        path = Path(configured)
+        if not path.is_file():
+            raise FileNotFoundError(f"{ALEMBIC_INI_ENV} is set but is not a file")
+        return path.resolve()
+    working = (cwd or Path.cwd()) / "alembic.ini"
+    if working.is_file():
+        return working.resolve()
+    origin = Path(source_file or __file__).resolve()
+    fallback = origin.parents[3] / "alembic.ini"
+    if fallback.is_file():
+        return fallback
+    raise FileNotFoundError(
+        "alembic.ini not found; set RESEARCH_OS_ALEMBIC_INI or run from a source release"
     )

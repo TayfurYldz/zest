@@ -12,7 +12,6 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -29,16 +28,10 @@ from research_os.data.postgres.engine import (
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.data.postgres.tables import hunter_family, metadata
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
-    AuthorizationSourceRecord,
-    ExperimentRecord,
-    HypothesisRecord,
-    IssuedBudgetRecord,
-    ProgramRecord,
-    ResearchRunRecord,
+from research_os.qualification.staging_spine import (
+    seed_authorized_spine,
+    truncate_spine,
 )
 
 NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
@@ -81,64 +74,5 @@ def warn_destructive(url: str) -> None:
     print(f"{DESTRUCTIVE_NOTICE} target={redacted_database_url(url)}", flush=True)
 
 
-def truncate_spine(engine: Engine) -> None:
-    table_names = ", ".join(f'"{table.name}"' for table in metadata.sorted_tables)
-    with engine.begin() as connection:
-        connection.execute(text(f"TRUNCATE TABLE {table_names} CASCADE"))
-        connection.execute(
-            hunter_family.insert(),
-            [{**family, "created_at": NOW} for family in SEED_FAMILIES],
-        )
-
-
-def seed_authorized_spine(uow: PostgresUnitOfWork) -> None:
-    uow.programs.insert(ProgramRecord(program_id="prog-1", created_at=NOW, name="lab"))
-    uow.authorization_sources.insert(
-        AuthorizationSourceRecord(
-            authorization_source_id="as-1",
-            program_id="prog-1",
-            state="ACTIVE",
-            provenance_reference="written-auth-1",
-            created_at=NOW,
-        )
-    )
-    uow.research_runs.insert(
-        ResearchRunRecord(
-            research_run_id="run-1",
-            program_id="prog-1",
-            authorization_source_id="as-1",
-            initiated_by_actor_id="operator-1",
-            initiated_by_actor_type="HUMAN_OPERATOR",
-            started_at=NOW,
-        )
-    )
-    uow.issued_budgets.insert(
-        IssuedBudgetRecord(
-            budget_id="budget-1",
-            research_run_id="run-1",
-            max_requests=10,
-            max_tool_calls=10,
-            max_runtime_ms=10_000,
-            max_concurrency=1,
-            issued_at=NOW,
-        )
-    )
-    uow.hypotheses.insert(
-        HypothesisRecord(
-            hypothesis_id="hyp-1",
-            research_run_id="run-1",
-            claim="diagnostic runtime returns the provided echo value",
-            origin_reference="human-seed-1",
-            created_at=NOW,
-        )
-    )
-    uow.experiments.insert(
-        ExperimentRecord(
-            experiment_id="exp-1",
-            research_run_id="run-1",
-            hypothesis_id="hyp-1",
-            budget_id="budget-1",
-            execution_state="PLANNED",
-            created_at=NOW,
-        )
-    )
+# truncate_spine and seed_authorized_spine are imported from
+# research_os.qualification.staging_spine so VDS fixtures do not need tests/.

@@ -1,0 +1,1 @@
+# Deploy-asset static tests.

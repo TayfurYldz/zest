@@ -18,6 +18,7 @@ from research_os.data.errors import (
     PersistenceInputError,
     TerminalOrchestrationStateError,
 )
+from research_os.data.postgres.engine import raise_if_unavailable
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
 from research_os.data.records import (
@@ -125,6 +126,7 @@ def _execute_write(connection: Connection, statement) -> None:
     except IntegrityError as exc:
         _raise_integrity(exc)
     except SQLAlchemyError as exc:
+        raise_if_unavailable(exc)
         raise PersistenceError("persistence write failed") from exc
 
 
@@ -139,6 +141,7 @@ def _server_now(connection: Connection) -> datetime:
     try:
         return connection.execute(select(func.now())).scalar_one()
     except SQLAlchemyError as exc:
+        raise_if_unavailable(exc)
         raise PersistenceError("persistence read failed") from exc
 
 
@@ -154,6 +157,7 @@ def _fetch_one(
             select(table).where(id_column == record_id)
         ).mappings().one_or_none()
     except SQLAlchemyError as exc:
+        raise_if_unavailable(exc)
         raise PersistenceError("persistence read failed") from exc
     if row is None:
         return None

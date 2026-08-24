@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import date, datetime, timezone
@@ -38,6 +39,7 @@ from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.research.orchestration import OrchestrationBounds
 from research_os.research.finding_proposal import HumanReviewDecision
 from research_os.interface.osd_client import OperatorApiRunControl, RESEARCH_OSD_URL_ENV
+from research_os.interface.operator_api import LOCAL_BIND_HOSTS
 from research_os.application.operator_errors import OperatorError
 from research_os.data.records import (
     AuditEventRecord,
@@ -1020,6 +1022,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
+    if args.host not in LOCAL_BIND_HOSTS:
+        print("dashboard must bind locally", file=sys.stderr)
+        return 2
     try:
         source = dict(os.environ)
         if source.get(RESEARCH_OSD_URL_ENV):

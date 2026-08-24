@@ -9,7 +9,25 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 
-from research_os.data.errors import PersistenceInputError
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError, TimeoutError as SATimeoutError
+
+from research_os.data.errors import DatabaseUnavailableError, PersistenceInputError
+
+_CONNECTIVITY_ERRORS = (OperationalError, InterfaceError, SATimeoutError)
+
+
+def is_connectivity_failure(exc: BaseException) -> bool:
+    """True for connection-refused / server-down class failures, not integrity bugs."""
+
+    if isinstance(exc, _CONNECTIVITY_ERRORS):
+        return True
+    orig = getattr(exc, "orig", None)
+    return isinstance(orig, _CONNECTIVITY_ERRORS)
+
+
+def raise_if_unavailable(exc: BaseException) -> None:
+    if is_connectivity_failure(exc):
+        raise DatabaseUnavailableError("postgresql unavailable") from exc
 
 DATABASE_URL_ENV = "RESEARCH_OS_DATABASE_URL"
 TEST_DATABASE_URL_ENV = "RESEARCH_OS_TEST_DATABASE_URL"
@@ -92,8 +110,12 @@ def create_sync_engine(url: str) -> Engine:
 def ping_database(engine: Engine) -> bool:
     """Connection health only. Does not log credentials."""
 
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise_if_unavailable(exc)
+        raise
     return True
 
 
@@ -106,6 +128,10 @@ def check_schema_head(engine: Engine, *, alembic_ini_path: str) -> tuple[bool, s
 
     config = Config(alembic_ini_path)
     expected = ScriptDirectory.from_config(config).get_current_head()
-    with engine.connect() as connection:
-        current = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    try:
+        with engine.connect() as connection:
+            current = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    except SQLAlchemyError as exc:
+        raise_if_unavailable(exc)
+        raise
     return current == expected, f"database={current!r} expected={expected!r}"

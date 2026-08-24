@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import os
 import tarfile
 from datetime import datetime, timezone
@@ -15,8 +16,10 @@ DEFAULT_SOURCE_ROOT_MARKERS = ("pyproject.toml", "src/research_os")
 EXCLUDED_DIR_NAMES = frozenset(
     {
         ".git",
+        ".claude",
         ".venv",
         "venv",
+        "agent-memory-local",
         "__pycache__",
         ".pytest_cache",
         ".mypy_cache",
@@ -31,6 +34,10 @@ EXCLUDED_DIR_NAMES = frozenset(
         "build",
         ".tox",
     }
+)
+UNTRACKED_OPERATIONAL_PREFIXES = (
+    "deploy/systemd/",
+    "deploy/logrotate/",
 )
 EXCLUDED_FILE_SUFFIXES = (
     ".pyc",
@@ -60,7 +67,16 @@ REFUSED_NAME_MARKERS = (
     "id_ed25519",
     "session.json",
 )
-UNTRACKED_SOURCE_SUFFIXES = (".py", ".md", ".toml", ".json", ".yml", ".yaml", ".txt")
+UNTRACKED_SOURCE_SUFFIXES = (
+    ".py",
+    ".sh",
+    ".md",
+    ".toml",
+    ".json",
+    ".yml",
+    ".yaml",
+    ".txt",
+)
 
 
 def find_source_root(start: Path | None = None) -> Path:
@@ -88,6 +104,13 @@ def _refused(path: Path) -> bool:
     return any(marker in name for marker in REFUSED_NAME_MARKERS)
 
 
+def _is_untracked_source_candidate(path: Path, root: Path) -> bool:
+    relative = path.relative_to(root).as_posix()
+    if any(relative.startswith(prefix) for prefix in UNTRACKED_OPERATIONAL_PREFIXES):
+        return True
+    return path.suffix.lower() in UNTRACKED_SOURCE_SUFFIXES
+
+
 def iter_export_paths(
     root: Path,
     *,
@@ -113,7 +136,7 @@ def iter_export_paths(
                 rel = path.relative_to(root).as_posix()
                 if rel in tracked_set:
                     continue
-                if path.suffix.lower() not in UNTRACKED_SOURCE_SUFFIXES:
+                if not _is_untracked_source_candidate(path, root):
                     continue
                 if _refused(path):
                     raise SecretMaterialError(f"refusing credential/session file: {rel}")
@@ -164,19 +187,26 @@ def export_source_archive(
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_lines = []
     mtime = datetime(1980, 1, 1, tzinfo=timezone.utc).timestamp()
-    with tarfile.open(archive_path, "w:gz", format=tarfile.PAX_FORMAT, dereference=False) as archive:
-        for path in files:
-            relative = path.relative_to(source_root).as_posix()
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            manifest_lines.append(f"{digest}  {relative}")
-            info = archive.gettarinfo(str(path), arcname=relative)
-            info.mtime = int(mtime)
-            info.uid = 0
-            info.gid = 0
-            info.uname = ""
-            info.gname = ""
-            with path.open("rb") as handle:
-                archive.addfile(info, handle)
+    with archive_path.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gzip_file:
+            with tarfile.open(
+                fileobj=gzip_file,
+                mode="w",
+                format=tarfile.PAX_FORMAT,
+                dereference=False,
+            ) as archive:
+                for path in files:
+                    relative = path.relative_to(source_root).as_posix()
+                    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                    manifest_lines.append(f"{digest}  {relative}")
+                    info = archive.gettarinfo(str(path), arcname=relative)
+                    info.mtime = int(mtime)
+                    info.uid = 0
+                    info.gid = 0
+                    info.uname = ""
+                    info.gname = ""
+                    with path.open("rb") as handle:
+                        archive.addfile(info, handle)
     manifest_body = "\n".join(manifest_lines) + ("\n" if manifest_lines else "")
     manifest_path = archive_path.with_suffix(archive_path.suffix + ".manifest")
     if archive_path.name.endswith(".tar.gz"):

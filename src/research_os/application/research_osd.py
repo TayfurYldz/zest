@@ -70,7 +70,11 @@ from research_os.application.runtime_instance import (
     register_runtime_instance,
 )
 from research_os.core.enums import ActorType
-from research_os.data.errors import PersistenceConflictError, PersistenceError
+from research_os.data.errors import (
+    DatabaseUnavailableError,
+    PersistenceConflictError,
+    PersistenceError,
+)
 from research_os.data.records import AuditEventRecord, RuntimeInstanceRecord
 from research_os.platform.worker import WorkerPort
 from research_os.research.model_port import ModelPort
@@ -189,7 +193,7 @@ class ResearchOsdRuntime:
             with self._uow_factory.open() as uow:
                 recoverable = uow.research_orchestrations.list_recoverable()
                 uow.rollback()
-        except PersistenceError as exc:
+        except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
             return ()
         decisions: list[RuntimeRecoveryDecision] = []
@@ -198,7 +202,7 @@ class ResearchOsdRuntime:
                 continue
             try:
                 decision = self._classifier.execute(record.research_run_id)
-            except PersistenceError as exc:
+            except DatabaseUnavailableError as exc:
                 self._mark_pg_unavailable(exc)
                 break
             decisions.append(decision)
@@ -231,7 +235,7 @@ class ResearchOsdRuntime:
         except PersistenceConflictError:
             self._attach_supervisor(research_run_id, recovery=True)
             return self._status_from_sor(research_run_id)
-        except PersistenceError as exc:
+        except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
             raise OperatorError(
                 OperatorErrorCode.DATABASE_UNAVAILABLE,
@@ -420,9 +424,16 @@ class ResearchOsdRuntime:
         from research_os.maturity import GATE_04B_STATUS
         from research_os.platform.health import ComponentHealth
 
+        db_available = self._refresh_pg_availability()
         worker = self._probe_worker()
         model = self._probe_model()
-        schema = self._probe_schema()
+        schema = SchemaHealthInput(at_expected_head=False, detail="unavailable")
+        if db_available:
+            try:
+                schema = self._probe_schema()
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                db_available = False
         worker_health = worker.health.health
         model_health = model.health.health
         candidate = model.candidate
@@ -440,10 +451,9 @@ class ResearchOsdRuntime:
             and bool(candidate is not None and candidate.available)
         )
         worker_available = worker_health is ComponentHealth.HEALTHY
-        db_available = not self._pg_unavailable
         payload: dict[str, object] = {
             "ok": db_available and self._instance is not None,
-            "pg_unavailable": self._pg_unavailable,
+            "pg_unavailable": not db_available,
             "engine_version": self._engine_version,
             "environment_name": self._environment_name,
             "not_research_truth": True,
@@ -491,6 +501,8 @@ class ResearchOsdRuntime:
 
     def drain(self, *, join_timeout: float = 5.0) -> None:
         self._stop.set()
+        if self._instance is not None and self._instance.status == "STOPPED":
+            return
         if self._instance is not None:
             try:
                 mark_runtime_status(
@@ -499,7 +511,7 @@ class ResearchOsdRuntime:
                     "DRAINING",
                     clock=self._clock,
                 )
-            except PersistenceError as exc:
+            except DatabaseUnavailableError as exc:
                 self._mark_pg_unavailable(exc)
         if self._registry is not None:
             for run_id in self._registry.owned_run_ids():
@@ -516,7 +528,7 @@ class ResearchOsdRuntime:
                     "STOPPED",
                     clock=self._clock,
                 )
-            except PersistenceError as exc:
+            except DatabaseUnavailableError as exc:
                 self._mark_pg_unavailable(exc)
         _log(
             "runtime.drain",
@@ -540,7 +552,7 @@ class ResearchOsdRuntime:
                 self._uow_factory, research_run_id, recovery=recovery
             )
             report = self._run_preflight(command)
-        except PersistenceError as exc:
+        except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
             return None
         if report.status is not PreflightStatus.READY_TO_START:
@@ -585,7 +597,7 @@ class ResearchOsdRuntime:
                 cadence_seconds=self._cadence_seconds,
                 controller_factory=_controller_factory,
             )
-        except PersistenceError as exc:
+        except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
             return None
         if supervisor is not None:
@@ -694,7 +706,7 @@ class ResearchOsdRuntime:
                     )
                 )
                 uow.commit()
-        except PersistenceError as exc:
+        except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
 
     def _status_from_sor(self, research_run_id: str) -> OrchestrationTickResult:
@@ -728,8 +740,18 @@ class ResearchOsdRuntime:
                     clock=self._clock,
                 )
                 self._pg_unavailable = False
-            except PersistenceError as exc:
+            except DatabaseUnavailableError as exc:
                 self._mark_pg_unavailable(exc)
+
+    def _refresh_pg_availability(self) -> bool:
+        try:
+            with self._uow_factory.open() as uow:
+                uow.rollback()
+        except DatabaseUnavailableError as exc:
+            self._mark_pg_unavailable(exc)
+            return False
+        self._pg_unavailable = False
+        return True
 
     def _mark_pg_unavailable(self, exc: PersistenceError) -> None:
         self._pg_unavailable = True
@@ -740,7 +762,7 @@ class ResearchOsdRuntime:
         )
 
     def _require_pg(self) -> None:
-        if self._pg_unavailable:
+        if not self._refresh_pg_availability():
             raise OperatorError(
                 OperatorErrorCode.DATABASE_UNAVAILABLE,
                 "postgresql unavailable; refusing new authoritative work",

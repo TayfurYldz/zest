@@ -35,6 +35,9 @@ packages = ["src/research_os"]
 include = [
     "/src/research_os",
     "/docs/README.md",
+    "/alembic.ini",
+    "/alembic",
+    "/deploy",
 ]
 exclude = [
     "/.venv",

@@ -7,10 +7,11 @@ import logging
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 from research_os.application.orchestration_lease import LeaseConfig
-from research_os.application.osd_settings import load_osd_settings
+from research_os.application.osd_settings import load_osd_settings, resolve_alembic_ini
 from research_os.application.preflight import (
     ModelReadinessInput,
     SchemaHealthInput,
@@ -28,7 +29,7 @@ from research_os.platform.worker_health import probe_local_python_worker
 
 
 def _alembic_ini() -> str:
-    return str(Path(__file__).resolve().parents[3] / "alembic.ini")
+    return str(resolve_alembic_ini(os.environ, source_file=Path(__file__)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,7 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     def probe_schema() -> SchemaHealthInput:
-        ok, detail = check_schema_head(engine, alembic_ini_path=_alembic_ini())
+        try:
+            ok, detail = check_schema_head(engine, alembic_ini_path=_alembic_ini())
+        except (OSError, ValueError) as exc:
+            return SchemaHealthInput(at_expected_head=False, detail=exc.__class__.__name__)
         return SchemaHealthInput(at_expected_head=ok, detail=detail)
 
     def probe_worker() -> WorkerReadinessInput:
@@ -120,19 +124,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     runtime.start_process()
     server = OperatorApiServer(runtime, host=host, port=port)
+    stop = threading.Event()
 
     def _handle_stop(_signum, _frame) -> None:
-        server.shutdown()
+        # Signal-safe for this process: only set an event. Do not call
+        # HTTPServer.shutdown() here — that deadlocks if this handler
+        # runs on the serve_forever thread (CPython socketserver contract).
+        stop.set()
 
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
+    server.start()
+    bound_host, bound_port = server.address
     print(
-        f"research-osd listening on http://{host}:{port}",
+        f"research-osd listening on http://{bound_host}:{bound_port}",
         flush=True,
     )
     try:
-        server.serve_forever()
+        stop.wait()
+    except KeyboardInterrupt:
+        stop.set()
     finally:
+        server.shutdown()
         runtime.drain()
         worker.shutdown()
         engine.dispose()

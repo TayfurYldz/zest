@@ -37,7 +37,7 @@ from research_os.application.runtime_instance import (
 )
 from research_os.core.enums import ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import LeaseFencingError, PersistenceError
+from research_os.data.errors import DatabaseUnavailableError, LeaseFencingError
 from research_os.data.records import (
     ExecutionAttemptRecord,
     IssuedBudgetRecord,
@@ -537,7 +537,7 @@ class ResearchOsdRuntimeTests(unittest.TestCase):
 
             def open(self):
                 if self.fail:
-                    raise PersistenceError("disconnected")
+                    raise DatabaseUnavailableError("postgresql unavailable")
                 return factory.open()
 
         wrapped = DisconnectingFactory()
@@ -554,9 +554,18 @@ class ResearchOsdRuntimeTests(unittest.TestCase):
         self._runtime = runtime
         runtime.start_process()
         wrapped.fail = True
-        runtime._pg_unavailable = True
         with self.assertRaisesRegex(ApplicationError, "postgresql unavailable"):
             runtime.start_run("run-1")
+        health = runtime.health()
+        self.assertTrue(health["pg_unavailable"])
+        self.assertFalse(health["ready_for_start"])
+        self.assertFalse(health["database"]["available_now"])
+        self.assertEqual(health["database"]["health"], "UNAVAILABLE")
+        self.assertNotIn("password", str(health).lower())
+        wrapped.fail = False
+        recovered = runtime.health()
+        self.assertFalse(recovered["pg_unavailable"])
+        self.assertEqual(recovered["runtime_instance_id"], health["runtime_instance_id"])
 
     def test_health_and_status_have_no_secrets(self) -> None:
         store = _seed()
@@ -621,6 +630,38 @@ class ResearchOsdRuntimeTests(unittest.TestCase):
         self.assertFalse(health["model"]["available_now"])
         self.assertEqual(health["model"]["health"], "AUTH_REQUIRED")
         self.assertEqual(health["model"]["gate_04b_is_not_availability"], True)
+
+    def test_drain_marks_stopped_and_is_idempotent(self) -> None:
+        store = _seed()
+        worker = RecordingWorkerPort(store=store)
+        self._runtime = _runtime(store, worker, cadence_seconds=30)
+        self._runtime.start_process()
+        instance_id = self._runtime.runtime_instance_id
+        self._runtime.start_run("run-1")
+        self.assertTrue(self._runtime.is_supervising("run-1"))
+        deadline = time.time() + 2
+        while time.time() < deadline and not worker.calls:
+            time.sleep(0.05)
+        before = len(worker.calls)
+        self._runtime.drain(join_timeout=1)
+        record = store.runtime_instances[instance_id]
+        self.assertEqual(record.status, "STOPPED")
+        self.assertIsNotNone(record.stopped_at)
+        self._runtime.drain(join_timeout=1)
+        again = store.runtime_instances[instance_id]
+        self.assertEqual(again.status, "STOPPED")
+        self.assertEqual(len(worker.calls), before)
+
+    def test_idle_drain_persists_terminal_lifecycle(self) -> None:
+        store = _seed()
+        self._runtime = _runtime(store, cadence_seconds=30)
+        self._runtime.start_process()
+        instance_id = self._runtime.runtime_instance_id
+        self.assertEqual(store.runtime_instances[instance_id].status, "RUNNING")
+        self._runtime.drain(join_timeout=1)
+        record = store.runtime_instances[instance_id]
+        self.assertEqual(record.status, "STOPPED")
+        self.assertIsNotNone(record.stopped_at)
 
 
 class ResearchOsdAuthorityAuditTests(unittest.TestCase):

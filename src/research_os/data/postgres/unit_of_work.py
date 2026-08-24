@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from research_os.data.errors import PersistenceError
+from research_os.data.postgres.engine import raise_if_unavailable
 from research_os.data.postgres.repositories import (
     PostgresApprovalRepository,
     PostgresAuditEventRepository,
@@ -142,8 +144,17 @@ class PostgresUnitOfWork:
         return type(self)(self._engine)
 
     def __enter__(self) -> PostgresUnitOfWork:
-        self._connection = self._engine.connect()
-        self._transaction = self._connection.begin()
+        self._connection = None
+        self._transaction = None
+        try:
+            self._connection = self._engine.connect()
+            self._transaction = self._connection.begin()
+        except SQLAlchemyError as exc:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+            raise_if_unavailable(exc)
+            raise PersistenceError("postgresql unavailable") from exc
         self._committed = False
         self.programs = PostgresProgramRepository(self._connection)
         self.scope_rules_v2 = PostgresScopeRuleV2Repository(self._connection)

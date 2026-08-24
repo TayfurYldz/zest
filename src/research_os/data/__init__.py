@@ -5,6 +5,7 @@ SQLAlchemy/psycopg live only in `research_os.data.postgres`.
 """
 
 from research_os.data.errors import (
+    DatabaseUnavailableError,
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
@@ -42,6 +43,7 @@ __all__ = [
     "HypothesisRecord",
     "IssuedBudgetRecord",
     "ObservationRecord",
+    "DatabaseUnavailableError",
     "PersistenceConflictError",
     "PersistenceError",
     "PersistenceInputError",
