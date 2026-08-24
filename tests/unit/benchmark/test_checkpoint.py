@@ -37,10 +37,17 @@ from research_os.benchmark.runner import (
 )
 from research_os.benchmark.scenarios import load_scenarios
 from research_os.research.model_port import (
+    ContentPolicyBlockedError,
     ModelCallRequest,
     ModelCallResult,
+    ModelPortError,
     ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderRuntimeError,
     ProviderTimeoutError,
+    RuntimeProcessError,
+    StructuredOutputTransportError,
 )
 
 REPO = Path(__file__).resolve().parents[3]
@@ -76,6 +83,20 @@ class NoCallModelPort:
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
         self.calls.append(request)
         raise AssertionError("provider should not be called during checkpoint replay")
+
+
+class StagedErrorModelPort:
+    adapter_identity = GOOD_BASELINE
+
+    def __init__(self, errors: list[BaseException]) -> None:
+        self.errors = list(errors)
+        self.calls: list[ModelCallRequest] = []
+
+    def complete(self, request: ModelCallRequest) -> ModelCallResult:
+        self.calls.append(request)
+        if self.errors:
+            raise self.errors.pop(0)
+        return create_baseline(GOOD_BASELINE).complete(request)
 
 
 def _normalize_report(report) -> dict:
@@ -161,6 +182,272 @@ def fake_gate_status(**kwargs):
 
 
 class BenchmarkCheckpointTests(unittest.TestCase):
+    def test_synchronous_allowlisted_error_becomes_completed_error(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = run_experiment(
+                scenarios,
+                ScriptedModelPort(
+                    adapter_identity=GOOD_BASELINE,
+                    generator=good_generator,
+                    falsifier=cautious_falsifier,
+                    error=ProviderTimeoutError("raw timeout detail should not persist"),
+                    fail_role=ModelRole.GENERATOR,
+                ),
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+            )
+            self.assertEqual(report.summaries[0].provider_timeout_failures, 1)
+            record = json.loads(
+                sorted(root.glob("plans/*/calls/*.json"))[0].read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["status"], "COMPLETED_ERROR")
+            self.assertEqual(record["error"]["code"], "PROVIDER_TIMEOUT")
+            self.assertEqual(record["error"]["message"], "provider timeout")
+            self.assertNotIn("raw timeout", json.dumps(record))
+            self.assertNotIn("research_context", json.dumps(record))
+
+    def test_resume_replays_completed_error_with_zero_provider_calls(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = run_experiment(
+                scenarios,
+                ScriptedModelPort(
+                    adapter_identity=GOOD_BASELINE,
+                    generator=good_generator,
+                    falsifier=cautious_falsifier,
+                    error=ProviderTimeoutError("provider timeout"),
+                    fail_role=ModelRole.GENERATOR,
+                ),
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+            )
+            no_call = NoCallModelPort()
+            resumed = run_experiment(
+                scenarios,
+                no_call,
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(root, resume=True),
+            )
+            self.assertEqual(no_call.calls, [])
+            self.assertEqual(_normalize_report(first), _normalize_report(resumed))
+
+    def test_provider_error_mappings_replay_existing_semantic_classes(self) -> None:
+        cases = [
+            (ProviderAuthError("provider authentication failed"), "PROVIDER_AUTH", True),
+            (ProviderRateLimitError("provider rate limit"), "PROVIDER_RATE_LIMIT", True),
+            (ProviderTimeoutError("provider timeout"), "PROVIDER_TIMEOUT", True),
+            (ProviderRuntimeError("provider runtime error"), "PROVIDER_RUNTIME", True),
+            (RuntimeProcessError("runtime process error"), "PROVIDER_RUNTIME", True),
+            (
+                StructuredOutputTransportError("structured output failure"),
+                "STRUCTURED_OUTPUT_FAILURE",
+                False,
+            ),
+            (
+                ContentPolicyBlockedError("content policy blocked"),
+                "CONTENT_POLICY_BLOCKED",
+                True,
+            ),
+        ]
+        scenarios = _scenarios()
+        for exc, failure_class, runtime_error in cases:
+            with self.subTest(exc=exc.__class__.__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    run_experiment(
+                        scenarios,
+                        ScriptedModelPort(
+                            adapter_identity=GOOD_BASELINE,
+                            generator=good_generator,
+                            falsifier=cautious_falsifier,
+                            error=exc,
+                            fail_role=ModelRole.GENERATOR,
+                        ),
+                        config=_config(),
+                        model_identity=_identity(),
+                        git_commit="commit-a",
+                        checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+                    )
+                    resumed = run_experiment(
+                        scenarios,
+                        NoCallModelPort(),
+                        config=_config(),
+                        model_identity=_identity(),
+                        git_commit="commit-a",
+                        checkpoint_session=BenchmarkCheckpointSession(root, resume=True),
+                    )
+                    run = resumed.summaries[0].runs[0]
+                    self.assertEqual(run.failure_class, failure_class)
+                    self.assertEqual(run.provider_runtime_error, runtime_error)
+
+    def test_crash_after_intent_remains_unknown_outcome(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(KeyboardInterrupt):
+                run_experiment(
+                    scenarios,
+                    StagedErrorModelPort([KeyboardInterrupt()]),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+                )
+            record = json.loads(
+                sorted(root.glob("plans/*/calls/*.json"))[0].read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["status"], "INTENT")
+            with self.assertRaises(BenchmarkError) as ctx:
+                run_experiment(
+                    scenarios,
+                    NoCallModelPort(),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(root, resume=True),
+                )
+            self.assertIn("UNKNOWN_OUTCOME", str(ctx.exception))
+
+    def test_unexpected_model_port_error_remains_fail_closed(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_experiment(
+                scenarios,
+                StagedErrorModelPort([ModelPortError("unexpected base model error")]),
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+            )
+            record = json.loads(
+                sorted(root.glob("plans/*/calls/*.json"))[0].read_text(encoding="utf-8")
+            )
+            self.assertEqual(record["status"], "INTENT")
+            with self.assertRaises(BenchmarkError) as ctx:
+                run_experiment(
+                    scenarios,
+                    NoCallModelPort(),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(root, resume=True),
+                )
+            self.assertIn("UNKNOWN_OUTCOME", str(ctx.exception))
+
+    def test_corrupt_completed_error_record_fails_closed(self) -> None:
+        scenarios = _scenarios()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_experiment(
+                scenarios,
+                ScriptedModelPort(
+                    adapter_identity=GOOD_BASELINE,
+                    generator=good_generator,
+                    falsifier=cautious_falsifier,
+                    error=ProviderTimeoutError("provider timeout"),
+                    fail_role=ModelRole.GENERATOR,
+                ),
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(root, resume=False),
+            )
+            record = sorted(root.glob("plans/*/calls/*.json"))[0]
+            payload = json.loads(record.read_text(encoding="utf-8"))
+            payload["error"]["raw_stderr"] = "must not replay"
+            record.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(BenchmarkError) as ctx:
+                run_experiment(
+                    scenarios,
+                    NoCallModelPort(),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(root, resume=True),
+                )
+            self.assertIn("completed error record is invalid", str(ctx.exception))
+
+    def test_known_provider_failures_do_not_poison_later_boundary_resume(self) -> None:
+        scenarios = _scenarios(3)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(BenchmarkOperationalPause):
+                run_experiment(
+                    scenarios,
+                    StagedErrorModelPort(
+                        [
+                            ProviderTimeoutError("provider timeout"),
+                            ProviderRateLimitError("provider rate limit"),
+                        ]
+                    ),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(
+                        root,
+                        resume=False,
+                        max_new_model_calls=2,
+                    ),
+                )
+            statuses = [
+                json.loads(path.read_text(encoding="utf-8"))["status"]
+                for path in sorted(root.glob("plans/*/calls/*.json"))
+            ]
+            self.assertEqual(statuses, ["COMPLETED_ERROR", "COMPLETED_ERROR"])
+
+            resumed = run_experiment(
+                scenarios,
+                create_baseline(GOOD_BASELINE),
+                config=_config(),
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(
+                    root,
+                    resume=True,
+                    max_new_model_calls=2,
+                ),
+            )
+            self.assertEqual(resumed.summaries[0].provider_timeout_failures, 1)
+            self.assertEqual(resumed.summaries[1].provider_rate_limit_failures, 1)
+            self.assertEqual(resumed.summaries[2].completed, 1)
+
+    def test_error_invocations_count_toward_boundary_limit(self) -> None:
+        scenarios = _scenarios(2)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(BenchmarkOperationalPause):
+                run_experiment(
+                    scenarios,
+                    StagedErrorModelPort([ProviderTimeoutError("provider timeout")]),
+                    config=_config(),
+                    model_identity=_identity(),
+                    git_commit="commit-a",
+                    checkpoint_session=BenchmarkCheckpointSession(
+                        root,
+                        resume=False,
+                        max_new_model_calls=1,
+                    ),
+                )
+            records = sorted(root.glob("plans/*/calls/*.json"))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(
+                json.loads(records[0].read_text(encoding="utf-8"))["status"],
+                "COMPLETED_ERROR",
+            )
+            pause = json.loads((root / "pause.json").read_text(encoding="utf-8"))
+            self.assertEqual(pause["new_model_calls"], 1)
+            self.assertEqual(pause["next_call"]["slot"]["role"], "GENERATOR")
+
     def test_max_new_model_calls_pauses_before_next_intent(self) -> None:
         scenarios = _scenarios()
         with tempfile.TemporaryDirectory() as tmp:
@@ -188,7 +475,7 @@ class BenchmarkCheckpointTests(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(
                 json.loads(records[0].read_text(encoding="utf-8"))["status"],
-                "COMPLETED",
+                "COMPLETED_SUCCESS",
             )
             self.assertFalse(
                 any(
@@ -252,10 +539,10 @@ class BenchmarkCheckpointTests(unittest.TestCase):
                     json.loads(path.read_text(encoding="utf-8"))["status"]
                     for path in records
                 },
-                {"COMPLETED"},
+                {"COMPLETED_SUCCESS"},
             )
 
-    def test_completed_generator_replay_causes_zero_additional_provider_calls(self) -> None:
+    def test_completed_generator_and_falsifier_error_replay_causes_zero_calls(self) -> None:
         scenarios = _scenarios()
         config = _config()
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,17 +569,16 @@ class BenchmarkCheckpointTests(unittest.TestCase):
                 generator=good_generator,
                 falsifier=cautious_falsifier,
             )
-            with self.assertRaises(BenchmarkError) as ctx:
-                run_experiment(
-                    scenarios,
-                    second,
-                    config=config,
-                    model_identity=_identity(),
-                    git_commit="commit-a",
-                    checkpoint_session=BenchmarkCheckpointSession(Path(tmp), resume=True),
-                )
-            self.assertIn("UNKNOWN_OUTCOME", str(ctx.exception))
+            resumed = run_experiment(
+                scenarios,
+                second,
+                config=config,
+                model_identity=_identity(),
+                git_commit="commit-a",
+                checkpoint_session=BenchmarkCheckpointSession(Path(tmp), resume=True),
+            )
             self.assertEqual(second.calls, [])
+            self.assertEqual(_normalize_report(report), _normalize_report(resumed))
 
     def test_completed_falsifier_replay_causes_zero_additional_provider_calls(self) -> None:
         scenarios = _scenarios()
@@ -1020,6 +1306,84 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                 _normalize_bundle(json.loads(uninterrupted.read_text(encoding="utf-8"))),
                 _normalize_bundle(json.loads(bounded.read_text(encoding="utf-8"))),
             )
+
+    def test_bounded_resumed_paired_bundle_matches_provider_error_bundle(self) -> None:
+        def resolve_with_provider_errors(adapter_id: str, model_id: str | None):
+            del model_id
+            if adapter_id == "openai":
+                return (
+                    ScriptedModelPort(
+                        adapter_identity="openai.test",
+                        generator=good_generator,
+                        falsifier=cautious_falsifier,
+                        error=ProviderTimeoutError("provider timeout"),
+                        fail_role=ModelRole.GENERATOR,
+                    ),
+                    identity_for_live(
+                        adapter_identity="openai.test",
+                        provider_adapter_identity="openai",
+                        provider_model_id="openai-model",
+                    ),
+                )
+            return fake_resolve_live(adapter_id, None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            uninterrupted = Path(tmp) / "uninterrupted.json"
+            bounded = Path(tmp) / "bounded.json"
+            checkpoint = Path(tmp) / "checkpoint"
+            args = [
+                "--discover-and-compare",
+                "--scenarios",
+                str(SCENARIO_DIR),
+                "--runs-per-scenario",
+                "1",
+            ]
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    run_cli(
+                        args + ["--json-report", str(uninterrupted)],
+                        resolve_live=resolve_with_provider_errors,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    ),
+                    0,
+                )
+
+            first = True
+            exits: list[int] = []
+            for _attempt in range(20):
+                checkpoint_args = (
+                    ["--checkpoint-dir", str(checkpoint)]
+                    if first
+                    else ["--resume-checkpoint", str(checkpoint)]
+                )
+                first = False
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    code = run_cli(
+                        args
+                        + [
+                            "--json-report",
+                            str(bounded),
+                            "--max-new-model-calls",
+                            "5",
+                        ]
+                        + checkpoint_args,
+                        resolve_live=resolve_with_provider_errors,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    )
+                exits.append(code)
+                if code == 0:
+                    break
+                self.assertEqual(code, BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE)
+                self.assertFalse(bounded.exists())
+            self.assertEqual(exits[-1], 0)
+            self.assertEqual(
+                _normalize_bundle(json.loads(uninterrupted.read_text(encoding="utf-8"))),
+                _normalize_bundle(json.loads(bounded.read_text(encoding="utf-8"))),
+            )
+            payload = json.loads(bounded.read_text(encoding="utf-8"))
+            self.assertGreater(payload["reports"][0]["summaries"][0]["provider_timeout_failures"], 0)
 
 
 if __name__ == "__main__":

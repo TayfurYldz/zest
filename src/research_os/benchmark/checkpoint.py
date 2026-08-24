@@ -22,11 +22,20 @@ from research_os.benchmark.identity import (
 from research_os.benchmark.scenarios import BenchmarkScenario
 from research_os.benchmark.suite import build_suite_manifest, scenario_integrity_hash
 from research_os.research.model_port import (
+    ContentPolicyBlockedError,
     ModelCallRequest,
     ModelCallResult,
     ModelCallTelemetry,
     ModelPort,
+    ModelPortError,
     ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderRuntimeError,
+    ProviderTimeoutError,
+    RuntimeProcessError,
+    RuntimeUnavailableError,
+    StructuredOutputTransportError,
 )
 from research_os.research.model_runtime import (
     AuthMode,
@@ -40,6 +49,39 @@ PLAN_FILE = "plan.json"
 PAIRED_PLAN_FILE = "paired-plan.json"
 PAUSE_FILE = "pause.json"
 CALL_DIR = "calls"
+
+_ERROR_CODE_TO_CLASS: dict[str, type[ModelPortError]] = {
+    "CONTENT_POLICY_BLOCKED": ContentPolicyBlockedError,
+    "PROVIDER_AUTH": ProviderAuthError,
+    "PROVIDER_RATE_LIMIT": ProviderRateLimitError,
+    "PROVIDER_RUNTIME": ProviderRuntimeError,
+    "PROVIDER_TIMEOUT": ProviderTimeoutError,
+    "RUNTIME_PROCESS_ERROR": RuntimeProcessError,
+    "RUNTIME_UNAVAILABLE": RuntimeUnavailableError,
+    "STRUCTURED_OUTPUT_FAILURE": StructuredOutputTransportError,
+}
+
+_ERROR_CLASS_TO_CODE: tuple[tuple[type[ModelPortError], str], ...] = (
+    (StructuredOutputTransportError, "STRUCTURED_OUTPUT_FAILURE"),
+    (ContentPolicyBlockedError, "CONTENT_POLICY_BLOCKED"),
+    (ProviderAuthError, "PROVIDER_AUTH"),
+    (ProviderRateLimitError, "PROVIDER_RATE_LIMIT"),
+    (ProviderTimeoutError, "PROVIDER_TIMEOUT"),
+    (RuntimeProcessError, "RUNTIME_PROCESS_ERROR"),
+    (RuntimeUnavailableError, "RUNTIME_UNAVAILABLE"),
+    (ProviderRuntimeError, "PROVIDER_RUNTIME"),
+)
+
+_ERROR_CODE_TO_MESSAGE: dict[str, str] = {
+    "CONTENT_POLICY_BLOCKED": "content policy blocked",
+    "PROVIDER_AUTH": "provider authentication failed",
+    "PROVIDER_RATE_LIMIT": "provider rate limit",
+    "PROVIDER_RUNTIME": "provider runtime error",
+    "PROVIDER_TIMEOUT": "provider timeout",
+    "RUNTIME_PROCESS_ERROR": "runtime process error",
+    "RUNTIME_UNAVAILABLE": "runtime unavailable",
+    "STRUCTURED_OUTPUT_FAILURE": "structured output failure",
+}
 
 
 def _canonical(value: object) -> str:
@@ -540,10 +582,14 @@ class BenchmarkPlanCheckpoint:
                 call_identity=call_identity,
             )
             status = record.get("status")
-            if status == "COMPLETED":
+            if status in {"COMPLETED", "COMPLETED_SUCCESS"}:
                 if self.boundary_budget is not None:
                     self.boundary_budget.record_replay()
                 return _result_from_record(record)
+            if status == "COMPLETED_ERROR":
+                if self.boundary_budget is not None:
+                    self.boundary_budget.record_replay()
+                raise _error_from_record(record)
             if status == "INTENT":
                 raise BenchmarkError(
                     "checkpoint call is UNKNOWN_OUTCOME; automatic retry is refused"
@@ -577,8 +623,28 @@ class BenchmarkPlanCheckpoint:
                 "not_sor_truth": True,
             },
         )
-        result = invoke(request)
-        completed = _completed_record(
+        try:
+            result = invoke(request)
+        except ModelPortError as exc:
+            completed_error = _completed_error_record(
+                exc,
+                slot=slot,
+                slot_id=slot_id,
+                request_fingerprint=req_fp,
+                call_identity=call_identity,
+            )
+            existing = _read_json(path)
+            if existing.get("status") != "INTENT":
+                raise BenchmarkError("checkpoint error record would overwrite immutable state")
+            _validate_record(
+                existing,
+                slot=slot,
+                request_fingerprint=req_fp,
+                call_identity=call_identity,
+            )
+            _atomic_write_json(path, completed_error)
+            raise _error_from_record(completed_error) from None
+        completed = _completed_success_record(
             result,
             slot=slot,
             slot_id=slot_id,
@@ -652,7 +718,7 @@ def _runtime_identity_mapping(identity: ModelRuntimeIdentity | None) -> dict[str
     return identity.to_mapping()
 
 
-def _completed_record(
+def _completed_success_record(
     result: ModelCallResult,
     *,
     slot: Mapping[str, Any],
@@ -663,7 +729,7 @@ def _completed_record(
     return {
         "kind": "BenchmarkModelCallCheckpoint",
         "checkpoint_version": CHECKPOINT_VERSION,
-        "status": "COMPLETED",
+        "status": "COMPLETED_SUCCESS",
         "created_at": _now(),
         "updated_at": _now(),
         "slot": dict(slot),
@@ -685,6 +751,40 @@ def _completed_record(
             "completion_tokens": result.completion_tokens,
             "telemetry": _telemetry_mapping(result.telemetry),
             "runtime_identity": _runtime_identity_mapping(result.runtime_identity),
+        },
+    }
+
+
+def _completed_error_record(
+    exc: ModelPortError,
+    *,
+    slot: Mapping[str, Any],
+    slot_id: str,
+    request_fingerprint: str,
+    call_identity: str,
+) -> dict[str, Any]:
+    code = _allowlisted_error_code(exc)
+    if code is None:
+        raise exc
+    return {
+        "kind": "BenchmarkModelCallCheckpoint",
+        "checkpoint_version": CHECKPOINT_VERSION,
+        "status": "COMPLETED_ERROR",
+        "created_at": _now(),
+        "updated_at": _now(),
+        "slot": dict(slot),
+        "slot_id": slot_id,
+        "call_identity": call_identity,
+        "request_fingerprint": request_fingerprint,
+        "not_evidence": True,
+        "not_finding": True,
+        "not_candidate": True,
+        "not_sor_truth": True,
+        "error": {
+            "code": code,
+            "classification": code,
+            "message": _ERROR_CODE_TO_MESSAGE[code],
+            "sanitized": True,
         },
     }
 
@@ -714,6 +814,33 @@ def _result_from_record(record: Mapping[str, Any]) -> ModelCallResult:
         telemetry=telemetry,
         runtime_identity=runtime_identity,
     )
+
+
+def _error_from_record(record: Mapping[str, Any]) -> ModelPortError:
+    error = record.get("error")
+    if not isinstance(error, Mapping):
+        raise BenchmarkError("checkpoint completed error record is missing error")
+    if set(error) != {"code", "classification", "message", "sanitized"}:
+        raise BenchmarkError("checkpoint completed error record is invalid")
+    try:
+        code = str(error["code"])
+        classification = str(error["classification"])
+        message = str(error["message"])
+        sanitized = error["sanitized"]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BenchmarkError("checkpoint completed error record is invalid") from exc
+    if code != classification or code not in _ERROR_CODE_TO_CLASS:
+        raise BenchmarkError("checkpoint completed error classification is invalid")
+    if message != _ERROR_CODE_TO_MESSAGE[code] or sanitized is not True:
+        raise BenchmarkError("checkpoint completed error replay details are invalid")
+    return _ERROR_CODE_TO_CLASS[code](message)
+
+
+def _allowlisted_error_code(exc: ModelPortError) -> str | None:
+    for cls, code in _ERROR_CLASS_TO_CODE:
+        if isinstance(exc, cls):
+            return code
+    return None
 
 
 def _telemetry_from_mapping(value: object) -> ModelCallTelemetry | None:
