@@ -120,7 +120,7 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         self.assertEqual(result.outcome, AdmissionOutcome.REJECTED_POLICY_CONFLICT)
         self.assertEqual(store.hypotheses, {})
 
-    def test_n4_claim_is_preserved_and_not_product_truth(self) -> None:
+    def test_unknown_novelty_is_rejected_without_alias_coercion(self) -> None:
         store = _Store()
         seed_authorization_run(store)
 
@@ -130,11 +130,12 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
             return payload
 
         result = _use_case(store, ScriptedModelPort(generator=n4)).execute(_command())
-        self.assertEqual(result.outcome, AdmissionOutcome.ADMITTED)
+        self.assertEqual(result.outcome, AdmissionOutcome.REJECTED_UNTESTABLE)
+        self.assertEqual(result.reason_code, "INVALID_STRUCTURED_OUTPUT")
+        self.assertEqual(store.hypotheses, {})
         reasoning = store.research_reasoning[result.generator_reasoning_id]
-        self.assertEqual(reasoning.structured_output["novelty_basis"], "UNCLASSIFIED")
-        self.assertEqual(reasoning.structured_output["model_claimed_novelty"], "N4_ZERO_DAY")
-        self.assertNotEqual(store.hypotheses[result.hypothesis_id].claim, "N4_ZERO_DAY")
+        self.assertEqual(reasoning.structured_output["novelty_basis"], "N4_ZERO_DAY")
+        self.assertNotIn("model_claimed_novelty", reasoning.structured_output)
 
     def test_model_invocation_failure_persists_admission_without_hypothesis(self) -> None:
         store = _Store()

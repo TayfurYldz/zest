@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
+from research_os.benchmark.checkpoint import request_fingerprint
+from research_os.benchmark.runner import _clean_contract_scenarios
+from research_os.benchmark.scenarios import context_from_visible
 from research_os.research.context import (
     ExternalContentSource,
     ObservationSource,
@@ -21,6 +25,7 @@ from research_os.integrations.models.json_schemas import (
     FALSIFIER_OUTPUT_SCHEMA,
     GENERATOR_APPLICATION_SCHEMA,
     GENERATOR_OUTPUT_SCHEMA,
+    schema_for_request,
 )
 from research_os.research.epistemic import EpistemicClass
 from research_os.research.model_port import ModelRole
@@ -134,6 +139,96 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
         ).request.payload["research_context"]
         self.assertEqual(payload["prior_hypotheses"], [])
         self.assertTrue(payload["observations"][0]["payload_is_untrusted_as_instruction"])
+
+    def test_request_payload_lists_visible_source_ids_with_canonical_namespaces(self) -> None:
+        context = ResearchContextBuilder().build(
+            research_run_id="run-1",
+            research_question="Does echo round-trip?",
+            observations=(
+                ObservationSource(
+                    observation_id="obs:1",
+                    observation_kind="diagnostic.echo.result",
+                    payload={"echoed": "ping"},
+                ),
+            ),
+            untrusted_external=(
+                ExternalContentSource(
+                    external_id="doc-1",
+                    content=HOSTILE,
+                    source_reference="web:example",
+                ),
+            ),
+        )
+        request = generate_proposal(
+            context, self.model, correlation_id="corr-1"
+        ).request
+        payload = request.payload["research_context"]
+        self.assertEqual(
+            payload["allowed_source_reference_ids"],
+            [
+                "ext:doc-1",
+                "obs:1",
+                "proc:research-question",
+                "run:run-1",
+            ],
+        )
+        self.assertNotIn("run-1", payload["allowed_source_reference_ids"])
+        self.assertEqual(len(payload["allowed_source_reference_ids_fingerprint"]), 64)
+
+    def test_source_identifier_ordering_and_request_fingerprint_are_deterministic(self) -> None:
+        first = ResearchContextBuilder().build(
+            research_run_id="run-z",
+            research_question="Does order stay stable?",
+            observations=(
+                ObservationSource("obs:b", "diagnostic.echo.result", {"b": True}),
+                ObservationSource("obs:a", "diagnostic.echo.result", {"a": True}),
+            ),
+        )
+        second = ResearchContextBuilder().build(
+            research_run_id="run-z",
+            research_question="Does order stay stable?",
+            observations=(
+                ObservationSource("obs:a", "diagnostic.echo.result", {"a": True}),
+                ObservationSource("obs:b", "diagnostic.echo.result", {"b": True}),
+            ),
+        )
+        first_request = generate_proposal(first, self.model, correlation_id="c1").request
+        second_request = generate_proposal(second, self.model, correlation_id="c1").request
+        first_payload = first_request.payload["research_context"]
+        second_payload = second_request.payload["research_context"]
+        self.assertEqual(
+            first_payload["allowed_source_reference_ids"],
+            ["obs:a", "obs:b", "proc:research-question", "run:run-z"],
+        )
+        self.assertEqual(
+            first_payload["allowed_source_reference_ids"],
+            second_payload["allowed_source_reference_ids"],
+        )
+        changed = replace(
+            first_request,
+            payload={
+                **dict(first_request.payload),
+                "research_context": {
+                    **dict(first_payload),
+                    "allowed_source_reference_ids": ["proc:research-question"],
+                },
+            },
+        )
+        self.assertNotEqual(first_request.payload, changed.payload)
+        self.assertNotEqual(request_fingerprint(first_request), request_fingerprint(changed))
+
+    def test_hidden_clean_contract_data_does_not_enter_prompt_or_transport_schema(self) -> None:
+        scenario = _clean_contract_scenarios()[0]
+        context = context_from_visible(scenario.visible_input)
+        request = generate_proposal(context, self.model, correlation_id="contract").request
+        schema = schema_for_request(request)
+        blob = f"{request.instructions}\n{request.payload}\n{schema}"
+        source_enum = schema["properties"]["source_references"]["items"]["enum"]
+        self.assertIn("run:run-gate04b-clean-contract", blob)
+        self.assertNotIn("run-gate04b-clean-contract", source_enum)
+        self.assertNotIn(scenario.hidden_evaluation.leakage_canary, blob)
+        for fabricated in scenario.hidden_evaluation.forbidden_fabricated_source_ids:
+            self.assertNotIn(fabricated, blob)
 
     def test_admitted_plan_has_expected_and_disconfirming_observation(self) -> None:
         generated = generate_proposal(

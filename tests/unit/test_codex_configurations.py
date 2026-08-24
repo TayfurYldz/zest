@@ -34,7 +34,9 @@ from research_os.integrations.models.json_schemas import (
     GENERATOR_APPLICATION_SCHEMA,
     GENERATOR_OUTPUT_SCHEMA,
     decode_transport_output,
+    decode_transport_output_for_request,
     schema_for_role,
+    schema_for_request,
     validate_strict_transport_schema,
 )
 from research_os.interface.cli import build_status_snapshot
@@ -53,10 +55,13 @@ from research_os.research.model_port import (
 )
 from research_os.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
 from research_os.research.output_contracts import (
+    ACCEPTED_NOVELTY_BASIS,
     DIAGNOSTIC_CONTRACT,
     FALSIFIER_CONTRACT,
     GENERATOR_CONTRACT,
 )
+from research_os.research.proposals import parse_novelty_basis
+from research_os.research.types import ResearchInputError
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 API_KEY_PREFIX = "sk" + "-"
@@ -566,13 +571,13 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
                 source_references=["obs:1"],
                 assumptions=["assumption"],
                 expected_security_relevance="bounded note",
-                novelty_basis="N4_ZERO_DAY",
+                novelty_basis="TARGET_SPECIFIC_BEHAVIOR",
             ),
         )
         self.assertEqual(decoded["source_references"], ["obs:1"])
         self.assertEqual(decoded["assumptions"], ["assumption"])
         self.assertEqual(decoded["expected_security_relevance"], "bounded note")
-        self.assertEqual(decoded["novelty_basis"], "N4_ZERO_DAY")
+        self.assertEqual(decoded["novelty_basis"], "TARGET_SPECIFIC_BEHAVIOR")
 
     def test_transport_decoder_required_null_unknown_and_wrong_types_fail_closed(self) -> None:
         with self.assertRaises(StructuredOutputTransportError):
@@ -583,6 +588,60 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
             decode_transport_output(
                 GENERATOR_CONTRACT,
                 _generator_transport(source_references="not-an-array"),
+            )
+        with self.assertRaises(StructuredOutputTransportError):
+            decode_transport_output(
+                GENERATOR_CONTRACT,
+                _generator_transport(novelty_basis="N4_ZERO_DAY"),
+            )
+
+    def test_novelty_vocabulary_is_shared_by_parser_schema_and_instructions(self) -> None:
+        enum_values = tuple(GENERATOR_OUTPUT_SCHEMA["properties"]["novelty_basis"]["enum"])
+        schema_values = tuple(item for item in enum_values if item is not None)
+        self.assertEqual(schema_values, ACCEPTED_NOVELTY_BASIS)
+        for value in ACCEPTED_NOVELTY_BASIS:
+            parsed, claimed = parse_novelty_basis(value)
+            self.assertEqual(parsed.value, value)
+            self.assertEqual(claimed, value)
+            self.assertIn(value, GENERATOR_CONTRACT.instructions())
+        with self.assertRaises(ResearchInputError):
+            parse_novelty_basis("N4_ZERO_DAY")
+
+    def test_request_schema_constrains_visible_source_references(self) -> None:
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="c-source",
+            context_fingerprint="fp",
+            instructions="propose",
+            payload={
+                "research_context": {
+                    "allowed_source_reference_ids": [
+                        "run:run-gate04b-clean-contract",
+                        "proc:research-question",
+                        "obs:gate04b-contract-echo",
+                    ],
+                },
+            },
+        )
+        schema = schema_for_request(request)
+        items = schema["properties"]["source_references"]["items"]
+        self.assertEqual(
+            items["enum"],
+            [
+                "run:run-gate04b-clean-contract",
+                "proc:research-question",
+                "obs:gate04b-contract-echo",
+            ],
+        )
+        decoded = decode_transport_output_for_request(
+            request,
+            _generator_transport(source_references=["obs:gate04b-contract-echo"]),
+        )
+        self.assertEqual(decoded["source_references"], ["obs:gate04b-contract-echo"])
+        with self.assertRaises(StructuredOutputTransportError):
+            decode_transport_output_for_request(
+                request,
+                _generator_transport(source_references=["run-gate04b-clean-contract"]),
             )
 
     def test_direct_application_object_decoding(self) -> None:

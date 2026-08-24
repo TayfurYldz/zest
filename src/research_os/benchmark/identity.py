@@ -18,8 +18,8 @@ from research_os.research.output_contracts import (
     combined_contract_fingerprint,
 )
 
-HARNESS_VERSION = "gate-04b.3"
-CONTRACT_QUALIFICATION_HARNESS_VERSION = "gate-04b.3.contract"
+HARNESS_VERSION = "gate-04b.4"
+CONTRACT_QUALIFICATION_HARNESS_VERSION = "gate-04b.4.contract"
 CONTEXT_BUILDER_VERSION = "ResearchContextBuilder.v1"
 ADMISSION_VERSION = "admit_hypothesis.v1"
 EVALUATOR_VERSION = "benchmark.evaluator.v1"

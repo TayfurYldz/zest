@@ -3,27 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Mapping
 
 from research_os.research.output_contracts import (
+    ACCEPTED_NOVELTY_BASIS,
     FALSIFIER_CONTRACT,
     FORBIDDEN_AUTHORITY_KEYS,
     GENERATOR_CONTRACT,
+    NoveltyBasis,
 )
 from research_os.research.types import ResearchInputError
 
 PROPOSAL_KEYS = GENERATOR_CONTRACT.allowed_keys
 CHALLENGE_KEYS = FALSIFIER_CONTRACT.allowed_keys
-
-
-class NoveltyBasis(Enum):
-    """Advisory metadata only. Cannot promote a Hypothesis. Not a score."""
-
-    KNOWN_PATTERN_INSTANCE = "KNOWN_PATTERN_INSTANCE"
-    POSSIBLE_COMBINATION = "POSSIBLE_COMBINATION"
-    TARGET_SPECIFIC_BEHAVIOR = "TARGET_SPECIFIC_BEHAVIOR"
-    UNCLASSIFIED = "UNCLASSIFIED"
 
 
 class ProposalAuthorityError(ResearchInputError):
@@ -84,12 +76,9 @@ def parse_novelty_basis(value: object) -> tuple[NoveltyBasis, str | None]:
     if not isinstance(value, str) or not value.strip():
         raise ResearchInputError("novelty_basis must be a string")
     token = value.strip()
-    if token in {"N4_ZERO_DAY", "ZERO_DAY", "N4"}:
-        return NoveltyBasis.UNCLASSIFIED, token
-    try:
-        return NoveltyBasis(token), token
-    except ValueError as exc:
-        raise ResearchInputError("novelty_basis is not a known advisory class") from exc
+    if token not in ACCEPTED_NOVELTY_BASIS:
+        raise ResearchInputError("novelty_basis is not a known advisory class")
+    return NoveltyBasis(token), token
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from research_os.research.context import ResearchContext
@@ -60,10 +62,15 @@ def _item_payload(item) -> dict[str, object]:
 def context_model_payload(context: ResearchContext) -> dict[str, object]:
     """Structured context for a model call. Not a flattened prompt blob."""
 
+    allowed_source_ids = tuple(sorted(context.resolvable_source_ids()))
     return {
         "research_run_id": context.research_run_id,
         "research_question": context.research_question,
         "is_partial": context.is_partial,
+        "allowed_source_reference_ids": list(allowed_source_ids),
+        "allowed_source_reference_ids_fingerprint": _fingerprint_sequence(
+            allowed_source_ids
+        ),
         "omission": {
             "omitted_observation_ids": list(context.omission.omitted_observation_ids),
             "omitted_hypothesis_ids": list(context.omission.omitted_hypothesis_ids),
@@ -95,6 +102,11 @@ def context_model_payload(context: ResearchContext) -> dict[str, object]:
             _item_payload(item) for item in context.untrusted_external_content
         ],
     }
+
+
+def _fingerprint_sequence(items: tuple[str, ...]) -> str:
+    encoded = json.dumps(list(items), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _request(

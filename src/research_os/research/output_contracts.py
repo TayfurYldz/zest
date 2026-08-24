@@ -9,12 +9,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
-STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v2"
-STRICT_TRANSPORT_SCHEMA_VERSION = "research.structured-output-transport.v3"
-GENERATOR_INSTRUCTION_VERSION = "research.generator.v2"
-FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v2"
+STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v3"
+STRICT_TRANSPORT_SCHEMA_VERSION = "research.structured-output-transport.v4"
+GENERATOR_INSTRUCTION_VERSION = "research.generator.v3"
+FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v3"
 DIAGNOSTIC_INSTRUCTION_VERSION = "research.diagnostic-readiness.v2"
 
 FORBIDDEN_AUTHORITY_KEYS = frozenset(
@@ -49,7 +50,19 @@ AUTHORITY_FORBIDDEN_CONCEPTS = (
 _STRING = {"type": "string"}
 _STRING_OR_NULL = {"type": ["string", "null"]}
 _STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
-_NOVELTY = {"type": "string"}
+
+
+class NoveltyBasis(Enum):
+    """Advisory model metadata only. Cannot promote a Hypothesis or Evidence."""
+
+    KNOWN_PATTERN_INSTANCE = "KNOWN_PATTERN_INSTANCE"
+    POSSIBLE_COMBINATION = "POSSIBLE_COMBINATION"
+    TARGET_SPECIFIC_BEHAVIOR = "TARGET_SPECIFIC_BEHAVIOR"
+    UNCLASSIFIED = "UNCLASSIFIED"
+
+
+ACCEPTED_NOVELTY_BASIS = tuple(item.value for item in NoveltyBasis)
+_NOVELTY = {"type": "string", "enum": list(ACCEPTED_NOVELTY_BASIS)}
 
 
 @dataclass(frozen=True)
@@ -114,7 +127,7 @@ class OutputContract:
         permitted = ", ".join(field.name for field in self.fields)
         required = ", ".join(field.name for field in self.fields if field.required)
         field_lines = "; ".join(
-            f"{field.name}: {field.schema['type']} - {field.description}"
+            f"{field.name}: {_schema_type_description(field.schema)} - {field.description}"
             for field in self.fields
         )
         forbidden = ", ".join(sorted(FORBIDDEN_AUTHORITY_KEYS))
@@ -162,7 +175,12 @@ GENERATOR_CONTRACT = OutputContract(
             True,
             "capability id suggestion only, not authorization",
         ),
-        OutputField("novelty_basis", _NOVELTY, False, "advisory novelty class only"),
+        OutputField(
+            "novelty_basis",
+            _NOVELTY,
+            False,
+            "advisory novelty class only; null means absent",
+        ),
     ),
 )
 
@@ -251,6 +269,16 @@ def _transport_field_schema(field: OutputField) -> dict[str, Any]:
     if field.required:
         return schema
     return _nullable_schema(schema)
+
+
+def _schema_type_description(schema: dict[str, Any]) -> str:
+    raw = schema.get("type")
+    type_text = "|".join(raw) if isinstance(raw, list) else str(raw)
+    enum = schema.get("enum")
+    if isinstance(enum, list):
+        values = ", ".join(str(item) for item in enum)
+        return f"{type_text} enum[{values}]"
+    return type_text
 
 
 def _nullable_schema(schema: dict[str, Any]) -> dict[str, Any]:

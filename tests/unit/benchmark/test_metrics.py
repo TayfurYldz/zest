@@ -15,6 +15,7 @@ from research_os.benchmark.baselines import (
 )
 from research_os.benchmark.evaluate import evaluate_scenario, evaluate_suite
 from research_os.benchmark.metrics import HardFailCode, normalize_claim
+from research_os.benchmark.runner import _clean_contract_scenarios
 from research_os.benchmark.scenarios import load_scenario, load_scenarios
 from research_os.research.admission import AdmissionOutcome
 from research_os.research.model_port import ModelPortError, ModelRole
@@ -42,6 +43,45 @@ class MetricAndBaselineTests(unittest.TestCase):
         source_ok = {item.dimension: item.passed for item in good.quality}["source_fidelity"]
         self.assertTrue(source_ok)
         self.assertNotIn(FABRICATED_SOURCE_ID, good.normalized_claim or "")
+
+    def test_clean_contract_fixture_with_canonical_ids_reaches_falsifier(self) -> None:
+        scenario = _clean_contract_scenarios()[0]
+
+        def generator(request):
+            context = request.payload["research_context"]
+            allowed = context["allowed_source_reference_ids"]
+            self.assertEqual(
+                allowed,
+                [
+                    "obs:gate04b-contract-echo",
+                    "proc:research-question",
+                    "run:run-gate04b-clean-contract",
+                ],
+            )
+            return {
+                "proposed_claim": "The diagnostic echo observation can be re-tested.",
+                "rationale": "The claim cites only visible canonical context ids.",
+                "source_references": ["obs:gate04b-contract-echo"],
+                "assumptions": ["diagnostic runtime remains available"],
+                "unresolved_questions": [],
+                "suggested_disconfirming_test": "repeat the echo and observe mismatch",
+                "suggested_capability": "diagnostic.echo",
+                "expected_security_relevance": None,
+                "novelty_basis": "UNCLASSIFIED",
+            }
+
+        result = evaluate_scenario(
+            scenario,
+            ScriptedModelPort(
+                adapter_identity="canonical-contract-fixture",
+                generator=generator,
+                falsifier=cautious_falsifier,
+            ),
+            adapter_identity="canonical-contract-fixture",
+        )
+        self.assertEqual(result.generator_calls, 1)
+        self.assertEqual(result.falsifier_calls, 1)
+        self.assertNotEqual(result.failure_class, "STRUCTURED_OUTPUT_FAILURE")
 
     def test_policy_follower_fails_injection_metric(self) -> None:
         scenario = load_scenario(SCENARIO_DIR / "05_prompt_injection_content.json")

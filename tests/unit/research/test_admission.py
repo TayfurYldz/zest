@@ -64,14 +64,9 @@ class ProposalAndAdmissionTests(unittest.TestCase):
         self.assertFalse(hasattr(proposal, "confidence"))
         self.assertIsInstance(proposal.source_references, tuple)
 
-    def test_n4_novelty_is_coerced_not_persisted_as_product_truth(self) -> None:
-        proposal = _proposal(novelty_basis="N4_ZERO_DAY")
-        self.assertEqual(proposal.novelty_basis, NoveltyBasis.UNCLASSIFIED)
-        self.assertEqual(proposal.model_claimed_novelty, "N4_ZERO_DAY")
-        self.assertNotEqual(proposal.novelty_basis.value, "N4_ZERO_DAY")
-        mapping = proposal.to_mapping()
-        self.assertEqual(mapping["novelty_basis"], "UNCLASSIFIED")
-        self.assertEqual(mapping["model_claimed_novelty"], "N4_ZERO_DAY")
+    def test_unknown_novelty_fails_closed_without_alias_coercion(self) -> None:
+        with self.assertRaises(ResearchInputError):
+            _proposal(novelty_basis="N4_ZERO_DAY")
 
     def test_invalid_proposal_rejected(self) -> None:
         with self.assertRaises(ResearchInputError):

@@ -43,7 +43,14 @@ def schema_for_request(request: ModelCallRequest) -> dict[str, Any]:
     if is_diagnostic_readiness_request(request):
         validate_strict_transport_schema(DIAGNOSTIC_CONTRACT, DIAGNOSTIC_OUTPUT_SCHEMA)
         return DIAGNOSTIC_OUTPUT_SCHEMA
-    return schema_for_role(request.role.value)
+    contract = contract_for_role(request.role.value)
+    schema = _schema_with_allowed_source_ids(
+        contract.strict_transport_schema(),
+        contract,
+        _allowed_source_ids_from_request(request),
+    )
+    validate_strict_transport_schema(contract, schema)
+    return schema
 
 
 def contract_for_request(request: ModelCallRequest) -> OutputContract:
@@ -106,7 +113,81 @@ def decode_transport_output(contract: OutputContract, raw: Mapping[str, object])
 def decode_transport_output_for_request(
     request: ModelCallRequest, raw: Mapping[str, object]
 ) -> dict[str, object]:
-    return decode_transport_output(contract_for_request(request), raw)
+    contract = contract_for_request(request)
+    decoded = decode_transport_output(contract, raw)
+    _validate_decoded_source_ids(
+        contract,
+        decoded,
+        allowed_source_ids=_allowed_source_ids_from_request(request),
+    )
+    return decoded
+
+
+def _allowed_source_ids_from_request(request: ModelCallRequest) -> tuple[str, ...]:
+    context = request.payload.get("research_context")
+    if not isinstance(context, Mapping):
+        return ()
+    raw = context.get("allowed_source_reference_ids")
+    if not isinstance(raw, list):
+        return ()
+    items: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            items.append(item)
+    return tuple(items)
+
+
+def _source_reference_fields(contract: OutputContract) -> tuple[str, ...]:
+    if contract.role == "GENERATOR":
+        return ("source_references",)
+    if contract.role == "FALSIFIER":
+        return ("contradictory_source_references",)
+    return ()
+
+
+def _schema_with_allowed_source_ids(
+    schema: dict[str, Any],
+    contract: OutputContract,
+    allowed_source_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    if not allowed_source_ids:
+        return schema
+    updated = {
+        **schema,
+        "properties": {
+            name: dict(value) if isinstance(value, Mapping) else value
+            for name, value in schema["properties"].items()
+        },
+    }
+    for name in _source_reference_fields(contract):
+        field_schema = updated["properties"].get(name)
+        if not isinstance(field_schema, Mapping):
+            continue
+        field_copy = dict(field_schema)
+        items = field_copy.get("items")
+        if isinstance(items, Mapping):
+            field_copy["items"] = {**dict(items), "enum": list(allowed_source_ids)}
+            updated["properties"][name] = field_copy
+    return updated
+
+
+def _validate_decoded_source_ids(
+    contract: OutputContract,
+    decoded: Mapping[str, object],
+    *,
+    allowed_source_ids: tuple[str, ...],
+) -> None:
+    if not allowed_source_ids:
+        return
+    allowed = set(allowed_source_ids)
+    for name in _source_reference_fields(contract):
+        raw = decoded.get(name)
+        if raw is None:
+            continue
+        if not isinstance(raw, list):
+            raise StructuredOutputTransportError("transport source references are invalid")
+        if any(item not in allowed for item in raw):
+            raise StructuredOutputTransportError("transport output referenced unknown source id")
 
 
 def _reject_unsupported_keywords(value: object) -> None:

@@ -724,6 +724,12 @@ class BenchmarkCheckpointTests(unittest.TestCase):
                     identity,
                     "commit-a",
                 ),
+                "v3_harness_version": (
+                    scenarios,
+                    replace(config, harness_version="gate-04b.3"),
+                    identity,
+                    "commit-a",
+                ),
                 "adapter": (
                     scenarios,
                     config,
