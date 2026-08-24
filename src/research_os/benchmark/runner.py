@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from importlib.resources import as_file, files
 
@@ -14,6 +16,8 @@ from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import evaluate_suite, format_scorecard
 from research_os.benchmark.experiment import (
+    ExperimentReport,
+    PairedComparison,
     compare_experiments,
     format_experiment_scorecard,
     format_paired,
@@ -279,13 +283,17 @@ def run_cli(
         return 2
 
     if args.discover or args.discover_and_compare:
-        return _run_discovery(
-            args,
-            git_commit=git_commit.strip() or "unknown",
-            resolve_live=resolve_live,
-            discover_runtimes=discover_runtimes,
-            evaluate_live_status=evaluate_live_status,
-        )
+        try:
+            return _run_discovery(
+                args,
+                git_commit=git_commit.strip() or "unknown",
+                resolve_live=resolve_live,
+                discover_runtimes=discover_runtimes,
+                evaluate_live_status=evaluate_live_status,
+            )
+        except BenchmarkError as exc:
+            print(f"benchmark invariant failure: {exc}", file=sys.stderr)
+            return 2
 
     try:
         scenarios = load_cli_scenarios(
@@ -432,6 +440,9 @@ def _run_discovery(
             file=sys.stderr,
         )
         return 0
+    if args.discover_and_compare and args.json_report and Path(args.json_report).exists():
+        print(f"refusing to overwrite paired benchmark report: {args.json_report}", file=sys.stderr)
+        return 2
     discovery = discover_runtimes(live_probe=bool(args.live_probe))
     mapping = discovery.to_mapping() if hasattr(discovery, "to_mapping") else discovery
     print("RUNTIME DISCOVERY")
@@ -449,6 +460,8 @@ def _run_discovery(
     executed: tuple[str, ...] = ()
     comparable = False
     leaked = False
+    reports: list[tuple[str, ExperimentReport]] = []
+    comparison: PairedComparison | None = None
     if args.discover_and_compare and len(available) >= 2:
         checkpoint_session = _checkpoint_session_from_args(args)
         scenarios = load_cli_scenarios(
@@ -473,16 +486,22 @@ def _run_discovery(
                 continue
             loaded.append((adapter_id, resolved))
         if len(loaded) >= 2:
+            paired_checkpoint = None
             if checkpoint_session is not None:
-                for _adapter_id, (_port, identity) in loaded[:2]:
-                    checkpoint_session.open_plan(
-                        scenarios,
-                        config=config,
-                        model_identity=identity,
-                        git_commit=git_commit,
-                    )
-            reports = []
-            for adapter_id, (port, identity) in loaded:
+                paired_checkpoint = checkpoint_session.open_paired_plan(
+                    scenarios,
+                    config=config,
+                    model_identities=(loaded[0][1][1], loaded[1][1][1]),
+                    git_commit=git_commit,
+                )
+                paired_checkpoint.open_model_plan(model_index=0)
+                paired_checkpoint.open_model_plan(model_index=1)
+            for model_index, (adapter_id, (port, identity)) in enumerate(loaded[:2]):
+                checkpoint_plan = (
+                    None
+                    if paired_checkpoint is None
+                    else paired_checkpoint.open_model_plan(model_index=model_index)
+                )
                 report = run_experiment(
                     scenarios,
                     port,
@@ -490,7 +509,7 @@ def _run_discovery(
                     model_identity=identity,
                     git_commit=git_commit,
                     holdout=holdout,
-                    checkpoint_session=checkpoint_session,
+                    checkpoint_plan=checkpoint_plan,
                 )
                 print()
                 print(format_experiment_scorecard(report))
@@ -520,9 +539,152 @@ def _run_discovery(
         )
     print("GATE 04B")
     print(json.dumps(status, indent=2, ensure_ascii=True))
+    if len(reports) >= 2 and comparison is not None:
+        bundle = _paired_result_bundle(
+            reports=tuple(reports[:2]),
+            comparison=comparison,
+            gate_status=status,
+            git_commit=git_commit,
+            discovery_mapping=mapping,
+            holdout=holdout,
+        )
+        if args.json_report:
+            _write_explicit_paired_bundle(Path(args.json_report), bundle)
+            print(f"paired json report: {args.json_report}")
+        if args.write_results:
+            written = _write_immutable_paired_bundle(DEFAULT_RESULTS_DIR, bundle)
+            print(f"immutable paired report: {written}")
     if status.get("status") == "NEEDS_REVIEW":
         return 2
+    if args.fail_on_hard_fail and _paired_hard_fail_event_count(tuple(reports)) > 0:
+        return 1
     return 0
+
+
+def _paired_result_bundle(
+    *,
+    reports: tuple[tuple[str, ExperimentReport], tuple[str, ExperimentReport]],
+    comparison: PairedComparison,
+    gate_status: dict[str, Any],
+    git_commit: str,
+    discovery_mapping: dict[str, Any],
+    holdout,
+) -> dict[str, Any]:
+    return {
+        "kind": "Gate04BPairedComparisonBundle",
+        "not_evidence": True,
+        "not_finding": True,
+        "not_candidate": True,
+        "not_sor_truth": True,
+        "no_automatic_winner": True,
+        "readiness_probes_are_operational_not_results": True,
+        "readiness_probe_note": (
+            "Each new or resumed process may consume one live readiness probe per "
+            "configured model; readiness probes are not scenario results."
+        ),
+        "git_commit": git_commit or "unknown",
+        "discovery": _sanitize_discovery_mapping(discovery_mapping),
+        "holdout": _holdout_statement(holdout),
+        "executed_model_configurations": [
+            report.model.to_mapping() for _adapter_id, report in reports
+        ],
+        "reports": [report.to_mapping() for _adapter_id, report in reports],
+        "paired_comparison": comparison.to_mapping(),
+        "gate_04b_status": dict(gate_status),
+    }
+
+
+def _sanitize_discovery_mapping(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(marker in lowered for marker in ("token", "secret", "password", "credential", "authorization")):
+                sanitized[str(key)] = "<redacted>"
+            else:
+                sanitized[str(key)] = _sanitize_discovery_mapping(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_discovery_mapping(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_discovery_mapping(item) for item in value]
+    return value
+
+
+def _holdout_statement(holdout) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "available": bool(holdout.available),
+        "reason": holdout.reason,
+        "sealed_contents_omitted": True,
+    }
+    if holdout.manifest is not None:
+        payload["manifest"] = holdout.manifest.to_mapping()
+    return payload
+
+
+def _paired_hard_fail_event_count(reports: tuple[tuple[str, ExperimentReport], ...]) -> int:
+    return sum(
+        len(run.hard_failures)
+        for _adapter_id, report in reports
+        for summary in report.summaries
+        for run in summary.runs
+    )
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(tmp, path)
+        tmp.unlink()
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    except FileExistsError as exc:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise BenchmarkError(f"refusing to overwrite paired benchmark report: {path}") from exc
+    except Exception:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    try:
+        path.chmod(0o600)
+    except PermissionError as exc:
+        raise BenchmarkError(f"paired report permissions cannot be restricted: {path}") from exc
+
+
+def _write_explicit_paired_bundle(path: Path, payload: dict[str, Any]) -> None:
+    if path.exists():
+        raise BenchmarkError(f"refusing to overwrite paired benchmark report: {path}")
+    _write_json_atomic(path, payload)
+
+
+def _write_immutable_paired_bundle(directory: Path, payload: dict[str, Any]) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    left = payload["reports"][0]
+    right = payload["reports"][1]
+    stamp = str(left["created_at"]).replace(":", "").replace("+", "Z")
+    path = directory / f"{stamp}_{left['run_id']}_{right['run_id']}_paired.json"
+    if path.exists():
+        raise BenchmarkError(f"refusing to overwrite paired benchmark report: {path}")
+    _write_json_atomic(path, payload)
+    return path
 
 
 def _checkpoint_session_from_args(args) -> BenchmarkCheckpointSession | None:

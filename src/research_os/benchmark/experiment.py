@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
+from research_os.benchmark.checkpoint import (
+    BenchmarkCheckpointSession,
+    BenchmarkPlanCheckpoint,
+)
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import ScenarioRunResult, evaluate_scenario
 from research_os.benchmark.failures import FailureClass, PROVIDER_FAILURE_CLASSES
@@ -235,11 +238,14 @@ def run_experiment(
     suite_version: str = "1",
     source_provenance: SourceProvenance | None = None,
     checkpoint_session: BenchmarkCheckpointSession | None = None,
+    checkpoint_plan: BenchmarkPlanCheckpoint | None = None,
 ) -> ExperimentReport:
     if not scenarios:
         raise BenchmarkError("experiment suite is empty")
-    checkpoint = None
-    if checkpoint_session is not None:
+    if checkpoint_session is not None and checkpoint_plan is not None:
+        raise BenchmarkError("checkpoint_session and checkpoint_plan are mutually exclusive")
+    checkpoint = checkpoint_plan
+    if checkpoint is None and checkpoint_session is not None:
         checkpoint = checkpoint_session.open_plan(
             scenarios,
             config=config,

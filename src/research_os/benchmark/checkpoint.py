@@ -37,6 +37,7 @@ from research_os.research.model_runtime import (
 
 CHECKPOINT_VERSION = "gate04b.model-call-journal.v1"
 PLAN_FILE = "plan.json"
+PAIRED_PLAN_FILE = "paired-plan.json"
 CALL_DIR = "calls"
 
 
@@ -120,11 +121,12 @@ def experiment_plan_material(
     model_identity: ModelConfigurationIdentity,
     git_commit: str,
     suite_version: str = "1",
+    paired_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     suite = build_suite_manifest(
         scenarios, suite_id=config.suite_id, suite_version=suite_version
     )
-    return {
+    material: dict[str, Any] = {
         "checkpoint_version": CHECKPOINT_VERSION,
         "not_evidence": True,
         "not_finding": True,
@@ -145,6 +147,48 @@ def experiment_plan_material(
         "config": config.to_mapping(),
         "model_configuration": model_identity.to_mapping(),
     }
+    if paired_context is not None:
+        material["paired_context"] = dict(paired_context)
+    return material
+
+
+def paired_experiment_plan_material(
+    scenarios: tuple[BenchmarkScenario, ...],
+    *,
+    config: BenchmarkExperimentConfig,
+    model_identities: tuple[ModelConfigurationIdentity, ModelConfigurationIdentity],
+    git_commit: str,
+    suite_version: str = "1",
+) -> dict[str, Any]:
+    suite = build_suite_manifest(
+        scenarios, suite_id=config.suite_id, suite_version=suite_version
+    )
+    return {
+        "checkpoint_version": CHECKPOINT_VERSION,
+        "kind": "BenchmarkPairedExperimentCheckpointPlan",
+        "not_evidence": True,
+        "not_finding": True,
+        "not_candidate": True,
+        "not_sor_truth": True,
+        "no_retry_or_repair": True,
+        "no_automatic_winner": True,
+        "readiness_probes_are_operational_not_results": True,
+        "git_commit": git_commit or "unknown",
+        "suite": suite.to_mapping(),
+        "scenario_order": [
+            {
+                "identity": scenario.identity,
+                "scenario_id": scenario.scenario_id,
+                "version": scenario.version,
+                "integrity": scenario_integrity_hash(scenario),
+            }
+            for scenario in scenarios
+        ],
+        "config": config.to_mapping(),
+        "ordered_model_configurations": [
+            identity.to_mapping() for identity in model_identities
+        ],
+    }
 
 
 @dataclass(frozen=True)
@@ -160,11 +204,31 @@ def build_experiment_plan_fingerprint(
     model_identity: ModelConfigurationIdentity,
     git_commit: str,
     suite_version: str = "1",
+    paired_context: Mapping[str, Any] | None = None,
 ) -> ExperimentPlanFingerprint:
     material = experiment_plan_material(
         scenarios,
         config=config,
         model_identity=model_identity,
+        git_commit=git_commit,
+        suite_version=suite_version,
+        paired_context=paired_context,
+    )
+    return ExperimentPlanFingerprint(material=material, fingerprint=_sha256(material))
+
+
+def build_paired_experiment_plan_fingerprint(
+    scenarios: tuple[BenchmarkScenario, ...],
+    *,
+    config: BenchmarkExperimentConfig,
+    model_identities: tuple[ModelConfigurationIdentity, ModelConfigurationIdentity],
+    git_commit: str,
+    suite_version: str = "1",
+) -> ExperimentPlanFingerprint:
+    material = paired_experiment_plan_material(
+        scenarios,
+        config=config,
+        model_identities=model_identities,
         git_commit=git_commit,
         suite_version=suite_version,
     )
@@ -215,6 +279,115 @@ class BenchmarkCheckpointSession:
         else:
             if self.resume:
                 raise BenchmarkError("checkpoint experiment plan not found for resume")
+            _atomic_write_json(
+                plan_file,
+                {
+                    "kind": "BenchmarkExperimentCheckpointPlan",
+                    "fingerprint": plan.fingerprint,
+                    "created_at": _now(),
+                    "material": plan.material,
+                },
+            )
+        _mkdir_private(calls_dir)
+        return BenchmarkPlanCheckpoint(plan_dir=plan_dir, plan=plan)
+
+    def open_paired_plan(
+        self,
+        scenarios: tuple[BenchmarkScenario, ...],
+        *,
+        config: BenchmarkExperimentConfig,
+        model_identities: tuple[ModelConfigurationIdentity, ModelConfigurationIdentity],
+        git_commit: str,
+        suite_version: str = "1",
+    ) -> "BenchmarkPairedCheckpoint":
+        plan = build_paired_experiment_plan_fingerprint(
+            scenarios,
+            config=config,
+            model_identities=model_identities,
+            git_commit=git_commit,
+            suite_version=suite_version,
+        )
+        paired_dir = self.root / "paired-plans" / plan.fingerprint
+        plan_file = paired_dir / PAIRED_PLAN_FILE
+        if plan_file.exists():
+            stored = _read_json(plan_file)
+            if (
+                stored.get("fingerprint") != plan.fingerprint
+                or stored.get("material") != plan.material
+            ):
+                raise BenchmarkError("checkpoint paired experiment plan fingerprint mismatch")
+        else:
+            if self.resume:
+                raise BenchmarkError("checkpoint paired experiment plan not found for resume")
+            _atomic_write_json(
+                plan_file,
+                {
+                    "kind": "BenchmarkPairedExperimentCheckpointPlan",
+                    "fingerprint": plan.fingerprint,
+                    "created_at": _now(),
+                    "material": plan.material,
+                },
+            )
+        _mkdir_private(paired_dir / "models")
+        return BenchmarkPairedCheckpoint(
+            paired_dir=paired_dir,
+            plan=plan,
+            scenarios=scenarios,
+            config=config,
+            model_identities=model_identities,
+            git_commit=git_commit,
+            suite_version=suite_version,
+            resume=self.resume,
+        )
+
+
+@dataclass(frozen=True)
+class BenchmarkPairedCheckpoint:
+    paired_dir: Path
+    plan: ExperimentPlanFingerprint
+    scenarios: tuple[BenchmarkScenario, ...]
+    config: BenchmarkExperimentConfig
+    model_identities: tuple[ModelConfigurationIdentity, ModelConfigurationIdentity]
+    git_commit: str
+    suite_version: str = "1"
+    resume: bool = False
+
+    def open_model_plan(
+        self,
+        *,
+        model_index: int,
+    ) -> "BenchmarkPlanCheckpoint":
+        if model_index not in (0, 1):
+            raise BenchmarkError("paired checkpoint model_index must be 0 or 1")
+        identity = self.model_identities[model_index]
+        paired_context = {
+            "paired_plan_fingerprint": self.plan.fingerprint,
+            "ordered_model_index": model_index,
+            "ordered_model_configurations": [
+                item.to_mapping() for item in self.model_identities
+            ],
+        }
+        plan = build_experiment_plan_fingerprint(
+            self.scenarios,
+            config=self.config,
+            model_identity=identity,
+            git_commit=self.git_commit,
+            suite_version=self.suite_version,
+            paired_context=paired_context,
+        )
+        plan_dir = self.paired_dir / "models" / str(model_index) / plan.fingerprint
+        calls_dir = plan_dir / CALL_DIR
+        plan_file = plan_dir / PLAN_FILE
+        if plan_file.exists():
+            stored = _read_json(plan_file)
+            if (
+                stored.get("fingerprint") != plan.fingerprint
+                or stored.get("material") != plan.material
+            ):
+                raise BenchmarkError("checkpoint paired model plan fingerprint mismatch")
+        else:
+            if self.resume:
+                raise BenchmarkError("checkpoint paired model plan not found for resume")
             _atomic_write_json(
                 plan_file,
                 {

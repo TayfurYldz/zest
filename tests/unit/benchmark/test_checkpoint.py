@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
+import research_os.benchmark.runner as runner_module
 from research_os.benchmark.baselines import (
     BAD_HALLUCINATOR,
     GOOD_BASELINE,
@@ -78,6 +79,78 @@ def _normalize_report(report) -> dict:
         for run in summary["runs"]:
             run["elapsed_ms"] = "<operational>"
     return payload
+
+
+def _normalize_bundle(payload: dict) -> dict:
+    normalized = dict(payload)
+    for report in normalized["reports"]:
+        report["run_id"] = "<operational>"
+        report["created_at"] = "<operational>"
+        for summary in report["summaries"]:
+            for run in summary["runs"]:
+                run["elapsed_ms"] = "<operational>"
+    return normalized
+
+
+class FakeDiscovery:
+    def to_mapping(self):
+        return {
+            "available_model_configurations": ["openai", "anthropic"],
+            "entries": [
+                {
+                    "configuration_id": "openai",
+                    "readiness": "AVAILABLE",
+                    "contains_secrets": False,
+                },
+                {
+                    "configuration_id": "anthropic",
+                    "readiness": "AVAILABLE",
+                    "contains_secrets": False,
+                },
+            ],
+            "probe_mode": "PASSIVE",
+        }
+
+
+def fake_discover_runtimes(*, live_probe: bool = False):
+    if live_probe:
+        raise AssertionError("test discovery must not perform live readiness probes")
+    return FakeDiscovery()
+
+
+def fake_resolve_live(adapter_id: str, model_id: str | None):
+    del model_id
+    baseline = GOOD_BASELINE if adapter_id == "openai" else BAD_HALLUCINATOR
+    return (
+        create_baseline(baseline),
+        identity_for_live(
+            adapter_identity=f"{adapter_id}.test",
+            provider_adapter_identity=adapter_id,
+            provider_model_id=f"{adapter_id}-model",
+        ),
+    )
+
+
+def fake_resolve_no_call(adapter_id: str, model_id: str | None):
+    del model_id
+    return (
+        NoCallModelPort(),
+        identity_for_live(
+            adapter_identity=f"{adapter_id}.test",
+            provider_adapter_identity=adapter_id,
+            provider_model_id=f"{adapter_id}-model",
+        ),
+    )
+
+
+def fake_gate_status(**kwargs):
+    return {
+        "status": "PASS" if len(kwargs["executed_live_configurations"]) == 2 else "PENDING",
+        "reason": "test-only status",
+        "available_model_configurations": list(kwargs["available_model_configurations"]),
+        "executed_live_configurations": list(kwargs["executed_live_configurations"]),
+        "no_automatic_winner": True,
+    }
 
 
 class BenchmarkCheckpointTests(unittest.TestCase):
@@ -421,39 +494,6 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
             self.assertIn("refusing to overwrite", err.getvalue())
 
     def test_discover_and_compare_checkpoint_path_uses_scripted_test_ports(self) -> None:
-        class Discovery:
-            def to_mapping(self):
-                return {"available_model_configurations": ["openai", "anthropic"]}
-
-        def discover_runtimes(*, live_probe: bool = False):
-            self.assertFalse(live_probe)
-            return Discovery()
-
-        def resolve_live(adapter_id: str, model_id: str | None):
-            del model_id
-            baseline = GOOD_BASELINE if adapter_id == "openai" else BAD_HALLUCINATOR
-            return (
-                create_baseline(baseline),
-                identity_for_live(
-                    adapter_identity=f"{adapter_id}.test",
-                    provider_adapter_identity=adapter_id,
-                    provider_model_id=f"{adapter_id}-model",
-                ),
-            )
-
-        def evaluate_live_status(**kwargs):
-            return {
-                "status": (
-                    "PASS"
-                    if len(kwargs["executed_live_configurations"]) == 2
-                    else "PENDING"
-                ),
-                "reason": "test-only status",
-                "available_model_configurations": list(kwargs["available_model_configurations"]),
-                "executed_live_configurations": list(kwargs["executed_live_configurations"]),
-                "no_automatic_winner": True,
-            }
-
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = Path(tmp) / "checkpoint"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -467,12 +507,13 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                         "--checkpoint-dir",
                         str(checkpoint),
                     ],
-                    resolve_live=resolve_live,
-                    discover_runtimes=discover_runtimes,
-                    evaluate_live_status=evaluate_live_status,
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
                 )
             self.assertEqual(code, 0)
-            self.assertEqual(len(list(checkpoint.glob("plans/*/plan.json"))), 2)
+            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/paired-plan.json"))), 1)
+            self.assertEqual(len(list(checkpoint.glob("paired-plans/*/models/*/*/plan.json"))), 2)
 
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 resumed = run_cli(
@@ -485,11 +526,283 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                         "--resume-checkpoint",
                         str(checkpoint),
                     ],
-                    resolve_live=resolve_live,
-                    discover_runtimes=discover_runtimes,
-                    evaluate_live_status=evaluate_live_status,
+                    resolve_live=fake_resolve_no_call,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
                 )
             self.assertEqual(resumed, 0)
+
+    def test_discover_and_compare_json_report_persists_paired_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "paired.json"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(code, 0)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(payload["kind"], "Gate04BPairedComparisonBundle")
+            self.assertTrue(payload["not_evidence"])
+            self.assertTrue(payload["not_finding"])
+            self.assertTrue(payload["not_candidate"])
+            self.assertTrue(payload["not_sor_truth"])
+            self.assertTrue(payload["no_automatic_winner"])
+            self.assertEqual(len(payload["reports"]), 2)
+            self.assertEqual(payload["paired_comparison"]["kind"], "PairedComparison")
+            self.assertEqual(payload["gate_04b_status"]["status"], "PASS")
+            self.assertEqual(len(payload["executed_model_configurations"]), 2)
+            self.assertTrue(payload["reports"][0]["no_aggregate_model_score"])
+            self.assertTrue(payload["reports"][1]["no_aggregate_model_score"])
+            self.assertNotIn('"WINNER"', json.dumps(payload))
+            self.assertNotIn("checkpoint", json.dumps(payload).lower())
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+
+    def test_discover_and_compare_json_report_refuses_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "paired.json"
+            report.write_text("existing", encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(code, 2)
+            self.assertIn("refusing to overwrite", err.getvalue())
+
+    def test_discover_and_compare_write_results_produces_immutable_paired_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            original = runner_module.DEFAULT_RESULTS_DIR
+            runner_module.DEFAULT_RESULTS_DIR = Path(tmp) / "results"
+            report = Path(tmp) / "paired.json"
+            try:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    code = run_cli(
+                        [
+                            "--discover-and-compare",
+                            "--scenarios",
+                            str(SCENARIO_DIR),
+                            "--runs-per-scenario",
+                            "1",
+                            "--json-report",
+                            str(report),
+                            "--write-results",
+                        ],
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    )
+            finally:
+                runner_module.DEFAULT_RESULTS_DIR = original
+            self.assertEqual(code, 0)
+            written = list((Path(tmp) / "results").glob("*_paired.json"))
+            self.assertEqual(len(written), 1)
+            payload = json.loads(written[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["kind"], "Gate04BPairedComparisonBundle")
+            self.assertEqual(payload, json.loads(report.read_text(encoding="utf-8")))
+            self.assertEqual(written[0].stat().st_mode & 0o777, 0o600)
+
+    def test_completed_bundle_is_written_before_needs_review_exit(self) -> None:
+        def needs_review_status(**kwargs):
+            status = fake_gate_status(**kwargs)
+            status["status"] = "NEEDS_REVIEW"
+            status["reason"] = "test review"
+            return status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "paired.json"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=needs_review_status,
+                )
+            self.assertEqual(code, 2)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(payload["gate_04b_status"]["status"], "NEEDS_REVIEW")
+
+    def test_completed_bundle_is_written_before_hard_failure_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "paired.json"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--json-report",
+                        str(report),
+                        "--fail-on-hard-fail",
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(code, 1)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(payload["gate_04b_status"]["status"], "PASS")
+            self.assertGreater(
+                payload["paired_comparison"]["scenarios"][0]["right"][
+                    "research_quality_failures"
+                ],
+                0,
+            )
+
+    def test_ordered_paired_checkpoint_refuses_reversed_or_replaced_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "checkpoint"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                first = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--checkpoint-dir",
+                        str(checkpoint),
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(first, 0)
+
+            class ReversedDiscovery:
+                def to_mapping(self):
+                    return {"available_model_configurations": ["anthropic", "openai"]}
+
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                reversed_code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--resume-checkpoint",
+                        str(checkpoint),
+                    ],
+                    resolve_live=fake_resolve_live,
+                    discover_runtimes=lambda live_probe=False: ReversedDiscovery(),
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(reversed_code, 2)
+
+            def replaced_resolve(adapter_id: str, model_id: str | None):
+                port, identity = fake_resolve_live(adapter_id, model_id)
+                if adapter_id == "anthropic":
+                    identity = replace(identity, provider_model_id="replacement-model")
+                return port, identity
+
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                replaced_code = run_cli(
+                    [
+                        "--discover-and-compare",
+                        "--scenarios",
+                        str(SCENARIO_DIR),
+                        "--runs-per-scenario",
+                        "1",
+                        "--resume-checkpoint",
+                        str(checkpoint),
+                    ],
+                    resolve_live=replaced_resolve,
+                    discover_runtimes=fake_discover_runtimes,
+                    evaluate_live_status=fake_gate_status,
+                )
+            self.assertEqual(replaced_code, 2)
+
+    def test_resumed_and_uninterrupted_paired_bundles_are_equivalent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uninterrupted = Path(tmp) / "uninterrupted.json"
+            checkpointed = Path(tmp) / "checkpointed.json"
+            resumed = Path(tmp) / "resumed.json"
+            checkpoint = Path(tmp) / "checkpoint"
+            args = [
+                "--discover-and-compare",
+                "--scenarios",
+                str(SCENARIO_DIR),
+                "--runs-per-scenario",
+                "1",
+            ]
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    run_cli(
+                        args + ["--json-report", str(uninterrupted)],
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    ),
+                    0,
+                )
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    run_cli(
+                        args
+                        + [
+                            "--json-report",
+                            str(checkpointed),
+                            "--checkpoint-dir",
+                            str(checkpoint),
+                        ],
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    ),
+                    0,
+                )
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    run_cli(
+                        args
+                        + [
+                            "--json-report",
+                            str(resumed),
+                            "--resume-checkpoint",
+                            str(checkpoint),
+                        ],
+                        resolve_live=fake_resolve_live,
+                        discover_runtimes=fake_discover_runtimes,
+                        evaluate_live_status=fake_gate_status,
+                    ),
+                    0,
+                )
+            self.assertEqual(
+                _normalize_bundle(json.loads(uninterrupted.read_text(encoding="utf-8"))),
+                _normalize_bundle(json.loads(resumed.read_text(encoding="utf-8"))),
+            )
 
 
 if __name__ == "__main__":
