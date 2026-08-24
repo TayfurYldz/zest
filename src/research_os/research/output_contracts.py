@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v2"
+STRICT_TRANSPORT_SCHEMA_VERSION = "research.structured-output-transport.v3"
 GENERATOR_INSTRUCTION_VERSION = "research.generator.v2"
 FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v2"
 DIAGNOSTIC_INSTRUCTION_VERSION = "research.diagnostic-readiness.v2"
@@ -48,15 +49,7 @@ AUTHORITY_FORBIDDEN_CONCEPTS = (
 _STRING = {"type": "string"}
 _STRING_OR_NULL = {"type": ["string", "null"]}
 _STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
-_NOVELTY = {
-    "type": "string",
-    "enum": [
-        "KNOWN_PATTERN_INSTANCE",
-        "POSSIBLE_COMBINATION",
-        "TARGET_SPECIFIC_BEHAVIOR",
-        "UNCLASSIFIED",
-    ],
-}
+_NOVELTY = {"type": "string"}
 
 
 @dataclass(frozen=True)
@@ -90,6 +83,19 @@ class OutputContract:
             "type": "object",
             "properties": {field.name: dict(field.schema) for field in self.fields},
             "required": [field.name for field in self.fields if field.required],
+            "additionalProperties": False,
+        }
+
+    def strict_transport_schema(self) -> dict[str, Any]:
+        """Provider strict schema. Optional application fields are nullable transport keys."""
+
+        return {
+            "type": "object",
+            "properties": {
+                field.name: _transport_field_schema(field)
+                for field in self.fields
+            },
+            "required": [field.name for field in self.fields],
             "additionalProperties": False,
         }
 
@@ -208,7 +214,7 @@ DIAGNOSTIC_CONTRACT = OutputContract(
     version=STRUCTURED_OUTPUT_SPEC_VERSION,
     instruction_version=DIAGNOSTIC_INSTRUCTION_VERSION,
     role_directive="Return the diagnostic readiness object.",
-    fields=(OutputField("diagnostic", {"type": "boolean", "const": True}, True, "must be true"),),
+    fields=(OutputField("diagnostic", {"type": "boolean", "enum": [True]}, True, "must be true"),),
 )
 
 
@@ -227,9 +233,41 @@ def diagnostic_readiness_instructions() -> str:
 def combined_contract_fingerprint() -> str:
     payload = {
         "version": STRUCTURED_OUTPUT_SPEC_VERSION,
+        "transport_version": STRICT_TRANSPORT_SCHEMA_VERSION,
         "generator": GENERATOR_CONTRACT.fingerprint(),
+        "generator_transport_schema": GENERATOR_CONTRACT.strict_transport_schema(),
         "falsifier": FALSIFIER_CONTRACT.fingerprint(),
+        "falsifier_transport_schema": FALSIFIER_CONTRACT.strict_transport_schema(),
         "diagnostic": DIAGNOSTIC_CONTRACT.fingerprint(),
+        "diagnostic_transport_schema": DIAGNOSTIC_CONTRACT.strict_transport_schema(),
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _transport_field_schema(field: OutputField) -> dict[str, Any]:
+    schema = dict(field.schema)
+    schema.pop("$schema", None)
+    if field.required:
+        return schema
+    return _nullable_schema(schema)
+
+
+def _nullable_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    current = schema.get("type")
+    if current is None:
+        raise ValueError("canonical schema field is missing type")
+    if isinstance(current, list):
+        types = list(dict.fromkeys(str(item) for item in current))
+    else:
+        types = [str(current)]
+    if "null" not in types:
+        types.append("null")
+    updated = dict(schema)
+    updated["type"] = types
+    if "enum" in updated:
+        enum = list(updated["enum"])
+        if None not in enum:
+            enum.append(None)
+        updated["enum"] = enum
+    return updated

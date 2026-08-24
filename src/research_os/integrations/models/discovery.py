@@ -10,6 +10,7 @@ from enum import Enum
 from os import environ
 from typing import Any
 
+from research_os.benchmark.identity import HARNESS_VERSION
 from research_os.integrations.models.cli_session import (
     CodexCliConfigurationError,
     probe_codex_configurations,
@@ -348,7 +349,7 @@ def gate_04b_status(
         "full_comparison_completed": full_comparison_completed,
         "runs_per_scenario": runs_per_scenario,
         "development_suite": development_suite,
-        "gate_04b_harness_version": "gate-04b.2",
+        "gate_04b_harness_version": HARNESS_VERSION,
         "gate_04b_state": {
             "OPERATIONALLY_COMPARABLE": operationally_comparable,
             "CONTRACT_QUALIFIED": contract_qualified,

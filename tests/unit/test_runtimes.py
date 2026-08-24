@@ -45,9 +45,29 @@ def _request() -> ModelCallRequest:
     )
 
 
+def _generator_transport() -> dict[str, object]:
+    return {
+        "proposed_claim": "diagnostic claim",
+        "rationale": "diagnostic rationale",
+        "source_references": None,
+        "assumptions": None,
+        "expected_security_relevance": None,
+        "unresolved_questions": None,
+        "suggested_disconfirming_test": "echo mismatch",
+        "suggested_capability": "diagnostic.echo",
+        "novelty_basis": None,
+    }
+
+
 class RuntimeAdapterTests(unittest.TestCase):
     def test_api_adapter_attaches_api_identity_distinct_from_cli(self) -> None:
-        adapter = JsonSchemaModelAdapter(_FakeTransport(ProviderInvocation(text='{"ok": true}')))
+        adapter = JsonSchemaModelAdapter(
+            _FakeTransport(
+                ProviderInvocation(
+                    text=json.dumps(_generator_transport(), separators=(",", ":"))
+                )
+            )
+        )
         result = adapter.complete(_request())
         self.assertIsNotNone(result.runtime_identity)
         assert result.runtime_identity is not None

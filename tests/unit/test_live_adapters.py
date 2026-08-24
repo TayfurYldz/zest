@@ -27,15 +27,47 @@ class _FakeTransport:
     adapter_identity = "test.adapter"
     provider_adapter_identity = "test"
 
-    def __init__(self, invocation: ProviderInvocation) -> None:
-        self._invocation = invocation
+    def __init__(self, invocation: ProviderInvocation | list[ProviderInvocation]) -> None:
+        self._invocations = list(invocation) if isinstance(invocation, list) else [invocation]
         self.requests: list[ModelCallRequest] = []
         self.schemas: list[object] = []
 
     def invoke(self, request: ModelCallRequest, schema):
         self.requests.append(request)
         self.schemas.append(schema)
-        return self._invocation
+        if len(self._invocations) > 1:
+            return self._invocations.pop(0)
+        return self._invocations[0]
+
+
+def _transport_stdout(inner: dict[str, object]) -> str:
+    return json.dumps(inner, separators=(",", ":"))
+
+
+def _generator_transport() -> dict[str, object]:
+    return {
+        "proposed_claim": "diagnostic claim",
+        "rationale": "diagnostic rationale",
+        "source_references": None,
+        "assumptions": None,
+        "expected_security_relevance": None,
+        "unresolved_questions": None,
+        "suggested_disconfirming_test": "echo mismatch",
+        "suggested_capability": "diagnostic.echo",
+        "novelty_basis": None,
+    }
+
+
+def _falsifier_transport() -> dict[str, object]:
+    return {
+        "alternative_explanations": None,
+        "missing_preconditions": None,
+        "contradictory_source_references": None,
+        "required_negative_controls": None,
+        "ambiguity": None,
+        "reasons_not_to_test": None,
+        "proposed_disconfirming_observation": "echo mismatch",
+    }
 
 
 class LiveAdapterBoundaryTests(unittest.TestCase):
@@ -88,7 +120,12 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
             adapter.complete(request)
 
     def test_api_adapter_uses_canonical_role_schemas(self) -> None:
-        transport = _FakeTransport(ProviderInvocation(text='{"ok": true}'))
+        transport = _FakeTransport(
+            [
+                ProviderInvocation(text=_transport_stdout(_generator_transport())),
+                ProviderInvocation(text=_transport_stdout(_falsifier_transport())),
+            ]
+        )
         adapter = JsonSchemaModelAdapter(transport)
         adapter.complete(
             ModelCallRequest(

@@ -17,7 +17,9 @@ from research_os.research.cycle import (
     instructions_contain_untrusted,
 )
 from research_os.integrations.models.json_schemas import (
+    FALSIFIER_APPLICATION_SCHEMA,
     FALSIFIER_OUTPUT_SCHEMA,
+    GENERATOR_APPLICATION_SCHEMA,
     GENERATOR_OUTPUT_SCHEMA,
 )
 from research_os.research.epistemic import EpistemicClass
@@ -113,8 +115,10 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
         self.assertNotIn(HOSTILE, self.model.calls[1].instructions)
 
     def test_canonical_contract_drives_parser_schema_and_instructions(self) -> None:
-        self.assertEqual(GENERATOR_OUTPUT_SCHEMA, GENERATOR_CONTRACT.json_schema())
-        self.assertEqual(FALSIFIER_OUTPUT_SCHEMA, FALSIFIER_CONTRACT.json_schema())
+        self.assertEqual(GENERATOR_APPLICATION_SCHEMA, GENERATOR_CONTRACT.json_schema())
+        self.assertEqual(FALSIFIER_APPLICATION_SCHEMA, FALSIFIER_CONTRACT.json_schema())
+        self.assertEqual(GENERATOR_OUTPUT_SCHEMA, GENERATOR_CONTRACT.strict_transport_schema())
+        self.assertEqual(FALSIFIER_OUTPUT_SCHEMA, FALSIFIER_CONTRACT.strict_transport_schema())
         for key in GENERATOR_CONTRACT.allowed_keys:
             self.assertIn(key, GENERATOR_INSTRUCTIONS)
         for key in FALSIFIER_CONTRACT.allowed_keys:

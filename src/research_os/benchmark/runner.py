@@ -49,9 +49,9 @@ from research_os.research.context import ObservationSource
 from research_os.research.cycle import (
     FALSIFIER_INSTRUCTION_VERSION,
     GENERATOR_INSTRUCTION_VERSION,
-    STRUCTURED_OUTPUT_SPEC_VERSION,
 )
 from research_os.research.model_port import ModelPortError
+from research_os.research.output_contracts import STRICT_TRANSPORT_SCHEMA_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESULTS_DIR = Path.cwd() / "var" / "benchmark-results"
@@ -114,7 +114,7 @@ def identity_for_live(
         provider_model_id=provider_model_id,
         generator_configuration=GENERATOR_INSTRUCTION_VERSION,
         falsifier_configuration=FALSIFIER_INSTRUCTION_VERSION,
-        reasoning_settings=STRUCTURED_OUTPUT_SPEC_VERSION,
+        reasoning_settings=STRICT_TRANSPORT_SCHEMA_VERSION,
         runtime_kind="API",
         runtime_class="INFERENCE_RUNTIME",
         auth_mode="API_KEY",
@@ -136,7 +136,7 @@ def identity_for_cli_session(
         provider_model_id=provider_model_id,
         generator_configuration=GENERATOR_INSTRUCTION_VERSION,
         falsifier_configuration=FALSIFIER_INSTRUCTION_VERSION,
-        reasoning_settings=STRUCTURED_OUTPUT_SPEC_VERSION,
+        reasoning_settings=STRICT_TRANSPORT_SCHEMA_VERSION,
         runtime_kind="CLI_SESSION",
         runtime_class="AGENT_RUNTIME",
         auth_mode="AUTHENTICATED_CLI_SESSION",

@@ -18,7 +18,10 @@ from research_os.research.model_port import (
 )
 from research_os.research.model_runtime import ModelRuntimeIdentity, api_runtime_identity
 
-from research_os.integrations.models.json_schemas import schema_for_request
+from research_os.integrations.models.json_schemas import (
+    decode_transport_output_for_request,
+    schema_for_request,
+)
 from research_os.integrations.models.secrets import redact_secret
 
 
@@ -82,7 +85,9 @@ class JsonSchemaModelAdapter:
         started = perf_counter()
         schema = schema_for_request(request)
         invocation = self._transport.invoke(request, schema)
-        structured = parse_structured_object(invocation.text, secret=self._secret)
+        structured = decode_transport_output_for_request(
+            request, parse_structured_object(invocation.text, secret=self._secret)
+        )
         latency_ms = int((perf_counter() - started) * 1000)
         telemetry = ModelCallTelemetry(
             latency_ms=latency_ms,

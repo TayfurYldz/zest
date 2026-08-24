@@ -12,12 +12,14 @@ from research_os.research.cycle import (
     FALSIFIER_INSTRUCTIONS,
     GENERATOR_INSTRUCTION_VERSION,
     GENERATOR_INSTRUCTIONS,
-    STRUCTURED_OUTPUT_SPEC_VERSION,
 )
-from research_os.research.output_contracts import combined_contract_fingerprint
+from research_os.research.output_contracts import (
+    STRICT_TRANSPORT_SCHEMA_VERSION,
+    combined_contract_fingerprint,
+)
 
-HARNESS_VERSION = "gate-04b.2"
-CONTRACT_QUALIFICATION_HARNESS_VERSION = "gate-04b.2.contract"
+HARNESS_VERSION = "gate-04b.3"
+CONTRACT_QUALIFICATION_HARNESS_VERSION = "gate-04b.3.contract"
 CONTEXT_BUILDER_VERSION = "ResearchContextBuilder.v1"
 ADMISSION_VERSION = "admit_hypothesis.v1"
 EVALUATOR_VERSION = "benchmark.evaluator.v1"
@@ -36,7 +38,7 @@ def current_instruction_identity() -> InstructionIdentity:
         generator_instruction_fingerprint=fingerprint_text(GENERATOR_INSTRUCTIONS),
         falsifier_instruction_version=FALSIFIER_INSTRUCTION_VERSION,
         falsifier_instruction_fingerprint=fingerprint_text(FALSIFIER_INSTRUCTIONS),
-        structured_output_spec_version=STRUCTURED_OUTPUT_SPEC_VERSION,
+        structured_output_spec_version=STRICT_TRANSPORT_SCHEMA_VERSION,
         structured_output_spec_fingerprint=combined_contract_fingerprint(),
     )
 

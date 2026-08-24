@@ -31,8 +31,11 @@ from research_os.integrations.models.discovery import (
 from research_os.integrations.models.json_schemas import (
     DIAGNOSTIC_OUTPUT_SCHEMA,
     FALSIFIER_OUTPUT_SCHEMA,
+    GENERATOR_APPLICATION_SCHEMA,
     GENERATOR_OUTPUT_SCHEMA,
+    decode_transport_output,
     schema_for_role,
+    validate_strict_transport_schema,
 )
 from research_os.interface.cli import build_status_snapshot
 from research_os.maturity import GATE_04B_STATUS
@@ -49,6 +52,11 @@ from research_os.research.model_port import (
     StructuredOutputTransportError,
 )
 from research_os.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
+from research_os.research.output_contracts import (
+    DIAGNOSTIC_CONTRACT,
+    FALSIFIER_CONTRACT,
+    GENERATOR_CONTRACT,
+)
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 API_KEY_PREFIX = "sk" + "-"
@@ -66,6 +74,36 @@ def _request() -> ModelCallRequest:
         instructions="propose",
         payload={"note": "ok"},
     )
+
+
+def _generator_transport(**overrides) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "proposed_claim": "diagnostic claim",
+        "rationale": "diagnostic rationale",
+        "source_references": None,
+        "assumptions": None,
+        "expected_security_relevance": None,
+        "unresolved_questions": None,
+        "suggested_disconfirming_test": "echo mismatch",
+        "suggested_capability": "diagnostic.echo",
+        "novelty_basis": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _falsifier_transport(**overrides) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "alternative_explanations": None,
+        "missing_preconditions": None,
+        "contradictory_source_references": None,
+        "required_negative_controls": None,
+        "ambiguity": None,
+        "reasons_not_to_test": None,
+        "proposed_disconfirming_observation": "echo mismatch",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _argv_runner(allowed_models: frozenset[str]):
@@ -209,7 +247,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout=_transport_stdout({"ok": True}),
+                stdout=_transport_stdout(_generator_transport()),
             )
 
         adapter = CodexCliSessionAdapter(
@@ -221,7 +259,8 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         )
         result = adapter.complete(_request())
         argv = captured["argv"]
-        self.assertEqual(result.structured_output, {"ok": True})
+        self.assertEqual(result.structured_output["proposed_claim"], "diagnostic claim")
+        self.assertNotIn("source_references", result.structured_output)
         self.assertEqual(argv[1], "exec")
         self.assertIn("--ignore-user-config", argv)
         self.assertIn("--ephemeral", argv)
@@ -248,7 +287,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout=_transport_stdout({"ok": True}),
+                stdout=_transport_stdout(_generator_transport()),
             )
 
         with tempfile.TemporaryDirectory(prefix="research-os-codex-test-") as tmp:
@@ -261,7 +300,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
                 working_directory=Path(tmp),
             )
             result = adapter.complete(_request())
-        self.assertEqual(result.structured_output, {"ok": True})
+        self.assertEqual(result.structured_output["proposed_claim"], "diagnostic claim")
         self.assertNotIn(CODEX_SKIP_GIT_REPO_CHECK_FLAG, captured["argv"])
 
     def test_runtime_fingerprint_records_isolated_skip_git_mode(self) -> None:
@@ -473,9 +512,83 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["required"], ["diagnostic"])
         self.assertNotEqual(STRUCTURED_OUTPUT_SCHEMA.get("additionalProperties"), True)
 
+    def test_generator_and_falsifier_strict_transport_schemas_validate(self) -> None:
+        validate_strict_transport_schema(GENERATOR_CONTRACT, GENERATOR_OUTPUT_SCHEMA)
+        validate_strict_transport_schema(FALSIFIER_CONTRACT, FALSIFIER_OUTPUT_SCHEMA)
+        validate_strict_transport_schema(DIAGNOSTIC_CONTRACT, DIAGNOSTIC_OUTPUT_SCHEMA)
+
+    def test_transport_schema_requires_every_property(self) -> None:
+        for schema in (GENERATOR_OUTPUT_SCHEMA, FALSIFIER_OUTPUT_SCHEMA, DIAGNOSTIC_OUTPUT_SCHEMA):
+            self.assertEqual(set(schema["properties"]), set(schema["required"]))
+
+    def test_transport_optional_fields_are_nullable_and_required_fields_are_not(self) -> None:
+        for contract, schema in (
+            (GENERATOR_CONTRACT, GENERATOR_OUTPUT_SCHEMA),
+            (FALSIFIER_CONTRACT, FALSIFIER_OUTPUT_SCHEMA),
+        ):
+            for field in contract.fields:
+                field_type = schema["properties"][field.name]["type"]
+                types = field_type if isinstance(field_type, list) else [field_type]
+                if field.required:
+                    self.assertNotIn("null", types, field.name)
+                else:
+                    self.assertIn("null", types, field.name)
+
+    def test_transport_schema_rejects_unsupported_keywords(self) -> None:
+        for schema in (GENERATOR_OUTPUT_SCHEMA, FALSIFIER_OUTPUT_SCHEMA, DIAGNOSTIC_OUTPUT_SCHEMA):
+            self.assertEqual(_unsupported_schema_keys(schema), set())
+        schema = json.loads(json.dumps(GENERATOR_OUTPUT_SCHEMA))
+        schema["properties"]["proposed_claim"]["minLength"] = 1
+        with self.assertRaises(StructuredOutputTransportError):
+            validate_strict_transport_schema(GENERATOR_CONTRACT, schema)
+
+    def test_application_schema_keeps_canonical_required_semantics(self) -> None:
+        self.assertEqual(GENERATOR_APPLICATION_SCHEMA, GENERATOR_CONTRACT.json_schema())
+        self.assertLess(
+            len(GENERATOR_APPLICATION_SCHEMA["required"]),
+            len(GENERATOR_APPLICATION_SCHEMA["properties"]),
+        )
+        self.assertEqual(
+            set(GENERATOR_OUTPUT_SCHEMA["required"]),
+            set(GENERATOR_APPLICATION_SCHEMA["properties"]),
+        )
+
+    def test_transport_decoder_null_optional_means_canonical_omission(self) -> None:
+        decoded = decode_transport_output(GENERATOR_CONTRACT, _generator_transport())
+        self.assertEqual(decoded["proposed_claim"], "diagnostic claim")
+        self.assertNotIn("source_references", decoded)
+        self.assertNotIn("novelty_basis", decoded)
+
+    def test_transport_decoder_preserves_non_null_optional_values(self) -> None:
+        decoded = decode_transport_output(
+            GENERATOR_CONTRACT,
+            _generator_transport(
+                source_references=["obs:1"],
+                assumptions=["assumption"],
+                expected_security_relevance="bounded note",
+                novelty_basis="N4_ZERO_DAY",
+            ),
+        )
+        self.assertEqual(decoded["source_references"], ["obs:1"])
+        self.assertEqual(decoded["assumptions"], ["assumption"])
+        self.assertEqual(decoded["expected_security_relevance"], "bounded note")
+        self.assertEqual(decoded["novelty_basis"], "N4_ZERO_DAY")
+
+    def test_transport_decoder_required_null_unknown_and_wrong_types_fail_closed(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            decode_transport_output(GENERATOR_CONTRACT, _generator_transport(proposed_claim=None))
+        with self.assertRaises(StructuredOutputTransportError):
+            decode_transport_output(GENERATOR_CONTRACT, _generator_transport(extra="nope"))
+        with self.assertRaises(StructuredOutputTransportError):
+            decode_transport_output(
+                GENERATOR_CONTRACT,
+                _generator_transport(source_references="not-an-array"),
+            )
+
     def test_direct_application_object_decoding(self) -> None:
-        result = self._complete(_transport_stdout({"claim": "ok", "count": 2}))
-        self.assertEqual(result.structured_output, {"claim": "ok", "count": 2})
+        result = self._complete(_transport_stdout(_generator_transport()))
+        self.assertEqual(result.structured_output["proposed_claim"], "diagnostic claim")
+        self.assertNotIn("source_references", result.structured_output)
         self.assertNotIn("result_json", result.structured_output)
 
     def test_diagnostic_object_round_trip(self) -> None:
@@ -522,15 +635,15 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         self.assertTrue(probe.readiness.benchmark_compatible)
         self.assertIn("gpt-5.6-terra", probe.detail)
 
-    def test_direct_object_is_not_rejected_by_transport_shape(self) -> None:
-        result = self._complete('{"diagnostic": true}')
-        self.assertEqual(result.structured_output, {"diagnostic": True})
+    def test_unknown_direct_object_is_rejected_before_core_parse(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"diagnostic": true}')
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": "{}", "extra": true}')
 
-    def test_empty_direct_object_is_transport_shape_valid(self) -> None:
-        result = self._complete("{}")
-        self.assertEqual(result.structured_output, {})
+    def test_empty_direct_object_omits_required_field(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete("{}")
         with self.assertRaises(StructuredOutputTransportError):
             self._complete('{"result_json": null}')
 
@@ -553,7 +666,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout=_transport_stdout({"proposed_disconfirming_observation": "mismatch"}),
+                stdout=_transport_stdout(_falsifier_transport()),
             )
 
         adapter = CodexCliSessionAdapter(
@@ -605,6 +718,25 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
 
 def _is_codex_exec(argv) -> bool:
     return len(argv) >= 2 and argv[1] == "exec"
+
+
+def _unsupported_schema_keys(value: object) -> set[str]:
+    supported = {"type", "properties", "required", "additionalProperties", "items", "enum"}
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "properties":
+                if isinstance(item, dict):
+                    for field_schema in item.values():
+                        found.update(_unsupported_schema_keys(field_schema))
+                continue
+            if key not in supported:
+                found.add(key)
+            found.update(_unsupported_schema_keys(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.update(_unsupported_schema_keys(item))
+    return found
 
 
 class CodexPassiveLiveProbeTests(unittest.TestCase):

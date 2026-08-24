@@ -25,6 +25,20 @@ from research_os.research.model_port import (
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
+def _generator_transport() -> dict[str, object]:
+    return {
+        "proposed_claim": "diagnostic claim",
+        "rationale": "diagnostic rationale",
+        "source_references": None,
+        "assumptions": None,
+        "expected_security_relevance": None,
+        "unresolved_questions": None,
+        "suggested_disconfirming_test": "echo mismatch",
+        "suggested_capability": "diagnostic.echo",
+        "novelty_basis": None,
+    }
+
+
 class _Structured(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
         super().__init__(message)
@@ -109,7 +123,7 @@ class CodexReadinessTests(unittest.TestCase):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout=json.dumps({"ok": True}, separators=(",", ":")),
+                stdout=json.dumps(_generator_transport(), separators=(",", ":")),
             )
 
         adapter = CodexCliSessionAdapter(
@@ -127,7 +141,8 @@ class CodexReadinessTests(unittest.TestCase):
                 payload={"note": "payload-marker"},
             )
         )
-        self.assertEqual(result.structured_output["ok"], True)
+        self.assertEqual(result.structured_output["proposed_claim"], "diagnostic claim")
+        self.assertNotIn("source_references", result.structured_output)
         self.assertIn(b"unique-instruction-text", captured["stdin"] or b"")
         self.assertIn(b"payload-marker", captured["stdin"] or b"")
         self.assertIn(b"Do not wrap it in result_json", captured["stdin"] or b"")

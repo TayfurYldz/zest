@@ -25,6 +25,7 @@ from research_os.platform.argv_process import (
 from research_os.platform.readiness import RuntimeReadiness, readiness_from_flags
 from research_os.integrations.models.json_schemas import (
     DIAGNOSTIC_OUTPUT_SCHEMA,
+    decode_transport_output_for_request,
     schema_for_request,
 )
 from research_os.research.model_port import (
@@ -700,6 +701,7 @@ def _prompt_for_request(request: ModelCallRequest, schema: Mapping[str, object])
         "TRANSPORT:\n"
         "Emit only the requested application-level JSON object at the top level.\n"
         "Do not wrap it in result_json or any transport envelope.\n"
+        "For nullable optional fields, null means the optional application field is absent.\n"
         f"application_json_schema={schema_payload}\n"
     )
 
@@ -731,7 +733,7 @@ def _result_from_process(
     raw = result.stdout.strip()
     if not raw:
         raise StructuredOutputTransportError("codex CLI stdout was empty")
-    structured = _parse_structured_stdout(raw)
+    structured = decode_transport_output_for_request(request, _parse_structured_stdout(raw))
     return ModelCallResult(
         role=request.role,
         adapter_identity=identity.adapter_id,

@@ -706,15 +706,21 @@ class BenchmarkCheckpointTests(unittest.TestCase):
                     identity,
                     "commit-a",
                 ),
-                "v1_schema_version": (
+                "v2_schema_version": (
                     scenarios,
                     replace(
                         config,
                         instruction_identity=replace(
                             instr,
-                            structured_output_spec_version="research.structured-output.v1",
+                            structured_output_spec_version="research.structured-output.v2",
                         ),
                     ),
+                    identity,
+                    "commit-a",
+                ),
+                "v2_harness_version": (
+                    scenarios,
+                    replace(config, harness_version="gate-04b.2"),
                     identity,
                     "commit-a",
                 ),
