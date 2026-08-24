@@ -84,6 +84,20 @@ CODEX_NON_GIT_WORKING_DIRECTORY_MARKERS = (
     "outside a git repository",
     "requires a git repository",
 )
+CODEX_CONTENT_POLICY_REFUSAL_MARKERS = (
+    "content_policy",
+    "content_policy_violation",
+    "content_filter",
+    "safety_refusal",
+    "content policy violation",
+    "content policy refusal",
+    "content policy blocked",
+    "blocked by content policy",
+    "moderation refusal",
+    "refused by moderation",
+    "model refused for safety",
+    "response blocked by safety system",
+)
 CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
 CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
 DEFAULT_CODEX_EXECUTABLE = "codex"
@@ -709,7 +723,7 @@ def _result_from_process(
             raise ProviderRateLimitError(USAGE_LIMIT_DETAIL)
         if "login" in combined or "unauthorized" in combined or "not authenticated" in combined:
             raise ProviderAuthError("codex CLI authentication failed")
-        if "policy" in combined or "safety" in combined or "content" in combined:
+        if _codex_content_policy_refusal(combined):
             raise ContentPolicyBlockedError("codex CLI content/safety policy blocked the request")
         if _codex_non_git_working_directory_error(combined):
             raise RuntimeProcessError(NON_GIT_WORKING_DIRECTORY_DETAIL)
@@ -735,6 +749,10 @@ def _codex_usage_limited(text: str) -> bool:
 
 def _codex_non_git_working_directory_error(text: str) -> bool:
     return any(marker in text for marker in CODEX_NON_GIT_WORKING_DIRECTORY_MARKERS)
+
+
+def _codex_content_policy_refusal(text: str) -> bool:
+    return any(marker in text for marker in CODEX_CONTENT_POLICY_REFUSAL_MARKERS)
 
 
 def _load_json_object(raw: str) -> dict[str, object]:

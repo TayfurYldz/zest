@@ -1214,10 +1214,18 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
                     discover_runtimes=fake_discover_runtimes,
                     evaluate_live_status=fake_gate_status,
                 )
-            self.assertEqual(code, 0)
+            self.assertEqual(code, 2)
             self.assertFalse(report.exists())
             self.assertIn("GATE 04B CONTRACT", out.getvalue())
             self.assertNotIn("suite: research-os.development.v1", out.getvalue())
+            self.assertTrue(good.calls)
+            self.assertTrue(
+                all(
+                    request.payload.get("research_context", {}).get("research_run_id")
+                    == "run-gate04b-clean-contract"
+                    for request in good.calls
+                )
+            )
             self.assertTrue(failing.calls)
             self.assertTrue(
                 all(

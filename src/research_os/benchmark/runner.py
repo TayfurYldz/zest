@@ -588,7 +588,7 @@ def _run_discovery(
                     )
                 print("GATE 04B")
                 print(json.dumps(status, indent=2, ensure_ascii=True))
-                return 2 if status.get("status") == "NEEDS_REVIEW" else 0
+                return 2
 
             paired_checkpoint = None
             if checkpoint_session is not None:

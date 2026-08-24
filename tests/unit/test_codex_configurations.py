@@ -32,6 +32,7 @@ from research_os.integrations.models.json_schemas import (
     DIAGNOSTIC_OUTPUT_SCHEMA,
     FALSIFIER_OUTPUT_SCHEMA,
     GENERATOR_OUTPUT_SCHEMA,
+    schema_for_role,
 )
 from research_os.interface.cli import build_status_snapshot
 from research_os.maturity import GATE_04B_STATUS
@@ -573,6 +574,10 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         )
         self.assertEqual(captured["schema"], FALSIFIER_OUTPUT_SCHEMA)
 
+    def test_direct_v2_schemas_are_role_specific(self) -> None:
+        self.assertEqual(schema_for_role(ModelRole.GENERATOR.value), GENERATOR_OUTPUT_SCHEMA)
+        self.assertEqual(schema_for_role(ModelRole.FALSIFIER.value), FALSIFIER_OUTPUT_SCHEMA)
+
     def test_both_configured_models_remain_independent_and_gate04b_pending(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
@@ -810,6 +815,78 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
                 )
                 with self.assertRaises(expected):
                     adapter.complete(_request())
+
+    def test_generic_policy_words_are_not_content_policy_refusals(self) -> None:
+        cases = (
+            "schema content did not match expected object",
+            "policy file could not be loaded",
+            "safety metadata was unavailable",
+        )
+        for stderr in cases:
+            with self.subTest(stderr=stderr):
+                adapter = CodexCliSessionAdapter(
+                    allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+                    executable="codex",
+                    model="gpt-5.5",
+                    configuration_id="codex-cli-gpt55",
+                    runner=lambda argv, stdin_bytes=None, text=stderr: ArgvProcessResult(
+                        status=ArgvProcessStatus.PROCESS_FAILED,
+                        argv=argv,
+                        exit_code=1,
+                        stderr=text,
+                        reason="non-zero exit",
+                    ),
+                )
+                with self.assertRaises(RuntimeProcessError) as ctx:
+                    adapter.complete(_request())
+                self.assertEqual(str(ctx.exception), "non-zero exit")
+
+    def test_explicit_policy_refusal_markers_are_content_policy_blocked(self) -> None:
+        cases = (
+            "content_policy",
+            "content_policy_violation",
+            "content_filter",
+            "safety_refusal",
+            "blocked by content policy",
+            "refused by moderation",
+            "model refused for safety",
+        )
+        for stderr in cases:
+            with self.subTest(stderr=stderr):
+                adapter = CodexCliSessionAdapter(
+                    allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+                    executable="codex",
+                    model="gpt-5.5",
+                    configuration_id="codex-cli-gpt55",
+                    runner=lambda argv, stdin_bytes=None, text=stderr: ArgvProcessResult(
+                        status=ArgvProcessStatus.PROCESS_FAILED,
+                        argv=argv,
+                        exit_code=1,
+                        stderr=text,
+                        reason="non-zero exit",
+                    ),
+                )
+                with self.assertRaises(ContentPolicyBlockedError) as ctx:
+                    adapter.complete(_request())
+                self.assertNotIn(stderr, str(ctx.exception))
+
+    def test_unmatched_process_error_remains_runtime_process_error(self) -> None:
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.5",
+            configuration_id="codex-cli-gpt55",
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
+                status=ArgvProcessStatus.PROCESS_FAILED,
+                argv=argv,
+                exit_code=1,
+                stderr="schema validation failed for generated output",
+                reason="non-zero exit",
+            ),
+        )
+        with self.assertRaises(RuntimeProcessError) as ctx:
+            adapter.complete(_request())
+        self.assertEqual(str(ctx.exception), "non-zero exit")
 
 
 if __name__ == "__main__":
