@@ -10,6 +10,7 @@ from pathlib import Path
 from importlib.resources import as_file, files
 
 from research_os.benchmark.baselines import BASELINE_NAMES, create_baseline
+from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import evaluate_suite, format_scorecard
 from research_os.benchmark.experiment import (
@@ -243,7 +244,27 @@ def run_cli(
         action="store_true",
         help="with --discover/--discover-and-compare, run request-consuming readiness diagnostics; consumes model quota",
     )
+    parser.add_argument(
+        "--checkpoint-dir",
+        default=None,
+        help=(
+            "create a new operational benchmark checkpoint directory; refuses "
+            "existing unrelated state and does not change benchmark results"
+        ),
+    )
+    parser.add_argument(
+        "--resume-checkpoint",
+        default=None,
+        help=(
+            "resume from an existing operational benchmark checkpoint directory; "
+            "completed calls are replayed only on exact fingerprint match"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.checkpoint_dir and args.resume_checkpoint:
+        print("--checkpoint-dir and --resume-checkpoint are mutually exclusive", file=sys.stderr)
+        return 2
 
     if args.include_holdout:
         print(
@@ -276,6 +297,9 @@ def run_cli(
             print(f"sealed holdout unavailable: {holdout.reason}", file=sys.stderr)
             return 2
         if args.single_run_legacy:
+            if args.checkpoint_dir or args.resume_checkpoint:
+                print("checkpoint/resume is only supported for repeated experiments", file=sys.stderr)
+                return 2
             model = create_baseline(args.baseline)
             report = evaluate_suite(
                 scenarios, model, adapter_identity=model.adapter_identity
@@ -317,6 +341,7 @@ def run_cli(
             print(left_loaded, file=sys.stderr)
             return 0
         left_model, left_identity = left_loaded
+        checkpoint_session = _checkpoint_session_from_args(args)
         left_report = run_experiment(
             scenarios,
             left_model,
@@ -324,6 +349,7 @@ def run_cli(
             model_identity=left_identity,
             git_commit=git_commit,
             holdout=holdout,
+            checkpoint_session=checkpoint_session,
         )
         print(format_experiment_scorecard(left_report))
         right_name = args.compare_adapter or args.compare_baseline
@@ -348,6 +374,7 @@ def run_cli(
                     model_identity=right_identity,
                     git_commit=git_commit,
                     holdout=holdout,
+                    checkpoint_session=checkpoint_session,
                 )
                 print()
                 print(format_experiment_scorecard(right_report))
@@ -392,6 +419,12 @@ def _run_discovery(
     discover_runtimes,
     evaluate_live_status,
 ) -> int:
+    if (args.checkpoint_dir or args.resume_checkpoint) and not args.discover_and_compare:
+        print(
+            "checkpoint/resume requires benchmark execution (--discover-and-compare or explicit adapters)",
+            file=sys.stderr,
+        )
+        return 2
     if discover_runtimes is None:
         print(
             "runtime discovery UNAVAILABLE: resolved by scripts/run_research_benchmark.py "
@@ -417,6 +450,7 @@ def _run_discovery(
     comparable = False
     leaked = False
     if args.discover_and_compare and len(available) >= 2:
+        checkpoint_session = _checkpoint_session_from_args(args)
         scenarios = load_cli_scenarios(
             args.scenarios,
             include_calibration=args.include_calibration,
@@ -439,6 +473,14 @@ def _run_discovery(
                 continue
             loaded.append((adapter_id, resolved))
         if len(loaded) >= 2:
+            if checkpoint_session is not None:
+                for _adapter_id, (_port, identity) in loaded[:2]:
+                    checkpoint_session.open_plan(
+                        scenarios,
+                        config=config,
+                        model_identity=identity,
+                        git_commit=git_commit,
+                    )
             reports = []
             for adapter_id, (port, identity) in loaded:
                 report = run_experiment(
@@ -448,6 +490,7 @@ def _run_discovery(
                     model_identity=identity,
                     git_commit=git_commit,
                     holdout=holdout,
+                    checkpoint_session=checkpoint_session,
                 )
                 print()
                 print(format_experiment_scorecard(report))
@@ -480,6 +523,14 @@ def _run_discovery(
     if status.get("status") == "NEEDS_REVIEW":
         return 2
     return 0
+
+
+def _checkpoint_session_from_args(args) -> BenchmarkCheckpointSession | None:
+    if args.checkpoint_dir:
+        return BenchmarkCheckpointSession(Path(args.checkpoint_dir), resume=False)
+    if args.resume_checkpoint:
+        return BenchmarkCheckpointSession(Path(args.resume_checkpoint), resume=True)
+    return None
 
 
 def _load_configured_adapter(

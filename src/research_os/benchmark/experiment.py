@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from research_os.benchmark.checkpoint import BenchmarkCheckpointSession
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import ScenarioRunResult, evaluate_scenario
 from research_os.benchmark.failures import FailureClass, PROVIDER_FAILURE_CLASSES
@@ -233,20 +234,41 @@ def run_experiment(
     holdout: HoldoutLoad | None = None,
     suite_version: str = "1",
     source_provenance: SourceProvenance | None = None,
+    checkpoint_session: BenchmarkCheckpointSession | None = None,
 ) -> ExperimentReport:
     if not scenarios:
         raise BenchmarkError("experiment suite is empty")
+    checkpoint = None
+    if checkpoint_session is not None:
+        checkpoint = checkpoint_session.open_plan(
+            scenarios,
+            config=config,
+            model_identity=model_identity,
+            git_commit=git_commit,
+            suite_version=suite_version,
+        )
     summaries: list[ScenarioRepeatSummary] = []
     for scenario in scenarios:
-        runs = tuple(
-            evaluate_scenario(
-                scenario,
-                model,
-                adapter_identity=model_identity.adapter_identity,
-                run_index=index,
+        run_results: list[ScenarioRunResult] = []
+        for index in range(1, config.runs_per_scenario + 1):
+            run_model = (
+                model
+                if checkpoint is None
+                else checkpoint.wrap_model(
+                    model,
+                    scenario_identity=scenario.identity,
+                    run_index=index,
+                )
             )
-            for index in range(1, config.runs_per_scenario + 1)
-        )
+            run_results.append(
+                evaluate_scenario(
+                    scenario,
+                    run_model,
+                    adapter_identity=model_identity.adapter_identity,
+                    run_index=index,
+                )
+            )
+        runs = tuple(run_results)
         summaries.append(summarize_repeats(scenario, runs))
     return ExperimentReport(
         run_id=str(uuid4()),
