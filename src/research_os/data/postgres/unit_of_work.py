@@ -32,6 +32,9 @@ from research_os.data.postgres.repositories import (
     PostgresInvariantHypothesisRepository,
     PostgresIssuedBudgetRepository,
     PostgresObservationRepository,
+    PostgresOastAdmissionRepository,
+    PostgresOastCallbackDeliveryRepository,
+    PostgresOastCorrelationRepository,
     PostgresOastTokenRepository,
     PostgresProgramPolicyRepository,
     PostgresProgramRepository,
@@ -94,6 +97,9 @@ class PostgresUnitOfWork:
         self.worker_results: PostgresWorkerResultRepository
         self.observations: PostgresObservationRepository
         self.oast_tokens: PostgresOastTokenRepository
+        self.oast_correlations: PostgresOastCorrelationRepository
+        self.oast_callback_deliveries: PostgresOastCallbackDeliveryRepository
+        self.oast_admissions: PostgresOastAdmissionRepository
         self.research_reasoning: PostgresResearchReasoningRepository
         self.research_admissions: PostgresResearchAdmissionRepository
         self.experiment_plans: PostgresExperimentPlanRepository
@@ -173,6 +179,11 @@ class PostgresUnitOfWork:
         self.worker_results = PostgresWorkerResultRepository(self._connection)
         self.observations = PostgresObservationRepository(self._connection)
         self.oast_tokens = PostgresOastTokenRepository(self._connection)
+        self.oast_correlations = PostgresOastCorrelationRepository(self._connection)
+        self.oast_callback_deliveries = PostgresOastCallbackDeliveryRepository(
+            self._connection
+        )
+        self.oast_admissions = PostgresOastAdmissionRepository(self._connection)
         self.research_reasoning = PostgresResearchReasoningRepository(self._connection)
         self.research_admissions = PostgresResearchAdmissionRepository(self._connection)
         self.experiment_plans = PostgresExperimentPlanRepository(self._connection)

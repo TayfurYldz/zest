@@ -127,6 +127,102 @@ oast_token = Table(
     UniqueConstraint("token_id", "research_run_id", name="uq_oast_token_id_run"),
 )
 
+oast_correlation = Table(
+    "oast_correlation",
+    metadata,
+    Column("correlation_id", Text, primary_key=True),
+    Column("attempt_id", Text, nullable=False),
+    Column("experiment_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("armed_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["attempt_id", "research_run_id"],
+        ["execution_attempt.attempt_id", "execution_attempt.research_run_id"],
+        name="fk_oast_correlation_attempt_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment_plan.experiment_id", "experiment_plan.research_run_id"],
+        name="fk_oast_correlation_plan_same_run",
+    ),
+    UniqueConstraint("correlation_id", "research_run_id", name="uq_oast_correlation_id_run"),
+    UniqueConstraint("attempt_id", name="uq_oast_correlation_attempt"),
+    CheckConstraint("expires_at > armed_at", name="ck_oast_correlation_window"),
+)
+
+oast_callback_delivery = Table(
+    "oast_callback_delivery",
+    metadata,
+    Column("delivery_id", Text, primary_key=True),
+    Column("correlation_id", Text, ForeignKey("oast_correlation.correlation_id"), nullable=False),
+    Column("provider_adapter_id", Text, nullable=False),
+    Column("provider_event_id", Text, nullable=False),
+    Column("received_at", DateTime(timezone=True), nullable=False),
+    Column("normalized_payload", JSONB, nullable=False),
+    Column("normalized_digest", Text, nullable=False),
+    UniqueConstraint(
+        "provider_adapter_id",
+        "provider_event_id",
+        name="uq_oast_callback_provider_event",
+    ),
+    UniqueConstraint(
+        "correlation_id",
+        "normalized_digest",
+        name="uq_oast_callback_correlation_digest",
+    ),
+    CheckConstraint(
+        "char_length(provider_adapter_id) BETWEEN 1 AND 128",
+        name="ck_oast_callback_provider_adapter_id",
+    ),
+    CheckConstraint(
+        "char_length(provider_event_id) BETWEEN 1 AND 256",
+        name="ck_oast_callback_provider_event_id",
+    ),
+    CheckConstraint(
+        "normalized_payload IS NOT NULL "
+        "AND jsonb_typeof(normalized_payload) = 'object' "
+        "AND octet_length(normalized_payload::text) <= 16384",
+        name="ck_oast_callback_payload_bounded",
+    ),
+    CheckConstraint(
+        "normalized_digest ~ '^[0-9a-fA-F]{64}$'",
+        name="ck_oast_callback_normalized_digest",
+    ),
+    Index("ix_oast_callback_correlation_received", "correlation_id", "received_at"),
+)
+
+oast_admission = Table(
+    "oast_admission",
+    metadata,
+    Column("admission_id", Text, primary_key=True),
+    Column("correlation_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("sensor_observation_id", Text, nullable=False),
+    Column("discovery_fact_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["correlation_id", "research_run_id"],
+        ["oast_correlation.correlation_id", "oast_correlation.research_run_id"],
+        name="fk_oast_admission_correlation_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["sensor_observation_id", "research_run_id"],
+        ["sensor_observation.observation_id", "sensor_observation.research_run_id"],
+        name="fk_oast_admission_sensor_observation_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["discovery_fact_id", "research_run_id"],
+        ["discovery_fact.fact_id", "discovery_fact.research_run_id"],
+        name="fk_oast_admission_discovery_fact_same_run",
+    ),
+    UniqueConstraint("correlation_id", name="uq_oast_admission_correlation"),
+)
+
+
 bounty_table = Table(
     "bounty_table",
     metadata,
@@ -1801,6 +1897,9 @@ SPINE_TABLES = (
     program_policy,
     rate_limit_profile,
     oast_token,
+    oast_correlation,
+    oast_callback_delivery,
+    oast_admission,
     bounty_table,
     sensor_observation,
     hunter_family,
@@ -1857,5 +1956,8 @@ APPEND_ONLY_TABLES = (
     "impact_chain",
     "impact_chain_node",
     "impact_chain_edge",
+    "oast_correlation",
+    "oast_callback_delivery",
+    "oast_admission",
     "preflight_report",
 )

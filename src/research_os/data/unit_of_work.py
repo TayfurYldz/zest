@@ -28,6 +28,9 @@ from research_os.data.ports import (
     InvariantHypothesisRepository,
     IssuedBudgetRepository,
     ObservationRepository,
+    OastAdmissionRepository,
+    OastCallbackDeliveryRepository,
+    OastCorrelationRepository,
     ProgramRepository,
     PromotionRunRepository,
     ResearchAdmissionRepository,
@@ -82,6 +85,9 @@ class UnitOfWork(Protocol):
     execution_attempts: ExecutionAttemptRepository
     worker_results: WorkerResultRepository
     observations: ObservationRepository
+    oast_correlations: OastCorrelationRepository
+    oast_callback_deliveries: OastCallbackDeliveryRepository
+    oast_admissions: OastAdmissionRepository
     research_reasoning: ResearchReasoningRepository
     research_admissions: ResearchAdmissionRepository
     experiment_plans: ExperimentPlanRepository

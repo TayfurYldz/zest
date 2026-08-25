@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+import json
 from typing import Any, Mapping
 
 from research_os.core.enums import ActorType, AuthorizationSourceState
@@ -498,6 +499,116 @@ class OastTokenRecord:
         require_opaque_id(self.hypothesis_id, "hypothesis_id")
         require_opaque_id(self.target_reference, "target_reference")
         require_aware_datetime(self.expires_at, "expires_at")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+OAST_MAX_NORMALIZED_PAYLOAD_BYTES = 16_384
+OAST_MAX_PROVIDER_ADAPTER_ID_LENGTH = 128
+OAST_MAX_PROVIDER_EVENT_ID_LENGTH = 256
+
+
+def _require_oast_payload(value: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise PersistenceInputError("normalized_payload must be a mapping")
+    _reject_secret_keys(value, "normalized_payload")
+    try:
+        encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise PersistenceInputError(
+            "normalized_payload must be JSON-serializable"
+        ) from exc
+    if len(encoded) > OAST_MAX_NORMALIZED_PAYLOAD_BYTES:
+        raise PersistenceInputError(
+            "normalized_payload exceeds the bounded payload limit"
+        )
+    return dict(value)
+
+
+@dataclass(frozen=True)
+class OastCorrelationRecord:
+    """Immutable persistence binding for one ExecutionAttempt."""
+
+    correlation_id: str
+    attempt_id: str
+    experiment_id: str
+    research_run_id: str
+    target_reference: str
+    identity_id: str
+    armed_at: datetime
+    expires_at: datetime
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "correlation_id",
+            "attempt_id",
+            "experiment_id",
+            "research_run_id",
+            "target_reference",
+            "identity_id",
+        ):
+            require_opaque_id(getattr(self, field_name), field_name)
+        armed_at = require_aware_datetime(self.armed_at, "armed_at")
+        expires_at = require_aware_datetime(self.expires_at, "expires_at")
+        require_aware_datetime(self.created_at, "created_at")
+        if expires_at <= armed_at:
+            raise PersistenceInputError("expires_at must be later than armed_at")
+
+
+@dataclass(frozen=True)
+class OastCallbackDeliveryRecord:
+    """Append-only bounded callback ledger entry."""
+
+    delivery_id: str
+    correlation_id: str
+    provider_adapter_id: str
+    provider_event_id: str
+    received_at: datetime
+    normalized_payload: Mapping[str, Any]
+    normalized_digest: str
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.delivery_id, "delivery_id")
+        require_opaque_id(self.correlation_id, "correlation_id")
+        require_opaque_id(self.provider_adapter_id, "provider_adapter_id")
+        require_opaque_id(self.provider_event_id, "provider_event_id")
+        if len(self.provider_adapter_id) > OAST_MAX_PROVIDER_ADAPTER_ID_LENGTH:
+            raise PersistenceInputError("provider_adapter_id exceeds its length limit")
+        if len(self.provider_event_id) > OAST_MAX_PROVIDER_EVENT_ID_LENGTH:
+            raise PersistenceInputError("provider_event_id exceeds its length limit")
+        require_aware_datetime(self.received_at, "received_at")
+        object.__setattr__(
+            self,
+            "normalized_payload",
+            _require_oast_payload(self.normalized_payload),
+        )
+        require_opaque_id(self.normalized_digest, "normalized_digest")
+        digest = self.normalized_digest.lower()
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise PersistenceInputError("normalized_digest must be a SHA-256 hexadecimal digest")
+        object.__setattr__(self, "normalized_digest", digest)
+
+
+@dataclass(frozen=True)
+class OastAdmissionRecord:
+    """Durable one-per-correlation admission link reserved for Slice B."""
+
+    admission_id: str
+    correlation_id: str
+    research_run_id: str
+    sensor_observation_id: str
+    discovery_fact_id: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "admission_id",
+            "correlation_id",
+            "research_run_id",
+            "sensor_observation_id",
+            "discovery_fact_id",
+        ):
+            require_opaque_id(getattr(self, field_name), field_name)
         require_aware_datetime(self.created_at, "created_at")
 
 

@@ -59,6 +59,9 @@ from research_os.data.records import (
     LeaseAcquireOutcome,
     LeaseAcquireResult,
     ObservationRecord,
+    OastAdmissionRecord,
+    OastCallbackDeliveryRecord,
+    OastCorrelationRecord,
     OastTokenRecord,
     PreflightReportRecord,
     ProgramPolicyRecord,
@@ -416,6 +419,199 @@ class PostgresOastTokenRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.oast_token_from_row(row) for row in rows]
+
+
+class PostgresOastCorrelationRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: OastCorrelationRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.oast_correlation.insert().values(
+                correlation_id=record.correlation_id,
+                attempt_id=record.attempt_id,
+                experiment_id=record.experiment_id,
+                research_run_id=record.research_run_id,
+                target_reference=record.target_reference,
+                identity_id=record.identity_id,
+                armed_at=record.armed_at,
+                expires_at=record.expires_at,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, correlation_id: str) -> OastCorrelationRecord | None:
+        require_opaque_id(correlation_id, "correlation_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_correlation,
+            tables.oast_correlation.c.correlation_id,
+            correlation_id,
+            map_row.oast_correlation_from_row,
+        )
+
+    def get_by_attempt_id(self, attempt_id: str) -> OastCorrelationRecord | None:
+        require_opaque_id(attempt_id, "attempt_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_correlation,
+            tables.oast_correlation.c.attempt_id,
+            attempt_id,
+            map_row.oast_correlation_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastCorrelationRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.oast_correlation)
+                .where(tables.oast_correlation.c.research_run_id == research_run_id)
+                .order_by(tables.oast_correlation.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.oast_correlation_from_row(row) for row in rows]
+
+
+class PostgresOastCallbackDeliveryRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: OastCallbackDeliveryRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.oast_callback_delivery.insert().values(
+                delivery_id=record.delivery_id,
+                correlation_id=record.correlation_id,
+                provider_adapter_id=record.provider_adapter_id,
+                provider_event_id=record.provider_event_id,
+                received_at=record.received_at,
+                normalized_payload=dict(record.normalized_payload),
+                normalized_digest=record.normalized_digest,
+            ),
+        )
+
+    def get(self, delivery_id: str) -> OastCallbackDeliveryRecord | None:
+        require_opaque_id(delivery_id, "delivery_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_callback_delivery,
+            tables.oast_callback_delivery.c.delivery_id,
+            delivery_id,
+            map_row.oast_callback_delivery_from_row,
+        )
+
+    def get_by_provider_event(
+        self, provider_adapter_id: str, provider_event_id: str
+    ) -> OastCallbackDeliveryRecord | None:
+        require_opaque_id(provider_adapter_id, "provider_adapter_id")
+        require_opaque_id(provider_event_id, "provider_event_id")
+        try:
+            row = self._connection.execute(
+                select(tables.oast_callback_delivery)
+                .where(
+                    tables.oast_callback_delivery.c.provider_adapter_id
+                    == provider_adapter_id
+                )
+                .where(
+                    tables.oast_callback_delivery.c.provider_event_id
+                    == provider_event_id
+                )
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return (
+            None
+            if row is None
+            else map_row.oast_callback_delivery_from_row(row)
+        )
+
+    def get_by_correlation_digest(
+        self, correlation_id: str, normalized_digest: str
+    ) -> OastCallbackDeliveryRecord | None:
+        require_opaque_id(correlation_id, "correlation_id")
+        require_opaque_id(normalized_digest, "normalized_digest")
+        try:
+            row = self._connection.execute(
+                select(tables.oast_callback_delivery)
+                .where(tables.oast_callback_delivery.c.correlation_id == correlation_id)
+                .where(
+                    tables.oast_callback_delivery.c.normalized_digest
+                    == normalized_digest
+                )
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return (
+            None
+            if row is None
+            else map_row.oast_callback_delivery_from_row(row)
+        )
+
+    def list_for_correlation(
+        self, correlation_id: str
+    ) -> list[OastCallbackDeliveryRecord]:
+        require_opaque_id(correlation_id, "correlation_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.oast_callback_delivery)
+                .where(tables.oast_callback_delivery.c.correlation_id == correlation_id)
+                .order_by(tables.oast_callback_delivery.c.received_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.oast_callback_delivery_from_row(row) for row in rows]
+
+
+class PostgresOastAdmissionRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: OastAdmissionRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.oast_admission.insert().values(
+                admission_id=record.admission_id,
+                correlation_id=record.correlation_id,
+                research_run_id=record.research_run_id,
+                sensor_observation_id=record.sensor_observation_id,
+                discovery_fact_id=record.discovery_fact_id,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, admission_id: str) -> OastAdmissionRecord | None:
+        require_opaque_id(admission_id, "admission_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_admission,
+            tables.oast_admission.c.admission_id,
+            admission_id,
+            map_row.oast_admission_from_row,
+        )
+
+    def get_by_correlation(self, correlation_id: str) -> OastAdmissionRecord | None:
+        require_opaque_id(correlation_id, "correlation_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_admission,
+            tables.oast_admission.c.correlation_id,
+            correlation_id,
+            map_row.oast_admission_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastAdmissionRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.oast_admission)
+                .where(tables.oast_admission.c.research_run_id == research_run_id)
+                .order_by(tables.oast_admission.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.oast_admission_from_row(row) for row in rows]
 
 
 class PostgresBountyTableRepository:

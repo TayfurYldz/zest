@@ -56,6 +56,9 @@ from research_os.data.records import (
     LeaseAcquireOutcome,
     LeaseAcquireResult,
     ObservationRecord,
+    OastAdmissionRecord,
+    OastCallbackDeliveryRecord,
+    OastCorrelationRecord,
     ProgramPolicyRecord,
     ProgramRecord,
     PromotionRunRecord,
@@ -114,6 +117,9 @@ class _Store:
         self.worker_results: dict[str, WorkerResultRecord] = {}
         self.worker_results_by_request: dict[str, str] = {}
         self.observations: dict[str, ObservationRecord] = {}
+        self.oast_correlations: dict[str, OastCorrelationRecord] = {}
+        self.oast_callback_deliveries: dict[str, OastCallbackDeliveryRecord] = {}
+        self.oast_admissions: dict[str, OastAdmissionRecord] = {}
         self.sensor_observations: dict[str, SensorObservationRecord] = {}
         self.research_reasoning: dict[str, ResearchReasoningRecord] = {}
         self.research_admissions: dict[str, ResearchAdmissionRecord] = {}
@@ -265,6 +271,93 @@ class _IssuedBudgetRepo(_Repo):
         ]
 
 
+class _OastCorrelationRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.oast_correlations)
+        self._root = store
+
+    def get_by_attempt_id(self, attempt_id: str) -> OastCorrelationRecord | None:
+        return next(
+            (
+                record
+                for record in self._root.oast_correlations.values()
+                if record.attempt_id == attempt_id
+            ),
+            None,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastCorrelationRecord]:
+        return [
+            record
+            for record in self._root.oast_correlations.values()
+            if record.research_run_id == research_run_id
+        ]
+
+
+class _OastCallbackDeliveryRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.oast_callback_deliveries)
+        self._root = store
+
+    def get_by_provider_event(
+        self, provider_adapter_id: str, provider_event_id: str
+    ) -> OastCallbackDeliveryRecord | None:
+        return next(
+            (
+                record
+                for record in self._root.oast_callback_deliveries.values()
+                if record.provider_adapter_id == provider_adapter_id
+                and record.provider_event_id == provider_event_id
+            ),
+            None,
+        )
+
+    def get_by_correlation_digest(
+        self, correlation_id: str, normalized_digest: str
+    ) -> OastCallbackDeliveryRecord | None:
+        return next(
+            (
+                record
+                for record in self._root.oast_callback_deliveries.values()
+                if record.correlation_id == correlation_id
+                and record.normalized_digest == normalized_digest
+            ),
+            None,
+        )
+
+    def list_for_correlation(
+        self, correlation_id: str
+    ) -> list[OastCallbackDeliveryRecord]:
+        return [
+            record
+            for record in self._root.oast_callback_deliveries.values()
+            if record.correlation_id == correlation_id
+        ]
+
+
+class _OastAdmissionRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.oast_admissions)
+        self._root = store
+
+    def get_by_correlation(self, correlation_id: str) -> OastAdmissionRecord | None:
+        return next(
+            (
+                record
+                for record in self._root.oast_admissions.values()
+                if record.correlation_id == correlation_id
+            ),
+            None,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastAdmissionRecord]:
+        return [
+            record
+            for record in self._root.oast_admissions.values()
+            if record.research_run_id == research_run_id
+        ]
+
+
 def _id_of(record: Any) -> str:
     if isinstance(record, ProgramRecord):
         return record.program_id
@@ -292,6 +385,12 @@ def _id_of(record: Any) -> str:
         return record.worker_result_id
     if isinstance(record, ObservationRecord):
         return record.observation_id
+    if isinstance(record, OastCorrelationRecord):
+        return record.correlation_id
+    if isinstance(record, OastCallbackDeliveryRecord):
+        return record.delivery_id
+    if isinstance(record, OastAdmissionRecord):
+        return record.admission_id
     if isinstance(record, ResearchReasoningRecord):
         return record.reasoning_record_id
     if isinstance(record, ResearchAdmissionRecord):
@@ -1924,6 +2023,9 @@ class FakeUnitOfWork:
         self.sensor_observations = _SensorObservationRepo(
             self._store, fail_on_insert=fail_on == "sensor_observations"
         )
+        self.oast_correlations = _OastCorrelationRepo(self._store)
+        self.oast_callback_deliveries = _OastCallbackDeliveryRepo(self._store)
+        self.oast_admissions = _OastAdmissionRepo(self._store)
         self.research_reasoning = _ResearchReasoningRepo(
             self._store, fail_on_insert=fail_on == "research_reasoning"
         )
@@ -2082,6 +2184,12 @@ class FakeUnitOfWork:
         self._store.worker_results_by_request.update(snapshot.worker_results_by_request)
         self._store.observations.clear()
         self._store.observations.update(snapshot.observations)
+        self._store.oast_correlations.clear()
+        self._store.oast_correlations.update(snapshot.oast_correlations)
+        self._store.oast_callback_deliveries.clear()
+        self._store.oast_callback_deliveries.update(snapshot.oast_callback_deliveries)
+        self._store.oast_admissions.clear()
+        self._store.oast_admissions.update(snapshot.oast_admissions)
         self._store.research_reasoning.clear()
         self._store.research_reasoning.update(snapshot.research_reasoning)
         self._store.research_admissions.clear()

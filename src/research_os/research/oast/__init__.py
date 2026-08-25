@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
-from research_os.research.oast.types import OastCallback, OastPort, OastToken
+from research_os.research.oast.types import (
+    OastCallback,
+    OastCallbackDelivery,
+    OastCorrelation,
+    OastPort,
+    OastToken,
+)
 
-__all__ = ["OastCallback", "OastPort", "OastToken"]
+__all__ = [
+    "OastCallback",
+    "OastCallbackDelivery",
+    "OastCorrelation",
+    "OastPort",
+    "OastToken",
+]

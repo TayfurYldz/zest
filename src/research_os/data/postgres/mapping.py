@@ -66,6 +66,10 @@ from research_os.data.records import (
     FrontierSourceRecord,
     HunterFamilyRecord,
     HuntV3QueueRecord,
+    OastAdmissionRecord,
+    OastCallbackDeliveryRecord,
+    OastCorrelationRecord,
+    OastTokenRecord,
     OastTokenRecord,
     PreflightReportRecord,
     PromotionRunRecord,
@@ -153,6 +157,48 @@ def oast_token_from_row(row: Mapping[str, Any]) -> OastTokenRecord:
         hypothesis_id=data["hypothesis_id"],
         target_reference=data["target_reference"],
         expires_at=data["expires_at"],
+        created_at=data["created_at"],
+    )
+
+
+def oast_correlation_from_row(row: Mapping[str, Any]) -> OastCorrelationRecord:
+    data = _mapping(row)
+    return OastCorrelationRecord(
+        correlation_id=data["correlation_id"],
+        attempt_id=data["attempt_id"],
+        experiment_id=data["experiment_id"],
+        research_run_id=data["research_run_id"],
+        target_reference=data["target_reference"],
+        identity_id=data["identity_id"],
+        armed_at=data["armed_at"],
+        expires_at=data["expires_at"],
+        created_at=data["created_at"],
+    )
+
+
+def oast_callback_delivery_from_row(
+    row: Mapping[str, Any],
+) -> OastCallbackDeliveryRecord:
+    data = _mapping(row)
+    return OastCallbackDeliveryRecord(
+        delivery_id=data["delivery_id"],
+        correlation_id=data["correlation_id"],
+        provider_adapter_id=data["provider_adapter_id"],
+        provider_event_id=data["provider_event_id"],
+        received_at=data["received_at"],
+        normalized_payload=data["normalized_payload"],
+        normalized_digest=data["normalized_digest"],
+    )
+
+
+def oast_admission_from_row(row: Mapping[str, Any]) -> OastAdmissionRecord:
+    data = _mapping(row)
+    return OastAdmissionRecord(
+        admission_id=data["admission_id"],
+        correlation_id=data["correlation_id"],
+        research_run_id=data["research_run_id"],
+        sensor_observation_id=data["sensor_observation_id"],
+        discovery_fact_id=data["discovery_fact_id"],
         created_at=data["created_at"],
     )
 
