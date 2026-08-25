@@ -42,7 +42,7 @@ from research_os.data.records import (
 from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
 from research_os.research.discovery.types import AttackSurfaceNodeKind
 from research_os.research.target_model import TargetEpistemicStatus
-from tests.fixtures.oast import LoopbackOastPort
+from fixtures.oast import LoopbackOastPort
 
 TEST_URL = configured_test_url()
 
@@ -124,7 +124,7 @@ class SDG6MutationOastIntegrationTests(unittest.TestCase):
             self.assertNotIn("token", payload["arguments"])
             self.assertNotIn("secret", payload["arguments"])
 
-    def test_oast_callback_is_admitted_as_untrusted_external_fact(self) -> None:
+    def test_legacy_oast_token_callback_is_not_authoritative(self) -> None:
         uow_factory = PostgresUnitOfWorkFactory(self.engine)
         with PostgresUnitOfWork(self.engine) as uow:
             uow.oast_tokens.insert(
@@ -160,16 +160,15 @@ class SDG6MutationOastIntegrationTests(unittest.TestCase):
             scope_classification=ScopeClassification.IN_SCOPE.value,
         )
         self.assertIsInstance(result, OastCallbackAdmissionResult)
-        self.assertTrue(result.admitted)
-        self.assertIsNotNone(result.fact_id)
-        self.assertNotEqual(result.observation_id, "")
+        self.assertFalse(result.admitted)
+        self.assertIsNone(result.fact_id)
+        self.assertEqual(result.observation_id, "")
+        self.assertEqual(result.reason_code, "OAST_LEGACY_TOKEN_NOT_AUTHORITATIVE")
 
         with PostgresUnitOfWork(self.engine) as uow:
-            fact = uow.discovery_facts.get(result.fact_id)
+            self.assertEqual(uow.sensor_observations.list_for_research_run("run-1"), [])
+            self.assertEqual(uow.discovery_facts.list_for_research_run("run-1"), [])
             uow.rollback()
-        self.assertIsNotNone(fact)
-        self.assertEqual(fact.epistemic_status, TargetEpistemicStatus.OBSERVED.value)
-        self.assertEqual(fact.attributes["source_status"], "UNTRUSTED_EXTERNAL")
 
     def test_expired_oast_callback_is_rejected(self) -> None:
         uow_factory = PostgresUnitOfWorkFactory(self.engine)

@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from tests.fixtures.oast.loopback import LoopbackOastPort
+from .loopback import LoopbackOastPort
 
 __all__ = ["LoopbackOastPort"]

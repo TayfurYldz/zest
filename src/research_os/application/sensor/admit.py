@@ -65,6 +65,38 @@ class AdmitSensorObservations:
                 f"scope_classification must be one of {', '.join(item.value for item in ScopeClassification)}"
             ) from exc
 
+        with self._uow_factory.open() as uow:
+            result = self.admit_in_uow(
+                uow,
+                observation,
+                research_run_id=research_run_id,
+                identity_id=identity_id,
+                scope_classification=scope_classification,
+            )
+            uow.commit()
+
+        return result
+
+    def admit_in_uow(
+        self,
+        uow: Any,
+        observation: SensorObservation,
+        *,
+        research_run_id: str,
+        identity_id: str,
+        scope_classification: str,
+        fact_id: str | None = None,
+        source_row_id: str | None = None,
+        canonical_key: str | None = None,
+        extra_attributes: Mapping[str, Any] | None = None,
+    ) -> SensorAdmissionResult:
+        """Persist a deterministic sensor admission in a caller UoW."""
+        try:
+            ScopeClassification(scope_classification)
+        except ValueError as exc:
+            raise SensorAdmissionError(
+                f"scope_classification must be one of {', '.join(item.value for item in ScopeClassification)}"
+            ) from exc
         payload = dict(observation.payload)
         source_metadata = dict(observation.source_metadata)
         self._reject_forbidden(payload, "payload")
@@ -73,8 +105,6 @@ class AdmitSensorObservations:
         fact_kind = self._SENSOR_FACT_KIND.get(
             observation.sensor_id, DiscoveryFactKind.HOSTNAME
         )
-        canonical_key = self._canonical_key(observation, fact_kind)
-
         attributes: dict[str, Any] = {
             "sensor_id": observation.sensor_id,
             "scope_classification": scope_classification,
@@ -87,12 +117,15 @@ class AdmitSensorObservations:
                 first = technologies[0]
                 if isinstance(first, dict) and isinstance(first.get("name"), str):
                     attributes["technology"] = first["name"]
+        if extra_attributes:
+            self._reject_forbidden(extra_attributes, "extra_attributes")
+            attributes.update(dict(extra_attributes))
 
         domain_fact = DiscoveryFact(
-            fact_id=new_opaque_id(),
+            fact_id=fact_id or new_opaque_id(),
             research_run_id=research_run_id,
             fact_kind=fact_kind,
-            canonical_key=canonical_key,
+            canonical_key=canonical_key or self._canonical_key(observation, fact_kind),
             epistemic_status=TargetEpistemicStatus.OBSERVED,
             identity_id=identity_id,
             target_reference=observation.target_reference,
@@ -105,36 +138,32 @@ class AdmitSensorObservations:
             normalized_origin=observation.target_reference,
             attributes=attributes,
         )
-
-        with self._uow_factory.open() as uow:
-            uow.discovery_facts.insert(
-                DiscoveryFactRecord(
-                    fact_id=domain_fact.fact_id,
-                    research_run_id=domain_fact.research_run_id,
-                    fact_kind=domain_fact.fact_kind.value,
-                    canonical_key=domain_fact.canonical_key,
-                    epistemic_status=domain_fact.epistemic_status.value,
-                    identity_id=domain_fact.identity_id,
-                    target_reference=domain_fact.target_reference,
-                    session_context_id=domain_fact.session_context_id,
-                    normalized_origin=domain_fact.normalized_origin,
-                    normalized_path=domain_fact.normalized_path,
-                    http_method=domain_fact.http_method,
-                    attributes=dict(domain_fact.attributes),
-                    created_at=observation.collected_at,
-                )
+        uow.discovery_facts.insert(
+            DiscoveryFactRecord(
+                fact_id=domain_fact.fact_id,
+                research_run_id=domain_fact.research_run_id,
+                fact_kind=domain_fact.fact_kind.value,
+                canonical_key=domain_fact.canonical_key,
+                epistemic_status=domain_fact.epistemic_status.value,
+                identity_id=domain_fact.identity_id,
+                target_reference=domain_fact.target_reference,
+                session_context_id=domain_fact.session_context_id,
+                normalized_origin=domain_fact.normalized_origin,
+                normalized_path=domain_fact.normalized_path,
+                http_method=domain_fact.http_method,
+                attributes=dict(domain_fact.attributes),
+                created_at=observation.collected_at,
             )
-            uow.discovery_fact_sources.insert(
-                DiscoveryFactSourceRecord(
-                    source_row_id=new_opaque_id(),
-                    research_run_id=research_run_id,
-                    fact_id=domain_fact.fact_id,
-                    sensor_observation_id=observation.observation_id,
-                    created_at=observation.collected_at,
-                )
+        )
+        uow.discovery_fact_sources.insert(
+            DiscoveryFactSourceRecord(
+                source_row_id=source_row_id or new_opaque_id(),
+                research_run_id=research_run_id,
+                fact_id=domain_fact.fact_id,
+                sensor_observation_id=observation.observation_id,
+                created_at=observation.collected_at,
             )
-            uow.commit()
-
+        )
         return SensorAdmissionResult(
             fact_id=domain_fact.fact_id,
             observation_id=observation.observation_id,

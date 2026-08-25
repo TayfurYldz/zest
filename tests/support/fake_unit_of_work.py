@@ -276,6 +276,14 @@ class _OastCorrelationRepo(_Repo):
         super().__init__(store.oast_correlations)
         self._root = store
 
+    def insert(self, record: OastCorrelationRecord) -> None:
+        if self.get_by_attempt_id(record.attempt_id) is not None:
+            raise PersistenceConflictError(
+                "duplicate OAST attempt correlation",
+                constraint_name="uq_oast_correlation_attempt",
+            )
+        super().insert(record)
+
     def get_by_attempt_id(self, attempt_id: str) -> OastCorrelationRecord | None:
         return next(
             (
@@ -298,6 +306,19 @@ class _OastCallbackDeliveryRepo(_Repo):
     def __init__(self, store: _Store) -> None:
         super().__init__(store.oast_callback_deliveries)
         self._root = store
+
+    def insert(self, record: OastCallbackDeliveryRecord) -> None:
+        if self.get_by_provider_event(record.provider_adapter_id, record.provider_event_id):
+            raise PersistenceConflictError(
+                "duplicate OAST provider event",
+                constraint_name="uq_oast_callback_provider_event",
+            )
+        if self.get_by_correlation_digest(record.correlation_id, record.normalized_digest):
+            raise PersistenceConflictError(
+                "duplicate OAST normalized callback",
+                constraint_name="uq_oast_callback_correlation_digest",
+            )
+        super().insert(record)
 
     def get_by_provider_event(
         self, provider_adapter_id: str, provider_event_id: str
@@ -339,6 +360,14 @@ class _OastAdmissionRepo(_Repo):
     def __init__(self, store: _Store) -> None:
         super().__init__(store.oast_admissions)
         self._root = store
+
+    def insert(self, record: OastAdmissionRecord) -> None:
+        if self.get_by_correlation(record.correlation_id) is not None:
+            raise PersistenceConflictError(
+                "duplicate OAST admission",
+                constraint_name="uq_oast_admission_correlation",
+            )
+        super().insert(record)
 
     def get_by_correlation(self, correlation_id: str) -> OastAdmissionRecord | None:
         return next(
@@ -384,6 +413,8 @@ def _id_of(record: Any) -> str:
     if isinstance(record, WorkerResultRecord):
         return record.worker_result_id
     if isinstance(record, ObservationRecord):
+        return record.observation_id
+    if isinstance(record, SensorObservationRecord):
         return record.observation_id
     if isinstance(record, OastCorrelationRecord):
         return record.correlation_id
