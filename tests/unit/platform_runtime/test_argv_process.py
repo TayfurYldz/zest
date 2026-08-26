@@ -6,7 +6,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.argv_process import (
+from zest.platform.argv_process import (
     ArgvProcessStatus,
     build_cli_environment,
     run_argv,
@@ -15,7 +15,7 @@ from research_os.platform.argv_process import (
 
 class ArgvProcessTests(unittest.TestCase):
     def test_missing_executable_is_unavailable(self) -> None:
-        result = run_argv(("research-os-missing-cli-runtime-xyz", "--version"), timeout_ms=1_000)
+        result = run_argv(("zest-missing-cli-runtime-xyz", "--version"), timeout_ms=1_000)
         self.assertEqual(result.status, ArgvProcessStatus.UNAVAILABLE)
         self.assertIsNone(result.exit_code)
 
@@ -31,15 +31,15 @@ class ArgvProcessTests(unittest.TestCase):
             (
                 ("OPENAI_API_KEY", "sk-secret"),
                 ("ANTHROPIC_API_KEY", "sk-other"),
-                ("DATABASE_URL", "postgresql://research_os@127.0.0.1/db"),
-                ("RESEARCH_OS_TEST_DATABASE_URL", "postgresql://x"),
+                ("DATABASE_URL", "postgresql://zest@127.0.0.1/db"),
+                ("ZEST_TEST_DATABASE_URL", "postgresql://x"),
                 ("SAFE_FLAG", "ok"),
             )
         )
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("DATABASE_URL", env)
-        self.assertNotIn("RESEARCH_OS_TEST_DATABASE_URL", env)
+        self.assertNotIn("ZEST_TEST_DATABASE_URL", env)
         self.assertEqual(env.get("SAFE_FLAG"), "ok")
         inherited = os.environ.get("PATH")
         if inherited:

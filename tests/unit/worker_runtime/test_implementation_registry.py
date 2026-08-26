@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.worker_runtime.python.capabilities import execute
-from research_os.worker_runtime.python.implementation import IMPLEMENTATION_EXECUTORS
-from research_os.worker_runtime.python.packaged_registry import load_packaged_capabilities
-from research_os.tools.registry import load_capability_registry
+from zest.worker_runtime.python.capabilities import execute
+from zest.worker_runtime.python.implementation import IMPLEMENTATION_EXECUTORS
+from zest.worker_runtime.python.packaged_registry import load_packaged_capabilities
+from zest.tools.registry import load_capability_registry
 
 
 def _echo_request(**overrides):
@@ -79,7 +79,7 @@ class WorkerImplementationRegistryTests(unittest.TestCase):
         self.assertEqual(diagnostics["reason_code"], "UNKNOWN_CAPABILITY")
 
     def test_no_dynamic_import_in_dispatch(self) -> None:
-        root = Path(__file__).resolve().parents[3] / "src" / "research_os" / "worker_runtime" / "python"
+        root = Path(__file__).resolve().parents[3] / "src" / "zest" / "worker_runtime" / "python"
         for name in ("capabilities.py", "implementation.py", "packaged_registry.py"):
             text = (root / name).read_text(encoding="utf-8")
             self.assertNotIn("importlib", text)

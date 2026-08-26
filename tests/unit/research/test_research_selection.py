@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.exploration import SelectionOutcome
-from research_os.research.planning import (
+from zest.research.assessment import AssessmentOutcome
+from zest.research.exploration import SelectionOutcome
+from zest.research.planning import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     HTTP_STATE_TRANSITION_CLAIM,
 )
-from research_os.research.selection import (
+from zest.research.selection import (
     DiscriminationLevel,
     ExperimentOption,
     ExperimentPurpose,
@@ -265,7 +265,7 @@ class ResearchSelectionUnitTests(unittest.TestCase):
         self.assertNotEqual(left, other)
 
     def test_negative_knowledge_is_bound_to_origin_context(self) -> None:
-        from research_os.research.selection import object_origin_reference
+        from zest.research.selection import object_origin_reference
 
         alice = ObjectProbeContext("alice", "alice", "bob")
         carol = ObjectProbeContext("carol", "carol", "dave")

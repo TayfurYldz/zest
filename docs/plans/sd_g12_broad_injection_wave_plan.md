@@ -25,7 +25,7 @@ active mutation lane can claim coverage.
 
 Files:
 
-- `src/research_os/data/postgres/hunter_family_seed.py`
+- `src/zest/data/postgres/hunter_family_seed.py`
 - `tests/unit/data/test_sd_g12_hunter_family_seed.py`
 
 Families:
@@ -62,7 +62,7 @@ Evidence:
 
 Files:
 
-- `src/research_os/research/mutation/matrix.py`
+- `src/zest/research/mutation/matrix.py`
 - `tests/unit/research/test_sd_g12_mutation_matrix.py`
 
 Behavior:
@@ -87,9 +87,9 @@ Evidence:
 
 Files:
 
-- `src/research_os/application/hunt_validation.py`
-- `src/research_os/data/postgres/hunter_family_seed.py`
-- `src/research_os/research/mutation/matrix.py`
+- `src/zest/application/hunt_validation.py`
+- `src/zest/data/postgres/hunter_family_seed.py`
+- `src/zest/research/mutation/matrix.py`
 - `tests/integration/test_sd_g5_hunt_cycle.py`
 - `tests/unit/data/test_sd_g12_hunter_family_seed.py`
 - `tests/unit/research/test_sd_g12_mutation_matrix.py`

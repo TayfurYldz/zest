@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.validation.tier_gate import (
+from zest.research.validation.tier_gate import (
     ValidationAdmissionOutcome,
     ValidationTier,
     ValidationTierOutcome,

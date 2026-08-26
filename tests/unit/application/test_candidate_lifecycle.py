@@ -4,46 +4,46 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.errors import ApplicationError
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.candidate import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLAIM,
     CandidateAdmissionOutcome,
     CandidateProposal,
     CandidateState,
 )
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.verification import VerificationOutcome
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.verification import VerificationOutcome
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
     RecordingWorkerPort,

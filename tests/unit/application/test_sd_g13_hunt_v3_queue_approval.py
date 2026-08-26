@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.hunt_v3_queue_approval import (
+from zest.application.hunt_v3_queue_approval import (
     ApproveHuntV3Queue,
     ApproveHuntV3QueueCommand,
     approval_subject_for_queue,
 )
-from research_os.core.enums import ActorType, ApprovalDecision
-from research_os.data.records import ApprovalRecord, HuntV3QueueRecord
+from zest.core.enums import ActorType, ApprovalDecision
+from zest.data.records import ApprovalRecord, HuntV3QueueRecord
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT
 

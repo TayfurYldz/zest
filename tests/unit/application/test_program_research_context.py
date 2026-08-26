@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.program_research_context import (
+from zest.application.program_research_context import (
     ProgramPolicyView,
     load_program_research_context,
 )
-from research_os.data.records import ProgramPolicyRecord, RateLimitProfileRecord
+from zest.data.records import ProgramPolicyRecord, RateLimitProfileRecord
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 

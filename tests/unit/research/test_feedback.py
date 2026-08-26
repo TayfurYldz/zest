@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.feedback import ExperimentFeedback, ObservedFact
-from research_os.research.types import ResearchInputError
+from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.types import ResearchInputError
 
 
 def _feedback(**overrides) -> ExperimentFeedback:

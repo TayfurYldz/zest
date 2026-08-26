@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from research_os.data.records import (
+from zest.data.records import (
     AuthorizationSourceRecord,
     ExperimentRecord,
     HypothesisRecord,

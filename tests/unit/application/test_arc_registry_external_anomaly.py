@@ -5,27 +5,27 @@ from urllib.parse import urlsplit
 
 import pathsetup  # noqa: F401
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import AuthorizationSourceRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.exploration import OpportunityKind, ResearchPolicyBudget
-from research_os.research.identity_anomaly import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import AuthorizationSourceRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
+from zest.research.identity_anomaly import (
     IDENTITY_ANOMALY_CLAIM,
     is_exploratory_hypothesis_origin,
 )
-from research_os.research.orchestration import OrchestrationBounds
-from research_os.research.planning import plan_authorization_differential
-from research_os.tools.capabilities import HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY
+from zest.research.orchestration import OrchestrationBounds
+from zest.research.planning import plan_authorization_differential
+from zest.tools.capabilities import HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
@@ -306,7 +306,7 @@ class ArcRegistryExternalAnomalyTests(unittest.TestCase):
 
     def test_arc_does_not_import_execute_exploratory_research(self) -> None:
         import inspect
-        from research_os.application import autonomous_research_controller as module
+        from zest.application import autonomous_research_controller as module
 
         source = inspect.getsource(module)
         self.assertNotIn("execute_exploratory_research", source)

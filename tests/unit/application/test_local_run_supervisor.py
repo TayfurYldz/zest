@@ -4,23 +4,23 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.local_run_supervisor import (
+from zest.application.local_run_supervisor import (
     LocalRunSupervisor,
     LocalRunSupervisorRegistry,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import TerminalOrchestrationStateError
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import TerminalOrchestrationStateError
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_authorization_run
-from research_os.data.records import IssuedBudgetRecord
+from zest.data.records import IssuedBudgetRecord
 
 
 class FixedClock:

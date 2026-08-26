@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 
 def _worker_id() -> str:
-    return os.environ.get("RESEARCH_OS_WORKER_ID", "fixture-worker")
+    return os.environ.get("ZEST_WORKER_ID", "fixture-worker")
 
 
 def _now() -> str:

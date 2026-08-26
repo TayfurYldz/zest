@@ -4,10 +4,10 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core.capability import CapabilityAuthorizationView
-from research_os.core.enums import ExecutionDecisionKind, ReasonCode, SideEffectLevel
-from research_os.core.execution import evaluate_execution
-from research_os.tools.registry import load_capability_registry, registry_from_documents
+from zest.core.capability import CapabilityAuthorizationView
+from zest.core.enums import ExecutionDecisionKind, ReasonCode, SideEffectLevel
+from zest.core.execution import evaluate_execution
+from zest.tools.registry import load_capability_registry, registry_from_documents
 from fixtures import base_request, capability_view_for_side_effect, human_approval
 
 

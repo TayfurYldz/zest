@@ -4,30 +4,30 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.discovery.claim import claim_frontier_selected
-from research_os.application.discovery.compile_plan import ReobserveRequired, compile_frontier_plan
-from research_os.application.discovery.config import (
+from zest.application.discovery.claim import claim_frontier_selected
+from zest.application.discovery.compile_plan import ReobserveRequired, compile_frontier_plan
+from zest.application.discovery.config import (
     assert_runtime_matches_persisted,
     config_from_record,
     record_from_config,
 )
-from research_os.application.discovery.project import (
+from zest.application.discovery.project import (
     project_control,
     project_observation,
     reconcile_missing_projections,
 )
-from research_os.application.discovery.runner import SurfaceDiscoveryRunner, SurfaceDiscoveryStart
-from research_os.application.errors import ApplicationError, OrchestrationIntegrityError
-from research_os.data.records import (
+from zest.application.discovery.runner import SurfaceDiscoveryRunner, SurfaceDiscoveryStart
+from zest.application.errors import ApplicationError, OrchestrationIntegrityError
+from zest.data.records import (
     ControlEventRecord,
     FrontierEventRecord,
     FrontierItemRecord,
     ObservationRecord,
     WorkerResultRecord,
 )
-from research_os.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
-from research_os.research.discovery.types import SURFACE_DISCOVERY_STRATEGY_VERSION
-from research_os.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
+from zest.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
+from zest.research.discovery.types import SURFACE_DISCOVERY_STRATEGY_VERSION
+from zest.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_authorization_run
@@ -423,8 +423,8 @@ class RunnerConfigTests(unittest.TestCase):
 
 
 def _scope():
-    from research_os.core.enums import ScopeRuleEffect
-    from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+    from zest.core.enums import ScopeRuleEffect
+    from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 
     return ScopeEvaluationInput(
         matches=(ScopeRuleMatch("rule-allow", ScopeRuleEffect.ALLOW, True, "scope-src"),),

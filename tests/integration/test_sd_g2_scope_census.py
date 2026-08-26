@@ -1,7 +1,7 @@
 """SD-G2 scope/census integration: UNKNOWN allows census, OUT_OF_SCOPE denies.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -26,19 +26,19 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.program_research_context import (
+from zest.application.program_research_context import (
     load_program_research_context,
 )
-from research_os.application.sensor.runner import SensorAcquisitionRunner
-from research_os.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
-from research_os.core.scope_compiler import evaluate_scope_candidate
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import ProgramPolicyRecord, ScopeRuleV2Record
-from research_os.platform.url_normalize import normalize_url
-from research_os.research.sensor import DNSSensor
-from research_os.research.sensor.fixture_loader import FileFixtureLoader
-from research_os.research.sensor.types import ScopeCensusView
+from zest.application.sensor.runner import SensorAcquisitionRunner
+from zest.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
+from zest.core.scope_compiler import evaluate_scope_candidate
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import ProgramPolicyRecord, ScopeRuleV2Record
+from zest.platform.url_normalize import normalize_url
+from zest.research.sensor import DNSSensor
+from zest.research.sensor.fixture_loader import FileFixtureLoader
+from zest.research.sensor.types import ScopeCensusView
 
 TEST_URL = configured_test_url()
 FIXTURE_DIR = _REPO / "tests" / "fixtures" / "sensor"
@@ -58,7 +58,7 @@ def _scope_view_from_target(program_context, target: str) -> ScopeCensusView:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG2ScopeCensusIntegrationTests(unittest.TestCase):
     engine = None

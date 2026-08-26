@@ -4,16 +4,16 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.data.errors import PersistenceError
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.context import ExternalContentSource
-from research_os.research.epistemic import EpistemicClass
-from research_os.research.model_port import ModelRole
-from research_os.research.planning import DIAGNOSTIC_CLAIM
+from zest.data.errors import PersistenceError
+from zest.research.admission import AdmissionOutcome
+from zest.research.context import ExternalContentSource
+from zest.research.epistemic import EpistemicClass
+from zest.research.model_port import ModelRole
+from zest.research.planning import DIAGNOSTIC_CLAIM
 from support.fake_model import ScriptedModelPort, default_generator_output
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run, seed_spine
@@ -140,7 +140,7 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
     def test_model_invocation_failure_persists_admission_without_hypothesis(self) -> None:
         store = _Store()
         seed_authorization_run(store)
-        from research_os.research.model_port import ModelPortError
+        from zest.research.model_port import ModelPortError
 
         result = _use_case(
             store, ScriptedModelPort(error=ModelPortError("injected failure"))

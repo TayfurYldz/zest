@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.contract_validation import (
+from zest.platform.contract_validation import (
     ContractValidationError,
     ContractValidator,
 )
@@ -44,7 +44,7 @@ class ContractValidatorTests(unittest.TestCase):
     def test_unknown_urn_retrieve_fails_closed(self) -> None:
         from referencing.exceptions import Unresolvable
 
-        from research_os.platform.contract_validation import _no_network_retrieve
+        from zest.platform.contract_validation import _no_network_retrieve
 
         with self.assertRaises(Unresolvable):
             _no_network_retrieve("https://example.invalid/schema.json")

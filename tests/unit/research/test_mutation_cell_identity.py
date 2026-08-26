@@ -7,21 +7,21 @@ from unittest.mock import patch
 
 import pathsetup  # noqa: F401
 
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.research.compiler_registry import (
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.research.compiler_registry import (
     CompilerOutcome,
     CompilerRequest,
     ExperimentCompilerRegistry,
 )
-from research_os.research.mutation.cell_contract import bind_mutation_matrix_cell
-from research_os.research.mutation.identity import (
+from zest.research.mutation.cell_contract import bind_mutation_matrix_cell
+from zest.research.mutation.identity import (
     MutationCellIdentityError,
     lookup_authoritative_mutation_cell,
     rebuild_authoritative_mutation_matrix,
 )
-from research_os.research.mutation.matrix import MutationMatrixCell, build_mutation_matrix
-from research_os.research.selection import HunterFamilyView
-from research_os.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
+from zest.research.mutation.matrix import MutationMatrixCell, build_mutation_matrix
+from zest.research.selection import HunterFamilyView
+from zest.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
 
 
 def _seed_family(family_id: str) -> HunterFamilyView:
@@ -141,7 +141,7 @@ class MutationCellIdentityTests(unittest.TestCase):
             cell_id=self.cell.cell_id,
         )
         with patch(
-            "research_os.research.compiler_registry.lookup_authoritative_mutation_cell",
+            "zest.research.compiler_registry.lookup_authoritative_mutation_cell",
             return_value=incomplete,
         ):
             result = _compile(
@@ -234,7 +234,7 @@ class MutationCellIdentityTests(unittest.TestCase):
         self.assertEqual(rebuilt.cells[0].cell_id, expected.cells[0].cell_id)
 
     def test_research_catalog_matches_seed_mutation_families(self) -> None:
-        from research_os.research.mutation.identity import MUTATION_MATRIX_FAMILY_CATALOG
+        from zest.research.mutation.identity import MUTATION_MATRIX_FAMILY_CATALOG
 
         catalog = {entry.family_name: entry for entry in MUTATION_MATRIX_FAMILY_CATALOG}
         seed_mutation = [

@@ -26,34 +26,34 @@ from integration.harness import (
     seed_authorized_spine,
     truncate_spine,
 )
-from research_os.application.executor_replay_manifest import (
+from zest.application.executor_replay_manifest import (
     BuildExecutorReplayManifest,
     BuildExecutorReplayManifestCommand,
 )
-from research_os.application.executor_replay_bundle import (
+from zest.application.executor_replay_bundle import (
     BuildExecutorReplayBundle,
     BuildExecutorReplayBundleCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.plan_records import experiment_plan_from_record
-from research_os.core.enums import ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
-from research_os.platform.local_process_worker import (
+from zest.application.plan_records import experiment_plan_from_record
+from zest.core.enums import ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.research.http_transaction import (
+from zest.research.http_transaction import (
     plan_http_transaction_read,
     replay_http_transaction_plan,
 )
-from research_os.tools.registry import load_capability_registry
+from zest.tools.registry import load_capability_registry
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()

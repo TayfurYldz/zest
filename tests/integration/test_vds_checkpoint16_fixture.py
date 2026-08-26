@@ -19,40 +19,40 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.classify_runtime_recovery import (
+from zest.application.classify_runtime_recovery import (
     ClassifyRuntimeRecovery,
     RuntimeRecoveryAction,
 )
-from research_os.application.runtime_instance import (
+from zest.application.runtime_instance import (
     heartbeat_runtime_instance,
     register_runtime_instance,
 )
-from research_os.data.errors import PersistenceError
-from research_os.data.postgres.engine import (
+from zest.data.errors import PersistenceError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.qualification.staging_spine import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.qualification.staging_spine import (
     TRUNCATE_GUARD,
     StagingTruncateDenied,
 )
-from research_os.qualification.j11_fencing import (
+from zest.qualification.j11_fencing import (
     J11QualificationError,
     cleanup_j11_owner,
     prepare_j11_run,
     run_stale_epoch_proof,
     run_two_process_owner_race,
 )
-from research_os.research.orchestration import OrchestrationState
+from zest.research.orchestration import OrchestrationState
 from integration.harness import alembic_upgrade, seed_authorized_spine, truncate_spine
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 SECRET_MARKERS = (

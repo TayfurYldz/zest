@@ -6,8 +6,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import (
+from zest.application.operator_status import OperatorStatusSnapshot, render_operator_status
+from zest.maturity import (
     GATE_01_STATUS,
     GATE_04B_STATUS,
     GATE_09_STATUS,

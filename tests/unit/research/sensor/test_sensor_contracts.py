@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ReasonCode, ScopeClassification
-from research_os.research.sensor import (
+from zest.core.enums import ReasonCode, ScopeClassification
+from zest.research.sensor import (
     CTLogSensor,
     CertificateMetaSensor,
     DNSSensor,
@@ -16,8 +16,8 @@ from research_os.research.sensor import (
     TechnologyFingerprintSensor,
     WaybackArchiveSensor,
 )
-from research_os.research.sensor.fixture_loader import FileFixtureLoader
-from research_os.research.sensor.types import ScopeCensusView
+from zest.research.sensor.fixture_loader import FileFixtureLoader
+from zest.research.sensor.types import ScopeCensusView
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[3] / "fixtures" / "sensor"

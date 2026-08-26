@@ -1,6 +1,6 @@
 """GATE 01 — real PostgreSQL vertical control-loop validation.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 SQLite is not a substitute. This is not a Research Brain proof.
 """
 
@@ -20,33 +20,33 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     AuthorizedDispatch,
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.retry_policy import automatic_retry_allowed
-from research_os.core.enums import ExecutionDecisionKind, ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.data.postgres.engine import (
+from zest.application.retry_policy import automatic_retry_allowed
+from zest.core.enums import ExecutionDecisionKind, ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     ExecutionAttemptRecord,
     ExecutionAttemptState,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
 )
-from research_os.research.planning import plan_diagnostic_echo
+from zest.research.planning import plan_diagnostic_echo
 from support.recording_worker import RecordingWorkerPort, completed_diagnostic_outcome
 from integration.harness import (
     FixedClock,
@@ -60,7 +60,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 WORKERS_PYTHON = _REPO / "workers" / "python"
@@ -499,8 +499,8 @@ class Gate01VerticalLoopTests(unittest.TestCase):
 
 def _list_audit_events(engine) -> list[AuditEventRecord]:
     from sqlalchemy import select
-    from research_os.data.postgres import mapping as map_row
-    from research_os.data.postgres import tables
+    from zest.data.postgres import mapping as map_row
+    from zest.data.postgres import tables
 
     with engine.connect() as connection:
         rows = connection.execute(select(tables.audit_event)).mappings().all()

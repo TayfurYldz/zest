@@ -6,14 +6,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.research.compiler_registry import MUTATION_MATRIX_FAMILIES
-from research_os.research.mutation.cell_contract import (
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.research.compiler_registry import MUTATION_MATRIX_FAMILIES
+from zest.research.mutation.cell_contract import (
     FAMILY_REQUIRED_DIMENSIONS,
     bind_mutation_matrix_cell,
 )
-from research_os.research.mutation.matrix import build_mutation_matrix
-from research_os.research.selection import HunterFamilyView
+from zest.research.mutation.matrix import build_mutation_matrix
+from zest.research.selection import HunterFamilyView
 
 
 def _seed_family(family_id: str) -> HunterFamilyView:

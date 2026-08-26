@@ -4,7 +4,7 @@ This is the authoritative proof that the browser process tree runs under a
 kernel-enforced memory and process ceiling. Unit tests with filesystem doubles do
 not prove enforcement; only this module does.
 
-The suite is platform-gated. Set RESEARCH_OS_REQUIRE_CGROUP_TESTS=1 on the
+The suite is platform-gated. Set ZEST_REQUIRE_CGROUP_TESTS=1 on the
 authoritative validation host so an unavailable environment fails instead of
 skipping. A skipped run must never be reported as a GATE 21 pass.
 
@@ -14,7 +14,7 @@ the test under a delegated scope, for example:
 
     systemd-run --user --scope -p Delegate=yes -- python -m unittest tests.e2e.test_gate21_linux_cgroup
 
-RESEARCH_OS_BROWSER_CGROUP_ROOT may point at an already delegated subtree instead.
+ZEST_BROWSER_CGROUP_ROOT may point at an already delegated subtree instead.
 """
 
 from __future__ import annotations
@@ -33,19 +33,19 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.platform.browser_resource_control import (
+from zest.platform.browser_resource_control import (
     BREACH_MEMORY_MAX,
     BREACH_PIDS_MAX,
     BrowserResourceLimits,
     LinuxCgroupV2ResourceController,
     browser_resource_controller,
 )
-from research_os.platform.local_process_worker import LocalProcessWorkerConfig
-from research_os.platform.persistent_browser_worker import (
+from zest.platform.local_process_worker import LocalProcessWorkerConfig
+from zest.platform.persistent_browser_worker import (
     RESOURCE_BREACH_REASON,
     PersistentBrowserWorkerAdapter,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.browser_worker_scripts import (
     descendant_script,
     memory_breach_script,
@@ -53,7 +53,7 @@ from support.browser_worker_scripts import (
 )
 from support.worker_requests import valid_worker_request
 
-REQUIRE_ENV = "RESEARCH_OS_REQUIRE_CGROUP_TESTS"
+REQUIRE_ENV = "ZEST_REQUIRE_CGROUP_TESTS"
 BREACH_LIMITS = BrowserResourceLimits(
     max_memory_bytes=134_217_728,
     max_processes=32,

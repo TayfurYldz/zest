@@ -3,7 +3,7 @@ is correct under concurrency: a live lease cannot be stolen, an expired lease
 has exactly one winner, a superseded owner's writes are rejected, and a
 terminal run can never be leased.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 SQLite is not a substitute.
 """
 
@@ -26,16 +26,16 @@ if str(_REPO / "tests") not in sys.path:
 
 from sqlalchemy import update
 
-from research_os.data.errors import LeaseFencingError
-from research_os.data.postgres.engine import (
+from zest.data.errors import LeaseFencingError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.tables import research_orchestration as research_orchestration_table
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import LeaseAcquireOutcome, ResearchOrchestrationRecord
+from zest.data.postgres.tables import research_orchestration as research_orchestration_table
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import LeaseAcquireOutcome, ResearchOrchestrationRecord
 from integration.harness import (
     NOW,
     alembic_upgrade,
@@ -46,7 +46,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 

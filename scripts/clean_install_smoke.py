@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build wheel, install into empty venv, smoke from empty CWD")
     parser.add_argument("--python", default=sys.executable)
     args = parser.parse_args(argv)
-    with tempfile.TemporaryDirectory(prefix="research-os-clean-install-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="zest-clean-install-") as tmp:
         tmp_path = Path(tmp)
         dist = tmp_path / "dist"
         venv = tmp_path / "venv"
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         dist.mkdir()
         empty.mkdir()
         build_wheel(args.python, dist)
-        wheels = sorted(dist.glob("research_os-*.whl")) + sorted(dist.glob("research_os-*.whl".replace("_", "-")))
+        wheels = sorted(dist.glob("zest-*.whl")) + sorted(dist.glob("zest-*.whl".replace("_", "-")))
         wheels = list(dist.glob("*.whl"))
         if not wheels:
             print("wheel build produced no artifacts", file=sys.stderr)
@@ -73,14 +73,14 @@ from pathlib import Path
 repo = Path(r"%s")
 assert str(repo) not in sys.path, sys.path
 assert str(repo / "src") not in sys.path, sys.path
-from research_os.platform.contract_validation import ContractValidator
+from zest.platform.contract_validation import ContractValidator
 ContractValidator()
-from research_os.benchmark.runner import load_cli_scenarios
+from zest.benchmark.runner import load_cli_scenarios
 load_cli_scenarios(None)
-from research_os.integrations.models.discovery import discover_configured_runtimes
+from zest.integrations.models.discovery import discover_configured_runtimes
 discover_configured_runtimes(env={})
-from research_os.platform.worker_health import probe_local_python_worker
-from research_os.platform.health import ComponentHealth
+from zest.platform.worker_health import probe_local_python_worker
+from zest.platform.health import ComponentHealth
 check = probe_local_python_worker()
 print("worker", check.health.value)
 print("ok")
@@ -88,8 +88,8 @@ print("ok")
         probe_path = empty / "probe.py"
         probe_path.write_text(probe, encoding="utf-8")
         run([str(python), str(probe_path)], cwd=empty, env=env)
-        research_os = venv / "Scripts" / "research-os.exe" if os.name == "nt" else venv / "bin" / "research-os"
-        run([str(research_os), "status"], cwd=empty, env=env)
+        zest = venv / "Scripts" / "zest.exe" if os.name == "nt" else venv / "bin" / "zest"
+        run([str(zest), "status"], cwd=empty, env=env)
     return 0
 
 

@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.data.records import ObservationRecord
-from research_os.platform.local_process_worker import (
+from zest.data.records import ObservationRecord
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.worker_requests import valid_worker_request
 
 REPO = Path(__file__).resolve().parents[3]

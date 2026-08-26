@@ -5,18 +5,18 @@ from urllib.parse import urlsplit
 
 import pathsetup  # noqa: F401
 
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.evidence import (
+from zest.research.assessment import AssessmentOutcome
+from zest.research.evidence import (
     EvidenceAdmissionContext,
     EvidenceObservationRef,
     propose_authorization_differential_evidence,
 )
-from research_os.research.evaluators.authorization_differential import (
+from zest.research.evaluators.authorization_differential import (
     HttpAuthorizationDifferentialEvaluator,
 )
-from research_os.research.feedback import ExperimentFeedback, ObservedFact
-from research_os.research.planning import plan_authorization_differential
-from research_os.worker_runtime.python.http_authorization import execute_http_authorization
+from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.planning import plan_authorization_differential
+from zest.worker_runtime.python.http_authorization import execute_http_authorization
 from e2e.lab.http_ground_truth_lab import (
     DECEPTIVE_200,
     DELEGATED_ACCESS,

@@ -1,4 +1,4 @@
-# Research OS — Technical Requirements
+# Zest — Technical Requirements
 
 This document defines the technical needs that later technology choices must satisfy.
 
@@ -8,7 +8,7 @@ Strix is not a mandatory dependency.
 
 It must be read with:
 
-- `.cursor/rules/research-os.mdc`
+- `.cursor/rules/zest.mdc`
 - `PROJECT_STRUCTURE.md`
 - `DOMAIN_MODEL.md`
 
@@ -62,11 +62,11 @@ This document does not force:
 These describe the current developer setup. They are not production architecture requirements, not a programming-language mandate, not a deployment-topology mandate, and not a communication-technology mandate.
 
 - The developer workstation currently uses Windows + Cursor.
-- Research OS source currently lives in the main desktop project.
+- Zest source currently lives in the main desktop project.
 - Kali Linux / WSL is the expected initial security-tool integration environment.
 - Strix and other security/recon tools may initially run there.
 
-The main Research OS architecture must not depend on Kali or Strix.
+The main Zest architecture must not depend on Kali or Strix.
 
 The worker execution environment must remain replaceable.
 
@@ -284,7 +284,7 @@ Model output is not fact, Evidence, authorization, or Finding acceptance.
 
 Tools must sit behind capability contracts.
 
-Strix is an optional, replaceable integration. It is not a mandatory dependency. It may be used as a reasoning runtime or a tool runtime. It is not Core policy, a Research Memory truth layer, Evidence authority, a direct system-authority owner, or Research OS itself.
+Strix is an optional, replaceable integration. It is not a mandatory dependency. It may be used as a reasoning runtime or a tool runtime. It is not Core policy, a Research Memory truth layer, Evidence authority, a direct system-authority owner, or Zest itself.
 
 If used as a reasoning runtime, Strix output re-enters as an untrusted structured proposal, then Research validation, then a Core-controlled execution path.
 
@@ -378,7 +378,7 @@ If a remote-worker need appears, broker, RPC, HTTP, workflow transport, and even
 
 ## 4. Cross-Environment Communication
 
-The main Research OS process and a worker environment may later be physically or logically separate. That topology is unresolved.
+The main Zest process and a worker environment may later be physically or logically separate. That topology is unresolved.
 
 Any later communication model must be able to support:
 

@@ -13,12 +13,12 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     DATABASE_URL_ENV,
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
 )
-from research_os.data.postgres.tables import metadata
+from zest.data.postgres.tables import metadata
 
 config = context.config
 

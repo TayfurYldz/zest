@@ -4,11 +4,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.security_benchmark.recall import (
+from zest.security_benchmark.recall import (
     RecallReportError,
     consolidate_recall_report,
 )
-from research_os.security_benchmark.scorecard import (
+from zest.security_benchmark.scorecard import (
     ResearchSelectionScorecard,
     SecurityScorecard,
     WorkflowScorecard,

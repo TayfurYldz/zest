@@ -16,35 +16,35 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.errors import ApplicationError
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
-from research_os.application.promotion_pipeline import (
+from zest.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from zest.application.promotion_pipeline import (
     AdvancePromotionCommand,
     PromotionOutcome,
     PromotionPipeline,
 )
-from research_os.application.submit_finding_proposal import (
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.core.enums import ActorType, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceConflictError
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
-from research_os.research.planning import plan_diagnostic_echo
+from zest.core.enums import ActorType, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceConflictError
+from zest.data.postgres.engine import create_sync_engine
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.research.planning import plan_diagnostic_echo
 from integration.harness import (
     FixedClock,
     PostgresUnitOfWorkFactory,
@@ -93,7 +93,7 @@ def _arc_bounds() -> OrchestrationBounds:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class Mr5DurabilitySealPostgresTests(unittest.TestCase):
     engine = None

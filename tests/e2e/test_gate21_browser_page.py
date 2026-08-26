@@ -14,9 +14,9 @@ if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
 from e2e.lab.browser_page_lab import ALICE_COOKIE, BOB_COOKIE, SESSION_COOKIE_NAME, Gate21BrowserLab
-from research_os.research.browser_lineage import http_template_from_network_event
-from research_os.worker_runtime.python.browser_engine import BrowserEngineUnavailable
-from research_os.worker_runtime.python.browser_page import execute_browser_page
+from zest.research.browser_lineage import http_template_from_network_event
+from zest.worker_runtime.python.browser_engine import BrowserEngineUnavailable
+from zest.worker_runtime.python.browser_page import execute_browser_page
 from support.worker_requests import valid_worker_request
 
 CHROMIUM_REASON = "Chromium/Playwright is not installed for GATE 21 real-browser tests"
@@ -32,7 +32,7 @@ def _playwright_installed() -> bool:
 
 def _chromium_engine():
     try:
-        from research_os.worker_runtime.python.playwright_chromium_engine import (
+        from zest.worker_runtime.python.playwright_chromium_engine import (
             PlaywrightChromiumEngine,
         )
 

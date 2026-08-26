@@ -6,7 +6,7 @@ from typing import cast
 import pathsetup  # noqa: F401
 from sqlalchemy.engine import Engine
 
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 
 
 class PostgresUnitOfWorkFactoryTests(unittest.TestCase):

@@ -13,7 +13,7 @@ API_KEY_PREFIX = "sk" + "-"
 class RuntimeDiscoveryTests(unittest.TestCase):
     def test_empty_env_does_not_fabricate_availability(self) -> None:
         report = discover_configured_runtimes(
-            env={"RESEARCH_OS_CODEX_EXECUTABLE": "__research_os_missing_codex__"}
+            env={"ZEST_CODEX_EXECUTABLE": "__zest_missing_codex__"}
         )
         mapping = report.to_mapping()
         self.assertIn(
@@ -42,8 +42,8 @@ class RuntimeDiscoveryTests(unittest.TestCase):
     def test_configured_local_endpoint_is_not_ready_without_product(self) -> None:
         report = discover_configured_runtimes(
             env={
-                "RESEARCH_OS_LOCAL_MODEL_ENDPOINT": "http://explicit-local",
-                "RESEARCH_OS_CODEX_EXECUTABLE": "__research_os_missing_codex__",
+                "ZEST_LOCAL_MODEL_ENDPOINT": "http://explicit-local",
+                "ZEST_CODEX_EXECUTABLE": "__zest_missing_codex__",
             }
         )
         local = next(item for item in report.entries if item.runtime_kind == "LOCAL_MODEL")

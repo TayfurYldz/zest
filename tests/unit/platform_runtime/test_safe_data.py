@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.secrets import SecretReference, SecretScheme
-from research_os.safe_data import (
+from zest.platform.secrets import SecretReference, SecretScheme
+from zest.safe_data import (
     REDACTED,
     SecretMaterialError,
     SessionReference,

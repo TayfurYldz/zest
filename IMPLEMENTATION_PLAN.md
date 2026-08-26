@@ -1,8 +1,8 @@
-# Research OS — Implementation Plan
+# Zest — Implementation Plan
 
 Roadmap only. No business logic, products, or frameworks are selected here.
 
-Follow `.cursor/rules/research-os.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, `TECHNICAL_REQUIREMENTS.md`, and `TECHNICAL_DECISIONS.md`.
+Follow `.cursor/rules/zest.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, `TECHNICAL_REQUIREMENTS.md`, and `TECHNICAL_DECISIONS.md`.
 
 Decision-driver order remains: correctness → authorization/security → durability → audit/provenance → recoverability → simplicity → testability → …
 
@@ -111,9 +111,9 @@ Program → AuthorizationSource → ResearchRun → IssuedBudget → Hypothesis 
 
 Artifact identity/reference/hash as a **wire** contract is not part of A1. Decide that boundary here and/or in A4 (byte port) when the cross-process need is real.
 
-**Verify:** Alembic upgrade is the schema path (`create_all` is not startup). Core/Research import no SQLAlchemy/psycopg/Alembic. WorkerResult insert does not create Observation or Evidence. IssuedBudget is immutable after insert; 0 is no allowance. AuditEvent is append-only. Integration tests run only when `RESEARCH_OS_TEST_DATABASE_URL` is set.
+**Verify:** Alembic upgrade is the schema path (`create_all` is not startup). Core/Research import no SQLAlchemy/psycopg/Alembic. WorkerResult insert does not create Observation or Evidence. IssuedBudget is immutable after insert; 0 is no allowance. AuditEvent is append-only. Integration tests run only when `ZEST_TEST_DATABASE_URL` is set.
 
-**A3 PostgreSQL validation:** GATE 01 runs `tests/integration` against an explicit `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests remain **PENDING, not PASS**. Do not install Docker automatically. If the URL is absent, report PENDING.
+**A3 PostgreSQL validation:** GATE 01 runs `tests/integration` against an explicit `ZEST_TEST_DATABASE_URL`. Skipped tests remain **PENDING, not PASS**. Do not install Docker automatically. If the URL is absent, report PENDING.
 
 Preferred local sources, in order: existing local PostgreSQL; existing WSL PostgreSQL; an explicit local install; a container only if the developer chooses it later. Docker/Kubernetes are not architecture.
 
@@ -140,7 +140,7 @@ canonical WorkerRequest
 
 Original roadmap items that remain later Platform work (not this A4): SecretPort product, ObservabilityPort vendor, artifact byte adapter, orchestration engine.
 
-**Verify:** unit + `tests/contract` + `scripts/check_contracts.py`. Core/Research import neither `subprocess` nor `local_process_worker`. Worker imports neither `research_os` nor SQLAlchemy/psycopg. Correlation mismatch is fail-closed. Bounded stdout/stderr.
+**Verify:** unit + `tests/contract` + `scripts/check_contracts.py`. Core/Research import neither `subprocess` nor `local_process_worker`. Worker imports neither `zest` nor SQLAlchemy/psycopg. Correlation mismatch is fail-closed. Bounded stdout/stderr.
 
 ### Slice A6-lite — Transition-A spine (Decisions 022–023)
 
@@ -153,7 +153,7 @@ valid COMPLETED Worker invocation → Application `IngestCompletedWorkerInvocati
 - Alembic revision `a6_001_transition_a_provenance` adds envelope columns. Do not rewrite `a3_001`.
 - No Evidence, Candidate, Finding, scanner, or Research Brain.
 
-**Verify:** unit + contract + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
+**Verify:** unit + contract + architecture. PostgreSQL integration when `ZEST_TEST_DATABASE_URL` is set; otherwise PENDING.
 
 ### Slice A7-lite — Minimal research control-loop skeleton (Decision 024)
 
@@ -177,9 +177,9 @@ Human-seeded Hypothesis
 - Staged transactions: TX1 AUTHORIZED intent, TX1b DISPATCHING, Worker outside the database transaction, TX2 outcome, then Transition A.
 - Alembic revision `a7_001_execution_attempt`. Do not rewrite `a3_001` or `a6_001`.
 - Persistent budget consumption ledger is **deferred**. Level 0 diagnostic may proceed.
-- Research OS does not claim exactly-once side effects.
+- Zest does not claim exactly-once side effects.
 
-**Verify:** unit + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
+**Verify:** unit + architecture. PostgreSQL integration when `ZEST_TEST_DATABASE_URL` is set; otherwise PENDING.
 
 ### Slice A7 — Research Brain v1 foundation (Decisions 025–026)
 
@@ -200,7 +200,7 @@ Authoritative / admitted state
 - Generator output is not a Hypothesis until Research admission.
 - Alembic revision `a8_001_research_reasoning`. Do not rewrite `a3_001`, `a6_001`, or `a7_001`.
 
-**Verify:** unit + architecture. PostgreSQL GATE 02 when `RESEARCH_OS_TEST_DATABASE_URL` is set; skipped tests are PENDING, not PASS.
+**Verify:** unit + architecture. PostgreSQL GATE 02 when `ZEST_TEST_DATABASE_URL` is set; skipped tests are PENDING, not PASS.
 
 ### Slice A7 — Closed learning cycle (Decisions 027–028)
 
@@ -223,7 +223,7 @@ admitted Hypothesis
 
 ### FIRST VERTICAL RESEARCH LOOP — INFRASTRUCTURE/CONTROL LOOP GATE
 
-**Status: PASS** (GATE 01, 2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18.
+**Status: PASS** (GATE 01, 2026-08-16) against explicit `ZEST_TEST_DATABASE_URL` on real PostgreSQL 18.
 
 This gate proves durable:
 
@@ -345,7 +345,7 @@ Program
 
 This gate does **not** claim vulnerability discovery. It proves the research control loop.
 
-**GATE 01 status: PASS** on real PostgreSQL via explicit `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests are not PASS.
+**GATE 01 status: PASS** on real PostgreSQL via explicit `ZEST_TEST_DATABASE_URL`. Skipped tests are not PASS.
 
 ## GATE 02 — Bounded Research Reasoning Cycle
 
@@ -360,7 +360,7 @@ structured ResearchContext
 
 Uses a deterministic fake ModelPort and real PostgreSQL. Does **not** prove vulnerability discovery.
 
-**GATE 02 status: PASS** (2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
+**GATE 02 status: PASS** (2026-08-16) against explicit `ZEST_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
 
 **Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips).
 
@@ -387,7 +387,7 @@ Uses a deterministic fake ModelPort, `diagnostic.echo`, a real local Worker, and
 
 Also proves the rejected-proposal ledger path: invalid/unsupported proposal → persisted admission/reasoning → no Hypothesis → reconstructable after reload.
 
-**GATE 03 status: PASS** (2026-08-17) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
+**GATE 03 status: PASS** (2026-08-17) against explicit `ZEST_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
 
 Alembic revision `a9_001_learning_cycle`. Do not rewrite `a3_001`, `a6_001`, `a7_001`, or `a8_001`.
 
@@ -425,7 +425,7 @@ Makes real-model comparison scientifically defensible **before** any provider SD
 - provider/runtime failure ≠ research-quality failure
 - metamorphic development variants
 - context-utilization / scenario-specificity observations
-- external sealed holdout loader (`RESEARCH_OS_BENCHMARK_HOLDOUT_PATH`)
+- external sealed holdout loader (`ZEST_BENCHMARK_HOLDOUT_PATH`)
 - suite fingerprint/manifest without hidden answers
 - immutable JSON reports under `var/benchmark-results/`
 
@@ -603,14 +603,14 @@ Hardening from “correct in integration tests” toward operationally survivabl
 - Structured observability (not AuditEvent, not Evidence, not domain truth)
 - Bounded reconciliation classifier; side-effectful UNKNOWN remains fail-closed
 - Artifact store path/hash/size/atomic write; evidence-linked artifacts are not silently deleted
-- DB ops: `scripts/research_os_db.py` migrate/version/ping; no SQLite fallback
-- Operator view: `research-os status` / `scripts/research_os_status.py`
+- DB ops: `scripts/zest_db.py` migrate/version/ping; no SQLite fallback
+- Operator view: `zest status` / `scripts/zest_status.py`
 - Bounded endurance test with restart midway
 - Maturity flags: LIVE_MODEL_VALIDATED=no, SECURITY_RESEARCH_VALIDATED=no, PRODUCTION_READY=no while GATE 04B is PENDING
 
 **GATE 13 status: PASS** (2026-08-17) for diagnostic operational readiness: real PostgreSQL MODEL_CALL budget (including concurrent reservation), clean wheel install from an empty CWD, Windows process-tree timeout cleanup, secret redaction, status DB separation, live dirty-tree provenance, worker diagnostic HEALTHY, missing Codex/Strix UNAVAILABLE, `SUBSCRIPTION_OAUTH=NOT_IMPLEMENTED`, Alembic head `a17_001_qa_remediation`. This does **not** mean production-ready autonomous security research. GATE 04B remains PENDING.
 
-**Verify:** unit + contract + `scripts/research_os_status.py status` + `scripts/clean_install_smoke.py` + integration including `tests/integration/test_gate13.py` and `tests/integration/test_endurance.py` (0 skipped). Do not mark PASS merely because code was edited.
+**Verify:** unit + contract + `scripts/zest_status.py status` + `scripts/clean_install_smoke.py` + integration including `tests/integration/test_gate13.py` and `tests/integration/test_endurance.py` (0 skipped). Do not mark PASS merely because code was edited.
 
 ## GATE 14 — Authorized Local Security Research E2E
 
@@ -638,9 +638,9 @@ Required proof:
 - Finding only after Human Review + Core Approval
 - Secure-control false-positive path admits no security Evidence and no Finding
 - Out-of-scope target never reaches the Worker
-- Real PostgreSQL via `RESEARCH_OS_TEST_DATABASE_URL` (skip/PENDING if unset)
+- Real PostgreSQL via `ZEST_TEST_DATABASE_URL` (skip/PENDING if unset)
 
-**GATE 14 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`, `tests.e2e.test_gate14_security_lab` **19 OK / 0 skipped**. Controlled localhost HTTP lab only. No Codex / LLM / Strix.
+**GATE 14 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`, `tests.e2e.test_gate14_security_lab` **19 OK / 0 skipped**. Controlled localhost HTTP lab only. No Codex / LLM / Strix.
 
 GATE 14 proves: controlled authorized local security-research pipeline E2E for HTTP authorization differential / BOLA semantics (Worker probe → Transition A Observation → deterministic Evidence admission → Candidate → independent verification → Human Review / Core Approval → Finding, plus secure-control and out-of-scope negatives).
 
@@ -654,7 +654,7 @@ GATE 14 does **not** prove:
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 01–13 statuses are unchanged.
 
-**Verify:** `python -m unittest tests.e2e.test_gate14_security_lab` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** `python -m unittest tests.e2e.test_gate14_security_lab` on Kali with `ZEST_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 15 — Security Ground-Truth / False-Positive Benchmark
 
@@ -662,7 +662,7 @@ GATE 14 proved one controlled BOLA/IDOR path end-to-end. GATE 15 tests whether t
 
 This is **not** GATE 04B (live model comparison) and **not** a new security capability. It reuses `http.authorization.differential` and the existing ExperimentPlan → Core → Worker → Transition A → Evidence → Candidate → Verification → Human Review / Finding path.
 
-**GATE 15 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`. GATE 14 regression **19 OK / 0 skipped**. GATE 15 ground-truth benchmark `tests.e2e.test_gate15_security_ground_truth` **21 OK / 0 skipped**. Localhost-only security ground-truth lab. No Codex / LLM / Strix.
+**GATE 15 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`. GATE 14 regression **19 OK / 0 skipped**. GATE 15 ground-truth benchmark `tests.e2e.test_gate15_security_ground_truth` **21 OK / 0 skipped**. Localhost-only security ground-truth lab. No Codex / LLM / Strix.
 
 GATE 15 proves only: controlled multi-scenario ground-truth / false-positive security benchmark passed for HTTP authorization differential semantics.
 
@@ -688,7 +688,7 @@ Primary mission: few correct reproducible findings; **zero false Findings on neg
 
 Hidden evaluation (`expected_class`, canaries, expected promotion) must never enter WorkerRequest, Observation, Evidence evaluator input, Candidate, or Verification.
 
-**Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `ZEST_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 16 — Workflow / State-Transition Authorization
 
@@ -698,7 +698,7 @@ Classification: `HTTP_STATE_TRANSITION_AUTHORIZATION`. Capability: `http.state_t
 
 Alembic revision `a19_001_http_state_class` extends Candidate/Finding CHECK constraints only. It does not rewrite a3–a18.
 
-**GATE 16 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a19_001_http_state_class`. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 workflow/state-transition benchmark `tests.e2e.test_gate16_state_transition_security` **34 OK / 0 skipped**. Localhost-only synthetic workflow lab. No Codex / LLM / Strix.
+**GATE 16 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`), Alembic head `a19_001_http_state_class`. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 workflow/state-transition benchmark `tests.e2e.test_gate16_state_transition_security` **34 OK / 0 skipped**. Localhost-only synthetic workflow lab. No Codex / LLM / Strix.
 
 GATE 16 proves only: controlled workflow/state-transition authorization semantics plus cross-class discrimination against `HTTP_AUTHORIZATION_DIFFERENTIAL`.
 
@@ -706,15 +706,15 @@ GATE 16 does **not** prove autonomous vulnerability discovery quality, real-worl
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14 remains PASS. GATE 15 remains PASS. GATE 01–13 statuses are unchanged.
 
-**Verify:** `python -m unittest tests.e2e.test_gate16_state_transition_security` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** `python -m unittest tests.e2e.test_gate16_state_transition_security` on Kali with `ZEST_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 17 — Autonomous Multi-Hypothesis Research Selection
 
 GATE 14 proved one controlled BOLA/IDOR E2E. GATE 15 proved false-positive / ground-truth discipline for `HTTP_AUTHORIZATION_DIFFERENTIAL`. GATE 16 proved a second class, `HTTP_STATE_TRANSITION_AUTHORIZATION`, plus cross-class discrimination.
 
-GATE 17 is the first explicit validation that Research OS can connect observations and decide what to investigate next: competing hypotheses, experiment options, lexicographic selection, Core authorization, ingestion, assessment append, and a changed next decision. It reuses only `http.authorization.differential` and `http.state_transition`. It does not add a third vulnerability class, scanners, crawlers, fuzzers, shell, or arbitrary HTTP.
+GATE 17 is the first explicit validation that Zest can connect observations and decide what to investigate next: competing hypotheses, experiment options, lexicographic selection, Core authorization, ingestion, assessment append, and a changed next decision. It reuses only `http.authorization.differential` and `http.state_transition`. It does not add a third vulnerability class, scanners, crawlers, fuzzers, shell, or arbitrary HTTP.
 
-**GATE 17 status: PASS** (2026-08-17), authoritative tested commit `48d807d`, on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 autonomous research-selection benchmark `tests.e2e.test_gate17_autonomous_research_selection` **57 OK / 0 skipped**. Repo-wide: unit **586 OK**, contract **2 OK**, architecture **15 OK**, integration **112 OK**. No Codex / LLM / Strix. No Alembic migration. 0 `psycopg.Connection` ResourceWarnings.
+**GATE 17 status: PASS** (2026-08-17), authoritative tested commit `48d807d`, on Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`). GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 autonomous research-selection benchmark `tests.e2e.test_gate17_autonomous_research_selection` **57 OK / 0 skipped**. Repo-wide: unit **586 OK**, contract **2 OK**, architecture **15 OK**, integration **112 OK**. No Codex / LLM / Strix. No Alembic migration. 0 `psycopg.Connection` ResourceWarnings.
 
 GATE 17 proves only: Controlled local multi-hypothesis closed-loop research selection and adaptive experiment choice were validated against the dedicated real PostgreSQL test database with truth-blind benchmark execution.
 
@@ -724,7 +724,7 @@ No Alembic migration is expected or added. Selection traces reuse `research_oppo
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16/17 remain PASS.
 
-**Verify:** `python -m unittest tests.e2e.test_gate17_autonomous_research_selection` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** `python -m unittest tests.e2e.test_gate17_autonomous_research_selection` on Kali with `ZEST_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 18 — Offensive Substrate Foundation
 
@@ -740,23 +740,23 @@ Codex remains ModelPort. Strix remains Integration. Neither compiles into a Work
 
 Alembic revision `a20_001_capability_plan_binding` adds nullable `capability_version` and `capability_definition_fingerprint` on `experiment_plan` only. No silent backfill.
 
-**GATE 18 status: PASS** (2026-08-17), authoritative tested commit `241e901fb2c6730ee293cca71942de45d3796282`, on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a20_001_capability_plan_binding`. Migration round-trip `a19 → a20`, `a20 → a19`, `a19 → a20` validated. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. Repo-wide: unit **627 OK**, contract **2 OK**, architecture **20 OK**, integration **117 OK**. No Codex / LLM. No external-network research. No `psycopg` ResourceWarning.
+**GATE 18 status: PASS** (2026-08-17), authoritative tested commit `241e901fb2c6730ee293cca71942de45d3796282`, on Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`), Alembic head `a20_001_capability_plan_binding`. Migration round-trip `a19 → a20`, `a20 → a19`, `a19 → a20` validated. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. Repo-wide: unit **627 OK**, contract **2 OK**, architecture **20 OK**, integration **117 OK**. No Codex / LLM. No external-network research. No `psycopg` ResourceWarning.
 
-GATE 18 PASS means Research OS can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
+GATE 18 PASS means Zest can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
 
 GATE 18 does **not** prove autonomous vulnerability discovery, broad security-research capability, real-world bug bounty performance, live model quality, production readiness, crawler/browser/recon capability, or XBOW/Edra parity.
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16/17/18 remain PASS.
 
-**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** Kali + dedicated PostgreSQL + `ZEST_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 19 — Authorized HTTP Substrate
 
 GATE 18 made capability, risk, scope, and execution authoritative. GATE 19 adds the first general HTTP transaction capability on that substrate: typed, capability-bound, Core-authorized experiments with bounded methods, paths, queries, headers, and bodies. Exact-host scope, redirect reauthorization, capability fingerprint enforcement, and Worker execution bounds remain unchanged.
 
-**GATE 19 status: PASS** (2026-08-17). Implementation commit `95c88bc`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
+**GATE 19 status: PASS** (2026-08-17). Implementation commit `95c88bc`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
 
-GATE 19 PASS means Research OS can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
+GATE 19 PASS means Zest can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
 
 GATE 19 does **not** prove autonomous endpoint discovery, crawler/recon capability, browser automation, arbitrary internet HTTP, broad vulnerability discovery, real-world bug bounty performance, or production readiness.
 
@@ -764,15 +764,15 @@ Current limitations: loopback HTTP substrate only; no HTTPS breadth claim; no cr
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 20 remains PENDING at this closure. GATE 14/15/16/17/18/19 remain PASS.
 
-**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** Kali + dedicated PostgreSQL + `ZEST_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ## GATE 20 — Identity Authentication Session
 
 GATE 19 added bounded authorized HTTP transactions. GATE 20 adds identity/session isolation on that substrate: explicitly configured identities, one bounded auth profile (`HTTP_FORM_LOGIN`), session metadata in the research state, and process-local session material that is never stored as raw credential, cookie, or token in the system of record. Session ID alone is not authority. Missing session secret after restart requires reauthentication.
 
-**GATE 20 status: PASS** (2026-08-17). Implementation commit `e574306`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. Explicit G20 identity/session **1 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
+**GATE 20 status: PASS** (2026-08-17). Implementation commit `e574306`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`ZEST_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. Explicit G20 identity/session **1 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
 
-GATE 20 PASS means Research OS can establish and isolate authenticated sessions for explicitly configured identities and execute authorized HTTP experiments under the correct identity/session context without storing raw credential or session material in the authoritative research state.
+GATE 20 PASS means Zest can establish and isolate authenticated sessions for explicitly configured identities and execute authorized HTTP experiments under the correct identity/session context without storing raw credential or session material in the authoritative research state.
 
 GATE 20 does **not** prove autonomous account discovery, browser authentication, arbitrary authentication mechanisms, durable session-secret recovery after restart, autonomous vulnerability discovery, real-world bug bounty performance, or production readiness.
 
@@ -780,7 +780,7 @@ Current limitations: `HTTP_FORM_LOGIN` is the bounded supported auth profile; se
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16/17/18/19/20 remain PASS.
 
-**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+**Verify:** Kali + dedicated PostgreSQL + `ZEST_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ---
 

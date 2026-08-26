@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.compiler import ExperimentCompileError, compile_experiment_intent
-from research_os.research.http_transaction import (
+from zest.research.compiler import ExperimentCompileError, compile_experiment_intent
+from zest.research.http_transaction import (
     HttpRequestTemplate,
     baseline_http_transaction,
     control_http_transaction,
@@ -14,15 +14,15 @@ from research_os.research.http_transaction import (
     replay_http_transaction_plan,
     variant_http_transaction,
 )
-from research_os.research.selection import (
+from zest.research.selection import (
     DiscriminationLevel,
     ExperimentOption,
     ExperimentPurpose,
     plan_from_option,
 )
-from research_os.research.types import ResearchInputError
-from research_os.tools.http_transaction_policy import validate_http_transaction_arguments
-from research_os.tools.registry import load_capability_registry
+from zest.research.types import ResearchInputError
+from zest.tools.http_transaction_policy import validate_http_transaction_arguments
+from zest.tools.registry import load_capability_registry
 
 
 ORIGIN = "http://127.0.0.1:9"
@@ -152,8 +152,8 @@ class HttpTransactionCompilerTests(unittest.TestCase):
         self.assertEqual(ctx.exception.reason_code, "INVALID_ARGUMENT_TYPE")
 
     def test_get_on_mutate_action_denied(self) -> None:
-        from research_os.research.compiler import ExperimentIntent
-        from research_os.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
+        from zest.research.compiler import ExperimentIntent
+        from zest.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
 
         with self.assertRaises(ExperimentCompileError):
             compile_experiment_intent(
@@ -175,8 +175,8 @@ class HttpTransactionCompilerTests(unittest.TestCase):
             )
 
     def test_post_on_read_action_denied(self) -> None:
-        from research_os.research.compiler import ExperimentIntent
-        from research_os.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
+        from zest.research.compiler import ExperimentIntent
+        from zest.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
 
         with self.assertRaises(ExperimentCompileError):
             compile_experiment_intent(
@@ -277,8 +277,8 @@ class HttpTransactionCompilerTests(unittest.TestCase):
 
 
 def _compile_bad_method():
-    from research_os.research.compiler import ExperimentIntent
-    from research_os.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
+    from zest.research.compiler import ExperimentIntent
+    from zest.research.http_transaction import HTTP_TRANSACTION_EVALUATION_STRATEGY
 
     return compile_experiment_intent(
         ExperimentIntent(

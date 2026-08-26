@@ -1,6 +1,6 @@
 """GATE 17 — Autonomous multi-hypothesis research selection.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
 No Codex/LLM/Strix/internet target. No third vulnerability class.
 """
@@ -25,13 +25,13 @@ if str(_REPO / "tests") not in sys.path:
 
 from e2e.gate17_harness import gate17_promotion_eligible, prefix_for, run_scenario
 from integration.harness import PostgresUnitOfWorkFactory, alembic_upgrade, truncate_spine
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.maturity import (
+from zest.maturity import (
     GATE_04B_STATUS,
     GATE_14_STATUS,
     GATE_15_STATUS,
@@ -41,15 +41,15 @@ from research_os.maturity import (
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
 )
-from research_os.research.candidate import (
+from zest.research.candidate import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
     HTTP_STATE_TRANSITION_CLASSIFICATION,
 )
-from research_os.security_benchmark.leakage import leakage_hits
-from research_os.security_benchmark.report import write_immutable_report
-from research_os.security_benchmark.scenarios import load_research_selection_scenarios
-from research_os.security_benchmark.scorecard import aggregate_research_selection_scorecard
-from research_os.security_benchmark.types import (
+from zest.security_benchmark.leakage import leakage_hits
+from zest.security_benchmark.report import write_immutable_report
+from zest.security_benchmark.scenarios import load_research_selection_scenarios
+from zest.security_benchmark.scorecard import aggregate_research_selection_scorecard
+from zest.security_benchmark.types import (
     ExpectedSecurityClass,
     FORBIDDEN_PIPELINE_KEYS,
     HardFailCode,
@@ -59,11 +59,11 @@ from research_os.security_benchmark.types import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 SCENARIO_DIR = _REPO / "benchmarks" / "security" / "research_selection"
-SRC_ROOT = _REPO / "src" / "research_os"
+SRC_ROOT = _REPO / "src" / "zest"
 NEGATIVE_IDS = (
     "R04_BOTH_BENIGN",
     "R05_AMBIGUOUS_NEEDS_CONTEXT",
@@ -376,7 +376,7 @@ class Gate17AutonomousResearchSelectionTests(unittest.TestCase):
     def test_38_worker_never_writes_postgres(self) -> None:
         for path in (_REPO / "workers").rglob("*.py"):
             text = path.read_text(encoding="utf-8")
-            self.assertNotIn("research_os.data", text)
+            self.assertNotIn("zest.data", text)
 
     def test_39_false_finding_zero_on_negatives(self) -> None:
         for scenario_id in NEGATIVE_IDS:

@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.assessment import AssessmentOutcome, DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
-from research_os.research.evidence import (
+from zest.research.assessment import AssessmentOutcome, DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
+from zest.research.evidence import (
     DIAGNOSTIC_ECHO_MATCHED_CLAIM,
     EvidenceAdmissionContext,
     EvidenceAdmissionOutcome,
@@ -15,7 +15,7 @@ from research_os.research.evidence import (
     admit_evidence,
     propose_diagnostic_echo_evidence,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _observation(observation_id: str = "obs-1", run: str = "run-1") -> EvidenceObservationRef:

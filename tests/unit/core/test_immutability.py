@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 
 import pathsetup  # noqa: F401
 
-from research_os.core import BudgetUsage, IssuedBudget
+from zest.core import BudgetUsage, IssuedBudget
 from fixtures import issued_budget
 
 

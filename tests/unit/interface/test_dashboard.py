@@ -7,8 +7,8 @@ import pathsetup  # noqa: F401
 
 from datetime import datetime, timezone
 
-from research_os.application.identity import new_opaque_id
-from research_os.interface.dashboard import (
+from zest.application.identity import new_opaque_id
+from zest.interface.dashboard import (
     DashboardRunControlRuntime,
     HTML,
     _bootstrap_payload,
@@ -19,11 +19,11 @@ from research_os.interface.dashboard import (
     configure_dashboard_run_control,
     collect_dashboard_payload,
 )
-from research_os.application.autonomous_research_controller import OrchestrationTickResult
-from research_os.application.autonomous_research_controller import StartAutonomousResearchCommand
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.research.orchestration import OrchestrationBounds
+from zest.application.autonomous_research_controller import OrchestrationTickResult
+from zest.application.autonomous_research_controller import StartAutonomousResearchCommand
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.research.orchestration import OrchestrationBounds
 
 
 class DashboardTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class DashboardTests(unittest.TestCase):
         payload = collect_dashboard_payload(
             env={
                 "PATH": "",
-                "RESEARCH_OS_CODEX_MODELS": "",
+                "ZEST_CODEX_MODELS": "",
             }
         )
 
@@ -252,7 +252,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(records[1].effect, ScopeRuleEffect.OUT_OF_SCOPE.value)
 
     def test_bootstrap_program_requires_database_url(self) -> None:
-        with self.assertRaisesRegex(ValueError, "RESEARCH_OS_DATABASE_URL"):
+        with self.assertRaisesRegex(ValueError, "ZEST_DATABASE_URL"):
             bootstrap_program(
                 {
                     "program_name": "Authorized Test",

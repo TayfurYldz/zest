@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ReasonCode
-from research_os.core.errors import CoreInputError
-from research_os.core.rate_limit import RateLimitProfile, check_rate_limit
+from zest.core.enums import ReasonCode
+from zest.core.errors import CoreInputError
+from zest.core.rate_limit import RateLimitProfile, check_rate_limit
 
 
 class RateLimitCheckTests(unittest.TestCase):

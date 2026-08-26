@@ -9,8 +9,8 @@ from integrations.models.cli_session import CodexCliSessionAdapter
 from integrations.models.common import JsonSchemaModelAdapter, ProviderInvocation
 from integrations.models.external_agent import ExternalAgentRuntimeAdapter
 from integrations.models.local_runtime import LocalModelRuntimeAdapter, probe_local_model
-from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
-from research_os.research.model_port import (
+from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelPortError,
@@ -19,8 +19,8 @@ from research_os.research.model_port import (
     RuntimeUnavailableError,
     StructuredOutputTransportError,
 )
-from research_os.research.model_runtime import RuntimeClass, RuntimeKind, cli_session_runtime_identity
-from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+from zest.research.model_runtime import RuntimeClass, RuntimeKind, cli_session_runtime_identity
+from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
 class _FakeTransport:

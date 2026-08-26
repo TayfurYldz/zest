@@ -4,20 +4,20 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.compiler_registry import (
+from zest.research.compiler_registry import (
     COMPILER_GENERIC_PLANNER,
     CompilerOutcome,
     FAMILY_OBJECT_AUTHORIZATION,
 )
-from research_os.research.exploratory import (
+from zest.research.exploratory import (
     ExploratorySignal,
     ExploratorySignalKind,
     draft_registry_external_hypothesis,
     exploratory_draft_from_audit,
 )
-from research_os.research.exploratory_compile import compile_exploratory_hypothesis
-from research_os.research.types import ResearchInputError
-from research_os.tools.capabilities import DIAGNOSTIC_ECHO_CAPABILITY
+from zest.research.exploratory_compile import compile_exploratory_hypothesis
+from zest.research.types import ResearchInputError
+from zest.tools.capabilities import DIAGNOSTIC_ECHO_CAPABILITY
 
 
 def _signal(**overrides) -> ExploratorySignal:

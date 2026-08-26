@@ -6,8 +6,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.tools.fingerprint import canonical_json_bytes, fingerprint_capability_document
-from research_os.tools.registry import (
+from zest.tools.fingerprint import canonical_json_bytes, fingerprint_capability_document
+from zest.tools.registry import (
     CapabilityRegistryError,
     load_capability_registry,
     registry_from_documents,

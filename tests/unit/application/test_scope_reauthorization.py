@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.scope_reauthorization import (
+from zest.application.scope_reauthorization import (
     evaluate_reauthorization_request,
     proposed_redirect_method,
     reauthorization_request_from_worker_result,
     reevaluate_redirect_location,
 )
-from research_os.core.enums import ReasonCode, ScopeDecision, ScopeRuleEffect
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.platform.contract_validation import ContractValidator
+from zest.core.enums import ReasonCode, ScopeDecision, ScopeRuleEffect
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.platform.contract_validation import ContractValidator
 
 
 class RedirectReauthorizationTests(unittest.TestCase):

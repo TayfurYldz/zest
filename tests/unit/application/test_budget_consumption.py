@@ -4,12 +4,12 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.budget_consumption import (
+from zest.application.budget_consumption import (
     BudgetConsumptionRejected,
     RecordBudgetConsumption,
     RecordBudgetConsumptionCommand,
 )
-from research_os.data.records import BudgetConsumptionRecord
+from zest.data.records import BudgetConsumptionRecord
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 

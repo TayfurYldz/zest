@@ -4,57 +4,57 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.errors import ApplicationError
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
-from research_os.application.prepare_planned_experiment import (
+from zest.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.record_human_review import (
+from zest.application.record_human_review import (
     RecordHumanReview,
     RecordHumanReviewCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
-from research_os.application.submit_finding_proposal import (
+from zest.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.core.approval import ApprovalView, evaluate_recorded_approval
-from research_os.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.data.records import AuditEventRecord, CandidateRecord, VerificationRecord
-from research_os.platform.worker import InvocationStatus
-from research_os.research.candidate import (
+from zest.core.approval import ApprovalView, evaluate_recorded_approval
+from zest.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.data.records import AuditEventRecord, CandidateRecord, VerificationRecord
+from zest.platform.worker import InvocationStatus
+from zest.research.candidate import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
     CandidateState,
 )
-from research_os.research.finding_proposal import (
+from zest.research.finding_proposal import (
     DIAGNOSTIC_FINDING_PROPOSAL_TITLE,
     FindingCreationOutcome,
     FindingProposalAdmissionOutcome,
@@ -62,9 +62,9 @@ from research_os.research.finding_proposal import (
     HumanReviewDecision,
     approval_subject_for,
 )
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.validation.tier_gate import ValidationTier, ValidationTierOutcome
-from research_os.research.verification import VerificationOutcome
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.validation.tier_gate import ValidationTier, ValidationTierOutcome
+from zest.research.verification import VerificationOutcome
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.spine import CREATED_AT, seed_spine

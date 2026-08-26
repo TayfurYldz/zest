@@ -1,0 +1,37 @@
+# zest-dashboard — disposable local HTTP client.
+# Does not own supervisors, lease, Preflight authority, or research decisions.
+# Requires ZEST_URL in EnvironmentFile (http://127.0.0.1:8766).
+
+[Unit]
+Description=Zest local operator dashboard
+Documentation=file:///opt/zest/current/docs/deploy/NATIVE_UBUNTU_SYSTEMD.md
+After=network-online.target zestd.service
+Wants=zestd.service
+# Wants, not Requires: dashboard death must not stop zestd.
+
+[Service]
+Type=simple
+User=zest
+Group=zest
+WorkingDirectory=/opt/zest/current
+EnvironmentFile=/etc/zest/zest.env
+Environment=HOME=/var/lib/zest
+ExecStart=/opt/zest/current/.venv/bin/zest-dashboard --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zest-dashboard
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/zest /var/log/zest
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

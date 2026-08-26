@@ -1,6 +1,6 @@
 """GATE 16 — Workflow / state-transition authorization.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
 No Codex/LLM/Strix/internet target.
 """
@@ -23,14 +23,14 @@ if str(_REPO / "tests") not in sys.path:
 
 from e2e.gate16_harness import GATE16_HUMAN, prefix_for, run_bola_cross_class, run_scenario
 from integration.harness import PostgresUnitOfWorkFactory, alembic_upgrade, truncate_spine
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.maturity import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.maturity import (
     GATE_04B_STATUS,
     GATE_14_STATUS,
     GATE_15_STATUS,
@@ -39,15 +39,15 @@ from research_os.maturity import (
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
 )
-from research_os.research.candidate import HTTP_STATE_TRANSITION_CLASSIFICATION
-from research_os.security_benchmark.leakage import leakage_hits
-from research_os.security_benchmark.report import write_immutable_report
-from research_os.security_benchmark.scenarios import load_workflow_scenarios
-from research_os.security_benchmark.scorecard import (
+from zest.research.candidate import HTTP_STATE_TRANSITION_CLASSIFICATION
+from zest.security_benchmark.leakage import leakage_hits
+from zest.security_benchmark.report import write_immutable_report
+from zest.security_benchmark.scenarios import load_workflow_scenarios
+from zest.security_benchmark.scorecard import (
     aggregate_workflow_scorecard,
     gate16_scorecard_pass,
 )
-from research_os.security_benchmark.types import (
+from zest.security_benchmark.types import (
     FORBIDDEN_PIPELINE_KEYS,
     WORKFLOW_BENCHMARK_VERSION,
 )
@@ -55,7 +55,7 @@ from research_os.security_benchmark.types import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 SCENARIO_DIR = _REPO / "benchmarks" / "security" / "workflow"
@@ -349,14 +349,14 @@ class Gate16StateTransitionSecurityTests(unittest.TestCase):
     def test_30_no_model_or_codex_invocation(self) -> None:
         for result in self.results.values():
             self.assertEqual(result.model_modules_loaded, ())
-        self.assertNotIn("research_os.integrations.models.cli_session", sys.modules)
+        self.assertNotIn("zest.integrations.models.cli_session", sys.modules)
         self.assertNotIn("openai", sys.modules)
         self.assertNotIn("anthropic", sys.modules)
 
     def test_31_no_strix_invocation(self) -> None:
         for result in self.results.values():
             self.assertEqual(result.strix_modules_loaded, ())
-        self.assertNotIn("research_os.integrations.strix.adapter", sys.modules)
+        self.assertNotIn("zest.integrations.strix.adapter", sys.modules)
 
     def test_32_no_external_request(self) -> None:
         for scenario_id, result in self.results.items():

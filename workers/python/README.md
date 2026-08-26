@@ -1,14 +1,14 @@
 # Python Worker (first local runtime)
 
-This directory is **not** part of the `research_os` Control Plane package.
+This directory is **not** part of the `zest` Control Plane package.
 
-It is an execution runtime. It is **not** authority. Same-machine does not authorize work. Worker identity is a configured opaque id (`RESEARCH_OS_WORKER_ID`), not a PID.
+It is an execution runtime. It is **not** authority. Same-machine does not authorize work. Worker identity is a configured opaque id (`ZEST_WORKER_ID`), not a PID.
 
 ## Protocol (Decision 021)
 
 First local transport — **not** permanent architecture:
 
-1. Control Plane spawns this process (`python -m research_os_worker`).
+1. Control Plane spawns this process (`python -m zest_worker`).
 2. stdin: exactly one JSON **WorkerRequest**.
 3. Worker performs exactly one capability invocation.
 4. stdout: exactly one JSON **WorkerResult**. No logs. No banners.
@@ -27,7 +27,7 @@ WorkerResult remains untrusted until downstream Transition A. This Worker does n
 
 ## Rules
 
-- Do not import `research_os.core`, Data, or PostgreSQL drivers.
+- Do not import `zest.core`, Data, or PostgreSQL drivers.
 - Do not write the SoR.
 - Do not treat WorkerResult as Observation, Evidence, Candidate, or Finding.
 - Request bytes arrive on stdin, never as shell command text.

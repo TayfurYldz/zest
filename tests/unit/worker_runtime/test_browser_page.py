@@ -4,12 +4,12 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.worker_runtime.python.browser_engine import (
+from zest.worker_runtime.python.browser_engine import (
     BrowserRuntimeLimits,
     InMemoryBrowserEngine,
 )
-from research_os.worker_runtime.python.browser_envelope import parse_envelope
-from research_os.worker_runtime.python.browser_page import execute_browser_page
+from zest.worker_runtime.python.browser_envelope import parse_envelope
+from zest.worker_runtime.python.browser_page import execute_browser_page
 from support.worker_requests import valid_worker_request
 
 ORIGIN = "http://127.0.0.1:9"

@@ -61,12 +61,12 @@ Contract identity is the canonical `$id` URN, not a filesystem path.
 
 Allowed `$ref` values:
 
-- a canonical URN that exists in this schema set, e.g. `urn:research-os:contracts:v1:correlation-context`
+- a canonical URN that exists in this schema set, e.g. `urn:zest:contracts:v1:correlation-context`
 - a same-document JSON Pointer fragment, e.g. `#/$defs/...`
 
 Filesystem-relative refs (`../common/...`) and network/external refs are not allowed.
 
-This repo implements a runtime validator `$id` registry in the Control Plane (`research_os.platform.contract_validation`). Lint still only checks that `$ref` URNs match local `$id` values. Structural lint ≠ runtime semantic validation.
+This repo implements a runtime validator `$id` registry in the Control Plane (`zest.platform.contract_validation`). Lint still only checks that `$ref` URNs match local `$id` values. Structural lint ≠ runtime semantic validation.
 
 ---
 

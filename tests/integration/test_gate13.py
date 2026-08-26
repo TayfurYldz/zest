@@ -27,34 +27,34 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.budget_consumption import (
+from zest.application.budget_consumption import (
     BudgetConsumptionRejected,
     RecordBudgetConsumption,
     RecordBudgetConsumptionCommand,
 )
-from research_os.application.budget_enforced_model import BudgetEnforcedModelPort
-from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.application.reconcile_research_run import (
+from zest.application.budget_enforced_model import BudgetEnforcedModelPort
+from zest.application.operator_status import OperatorStatusSnapshot, render_operator_status
+from zest.application.reconcile_research_run import (
     ReconcileResearchRun,
     ReconcileResearchRunCommand,
     ReconciliationResolution,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.budget_ledger import ledger_totals
-from research_os.data.postgres.engine import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.budget_ledger import ledger_totals
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     ping_database,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.errors import BudgetOverspendError
-from research_os.data.records import (
+from zest.data.errors import BudgetOverspendError
+from zest.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     BudgetConsumptionRecord,
@@ -63,10 +63,10 @@ from research_os.data.records import (
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.interface.cli import build_status_snapshot
-from research_os.interface.git_provenance import collect_source_provenance
-from research_os.integrations.models.discovery import gate_04b_status
-from research_os.research.model_port import (
+from zest.interface.cli import build_status_snapshot
+from zest.interface.git_provenance import collect_source_provenance
+from zest.integrations.models.discovery import gate_04b_status
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelRole,
@@ -76,17 +76,17 @@ from research_os.research.model_port import (
     RuntimeProcessError,
     StructuredOutputTransportError,
 )
-from research_os.research.orchestration import OrchestrationBounds
-from research_os.safe_data import redact_secret_keys, sanitize_exception
-from research_os.platform.observability import TelemetryEvent
-from research_os.platform.worker_health import probe_local_python_worker
-from research_os.integrations.models.cli_session import probe_codex_cli
-from research_os.integrations.strix.adapter import probe_strix_runtime
-from research_os.maturity import GATE_04B_STATUS, LIVE_MODEL_VALIDATED, PRODUCTION_READY, SUBSCRIPTION_OAUTH_STATUS
+from zest.research.orchestration import OrchestrationBounds
+from zest.safe_data import redact_secret_keys, sanitize_exception
+from zest.platform.observability import TelemetryEvent
+from zest.platform.worker_health import probe_local_python_worker
+from zest.integrations.models.cli_session import probe_codex_cli
+from zest.integrations.strix.adapter import probe_strix_runtime
+from zest.maturity import GATE_04B_STATUS, LIVE_MODEL_VALIDATED, PRODUCTION_READY, SUBSCRIPTION_OAUTH_STATUS
 from support.fake_model import ScriptedModelPort
 from support.recording_worker import RecordingWorkerPort
-from research_os.platform.artifacts import LocalArtifactStore
-from research_os.platform.secrets import (
+from zest.platform.artifacts import LocalArtifactStore
+from zest.platform.secrets import (
     EnvSecretResolver,
     SecretReference,
     SecretResolutionStatus,
@@ -103,7 +103,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 
@@ -544,14 +544,14 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
         assert TEST_URL is not None
         snapshot = build_status_snapshot(
             env={
-                "RESEARCH_OS_DATABASE_URL": (
-                    "postgresql+psycopg://appuser:secret-pass@127.0.0.1:5432/research_os"
+                "ZEST_DATABASE_URL": (
+                    "postgresql+psycopg://appuser:secret-pass@127.0.0.1:5432/zest"
                 ),
                 TEST_DATABASE_URL_ENV: TEST_URL,
             }
         )
         self.assertNotEqual(snapshot.postgresql, snapshot.test_postgresql)
-        self.assertIn("research_os_test", snapshot.test_dsn)
+        self.assertIn("zest_test", snapshot.test_dsn)
         self.assertNotIn("secret-pass", snapshot.application_dsn)
         self.assertNotIn("secret-pass", snapshot.test_dsn)
         text = render_operator_status(snapshot)

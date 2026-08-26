@@ -15,20 +15,20 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.browser_resource_control import (
+from zest.platform.browser_resource_control import (
     BREACH_MEMORY_MAX,
     PID_CEILING_PROCESSES,
     BrowserResourceLimits,
     BrowserResourceReadiness,
 )
-from research_os.platform.local_process_worker import LocalProcessWorkerConfig
-from research_os.platform.persistent_browser_worker import (
+from zest.platform.local_process_worker import LocalProcessWorkerConfig
+from zest.platform.persistent_browser_worker import (
     CLEANUP_FAILED_REASON,
     CONTAINMENT_UNAVAILABLE_REASON,
     RESOURCE_BREACH_REASON,
     PersistentBrowserWorkerAdapter,
 )
-from research_os.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus
 from support.browser_worker_scripts import HANDSHAKE_PREAMBLE, descendant_script
 from support.worker_requests import valid_worker_request
 

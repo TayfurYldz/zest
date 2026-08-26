@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.compiler import (
+from zest.research.compiler import (
     ExperimentCompileError,
     ExperimentIntent,
     compile_experiment_intent,
 )
-from research_os.research.planning import plan_admitted_hypothesis, plan_diagnostic_echo
-from research_os.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
-from research_os.research.types import ResearchInputError
-from research_os.tools.registry import load_capability_registry, registry_from_documents
+from zest.research.planning import plan_admitted_hypothesis, plan_diagnostic_echo
+from zest.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
+from zest.research.types import ResearchInputError
+from zest.tools.registry import load_capability_registry, registry_from_documents
 
 
 def _intent(**overrides) -> ExperimentIntent:
@@ -159,7 +159,7 @@ class ExperimentCompilerTests(unittest.TestCase):
                 }
             },
         }
-        from research_os.tools.registry import CapabilityRegistryError
+        from zest.tools.registry import CapabilityRegistryError
 
         with self.assertRaises(CapabilityRegistryError):
             registry_from_documents([document])

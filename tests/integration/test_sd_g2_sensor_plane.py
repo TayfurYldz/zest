@@ -1,7 +1,7 @@
 """SD-G2 sensor/acquisition plane integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -27,30 +27,30 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.identity import new_opaque_id
-from research_os.application.sensor.admit import (
+from zest.application.identity import new_opaque_id
+from zest.application.sensor.admit import (
     AdmitSensorObservations,
     SensorAdmissionError,
 )
-from research_os.application.sensor.runner import SensorAcquisitionRunner
-from research_os.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.application.sensor.runner import SensorAcquisitionRunner
+from zest.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     ProgramPolicyRecord,
     ScopeRuleV2Record,
     SensorObservationRecord,
 )
-from research_os.research.sensor import (
+from zest.research.sensor import (
     CTLogSensor,
     CertificateMetaSensor,
     DNSSensor,
     TechnologyFingerprintSensor,
     WaybackArchiveSensor,
 )
-from research_os.research.sensor.fixture_loader import FileFixtureLoader
-from research_os.research.sensor.types import ScopeCensusView, build_observation
-from research_os.research.target_model import TargetEpistemicStatus
+from zest.research.sensor.fixture_loader import FileFixtureLoader
+from zest.research.sensor.types import ScopeCensusView, build_observation
+from zest.research.target_model import TargetEpistemicStatus
 
 TEST_URL = configured_test_url()
 FIXTURE_DIR = _REPO / "tests" / "fixtures" / "sensor"
@@ -65,7 +65,7 @@ def _in_scope_view() -> ScopeCensusView:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
     engine = None
@@ -233,7 +233,7 @@ class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
         """
         import ast
 
-        sensor_dir = Path(__file__).resolve().parents[2] / "src" / "research_os" / "research" / "sensor"
+        sensor_dir = Path(__file__).resolve().parents[2] / "src" / "zest" / "research" / "sensor"
         for source in sensor_dir.glob("*.py"):
             tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
             imports = {
@@ -248,17 +248,17 @@ class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
                 if isinstance(node, ast.ImportFrom) and node.module
             }
             self.assertNotIn(
-                "research_os.application",
+                "zest.application",
                 from_imports,
                 f"{source.name} imports application layer",
             )
             self.assertNotIn(
-                "research_os.data",
+                "zest.data",
                 from_imports,
                 f"{source.name} imports data layer",
             )
             self.assertNotIn(
-                "research_os.research.finding_proposal",
+                "zest.research.finding_proposal",
                 from_imports,
                 f"{source.name} imports finding modules",
             )
@@ -274,7 +274,7 @@ class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
         runner_source = (
             Path(__file__).resolve().parents[2]
             / "src"
-            / "research_os"
+            / "zest"
             / "application"
             / "sensor"
             / "runner.py"

@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.impact.types import ImpactKind
-from research_os.research.validation.severity import (
+from zest.research.impact.types import ImpactKind
+from zest.research.validation.severity import (
     InternalSeverity,
     ScopeState,
     SeverityInput,

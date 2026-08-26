@@ -18,25 +18,25 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.postgres.engine import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.records import (
+from zest.data.records import (
     AuthorizationSourceRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState
 from integration.harness import (
     FixedClock,
     PostgresUnitOfWorkFactory,
@@ -49,7 +49,7 @@ from support.recording_worker import RecordingWorkerPort
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 

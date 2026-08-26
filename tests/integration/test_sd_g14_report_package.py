@@ -1,6 +1,6 @@
 """SD-G14 report package vertical slice on real PostgreSQL.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -27,15 +27,15 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.package_finding_report import (
+from zest.application.package_finding_report import (
     PackageFindingReport,
     PackageFindingReportCommand,
     REPORT_PACKAGE_BUILT,
 )
-from research_os.core.enums import ActorType, ApprovalDecision
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.core.enums import ActorType, ApprovalDecision
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     ApprovalRecord,
     CandidateRecord,
     EvidenceRecord,
@@ -203,7 +203,7 @@ def _seed_approved_finding(uow: PostgresUnitOfWork) -> None:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG14ReportPackageIntegrationTests(unittest.TestCase):
     engine = None

@@ -4,9 +4,9 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.impact.chain import ImpactChain, ImpactEdge, ImpactNode, ImpactScopeRef
-from research_os.research.impact.types import ImpactKind, ImpactRelation, ProofRecord, ProofResolver
-from research_os.research.impact.validator import validate_chain
+from zest.research.impact.chain import ImpactChain, ImpactEdge, ImpactNode, ImpactScopeRef
+from zest.research.impact.types import ImpactKind, ImpactRelation, ProofRecord, ProofResolver
+from zest.research.impact.validator import validate_chain
 
 
 class _FakeResolver(ProofResolver):

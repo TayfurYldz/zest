@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core import (
+from zest.core import (
     AuthorizationSourceState,
     AuthorizationSourceView,
     BudgetUsage,

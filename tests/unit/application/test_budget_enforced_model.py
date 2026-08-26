@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.budget_enforced_model import BudgetEnforcedModelPort
-from research_os.application.budget_consumption import BudgetConsumptionRejected
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.budget_ledger import ledger_totals
-from research_os.data.records import BudgetConsumptionRecord, IssuedBudgetRecord
-from research_os.research.model_port import (
+from zest.application.budget_enforced_model import BudgetEnforcedModelPort
+from zest.application.budget_consumption import BudgetConsumptionRejected
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.budget_ledger import ledger_totals
+from zest.data.records import BudgetConsumptionRecord, IssuedBudgetRecord
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelRole,
@@ -18,20 +18,20 @@ from research_os.research.model_port import (
     ProviderTimeoutError,
     StructuredOutputTransportError,
 )
-from research_os.research.orchestration import OrchestrationBounds
+from zest.research.orchestration import OrchestrationBounds
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.program_daily_budget import (
+from zest.application.program_daily_budget import (
     AllocateProgramDailyBudget,
     AllocateProgramDailyBudgetCommand,
     program_daily_budget_id,
 )
-from research_os.data.records import ProgramPolicyRecord
+from zest.data.records import ProgramPolicyRecord
 from support.recording_worker import RecordingWorkerPort
 
 
@@ -61,7 +61,7 @@ def _seed(store: _Store, *, max_model_calls: int = 1) -> None:
         max_concurrency=1,
         issued_at=CREATED_AT,
     )
-    from research_os.application.autonomous_research_controller import AutonomousResearchController
+    from zest.application.autonomous_research_controller import AutonomousResearchController
     from support.recording_worker import RecordingWorkerPort
 
     factory = FakeUnitOfWorkFactory(store=store)

@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     build_worker_environment,
 )
-from research_os.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus
 from support.worker_requests import valid_worker_request
 
 REPO = Path(__file__).resolve().parents[3]
@@ -62,13 +62,13 @@ class LocalProcessWorkerTests(unittest.TestCase):
 
     def test_start_failed_does_not_fabricate_worker_result(self) -> None:
         outcome = _adapter(
-            python_executable=str(REPO / "missing-python-binary-research-os")
+            python_executable=str(REPO / "missing-python-binary-zest")
         ).invoke(valid_worker_request(), timeout_ms=2_000)
         self.assertEqual(outcome.invocation_status, InvocationStatus.START_FAILED)
         self.assertIsNone(outcome.worker_result)
 
     def test_malformed_request_rejected_before_spawn(self) -> None:
-        marker = Path(tempfile.gettempdir()) / "research-os-worker-spawned"
+        marker = Path(tempfile.gettempdir()) / "zest-worker-spawned"
         if marker.exists():
             marker.unlink()
         request = valid_worker_request()
@@ -163,14 +163,14 @@ class LocalProcessWorkerTests(unittest.TestCase):
 
     def test_child_env_omits_database_url(self) -> None:
         env = build_worker_environment(WORKERS_PYTHON, "local-python-diagnostic")
-        self.assertNotIn("RESEARCH_OS_DATABASE_URL", env)
-        self.assertNotIn("RESEARCH_OS_TEST_DATABASE_URL", env)
-        self.assertEqual(env["RESEARCH_OS_WORKER_ID"], "local-python-diagnostic")
+        self.assertNotIn("ZEST_DATABASE_URL", env)
+        self.assertNotIn("ZEST_TEST_DATABASE_URL", env)
+        self.assertEqual(env["ZEST_WORKER_ID"], "local-python-diagnostic")
         self.assertIn(str(WORKERS_PYTHON), env["PYTHONPATH"])
 
     def test_packaged_worker_health_probe_is_healthy(self) -> None:
-        from research_os.platform.health import ComponentHealth
-        from research_os.platform.worker_health import probe_local_python_worker
+        from zest.platform.health import ComponentHealth
+        from zest.platform.worker_health import probe_local_python_worker
 
         check = probe_local_python_worker()
         self.assertEqual(check.health, ComponentHealth.HEALTHY)

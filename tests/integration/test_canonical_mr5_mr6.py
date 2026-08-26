@@ -16,38 +16,38 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_exploratory_research import (
+from zest.application.execute_exploratory_research import (
     ExecuteExploratoryResearch,
     ExecuteExploratoryResearchCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.promotion_pipeline import (
+from zest.application.promotion_pipeline import (
     AdvancePromotionCommand,
     PromotionOutcome,
     PromotionPipeline,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.records import IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.orchestration import OrchestrationBounds, StopReason
-from research_os.research.planning import plan_diagnostic_echo
+from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.records import IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.assessment import AssessmentOutcome
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.orchestration import OrchestrationBounds, StopReason
+from zest.research.planning import plan_diagnostic_echo
 from integration.harness import (
     FixedClock,
     PostgresUnitOfWorkFactory,
@@ -161,7 +161,7 @@ def _authz_handler(mode: str):
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class CanonicalPromotionPostgresTests(unittest.TestCase):
     engine = None
@@ -226,7 +226,7 @@ class CanonicalPromotionPostgresTests(unittest.TestCase):
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class CanonicalExploratoryPostgresTests(unittest.TestCase):
     engine = None

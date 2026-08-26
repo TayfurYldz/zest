@@ -25,8 +25,8 @@ bot.
 
 Files:
 
-- `src/research_os/research/report_package.py`
-- `src/research_os/application/package_finding_report.py`
+- `src/zest/research/report_package.py`
+- `src/zest/application/package_finding_report.py`
 - `tests/unit/research/test_sd_g14_report_package.py`
 - `tests/unit/application/test_sd_g14_package_finding_report.py`
 
@@ -53,8 +53,8 @@ Evidence:
 
 Files:
 
-- `src/research_os/research/report_duplicate.py`
-- `src/research_os/research/report_package.py`
+- `src/zest/research/report_duplicate.py`
+- `src/zest/research/report_package.py`
 - `tests/unit/research/test_sd_g14_duplicate_signals.py`
 
 Behavior:
@@ -79,7 +79,7 @@ Evidence:
 
 Files:
 
-- `src/research_os/research/nday.py`
+- `src/zest/research/nday.py`
 - `tests/unit/research/test_sd_g14_nday.py`
 
 Behavior:

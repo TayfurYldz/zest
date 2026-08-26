@@ -18,24 +18,24 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.errors import OrchestrationIntegrityError
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.budget_ledger import ledger_totals
-from research_os.data.errors import BudgetOverspendError
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine, validate_test_database_url
-from research_os.data.records import (
+from zest.application.errors import OrchestrationIntegrityError
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.budget_ledger import ledger_totals
+from zest.data.errors import BudgetOverspendError
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine, validate_test_database_url
+from zest.data.records import (
     AuthorizationSourceRecord,
     BudgetConsumptionRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.research.orchestration import OrchestrationBounds
+from zest.research.orchestration import OrchestrationBounds
 from integration.harness import FixedClock, PostgresUnitOfWorkFactory, alembic_upgrade, truncate_spine
 from support.fake_model import ScriptedModelPort
 from support.recording_worker import RecordingWorkerPort
@@ -43,7 +43,7 @@ from support.recording_worker import RecordingWorkerPort
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 

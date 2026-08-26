@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.compiler_registry import CompilerOutcome
-from research_os.research.exploratory import (
+from zest.research.compiler_registry import CompilerOutcome
+from zest.research.exploratory import (
     ExploratoryHypothesisDraft,
     ExploratorySignal,
     ExploratorySignalKind,
 )
-from research_os.research.exploratory_research_compile import compile_exploratory_research
-from research_os.research.proposals import NoveltyBasis
-from research_os.tools.capabilities import (
+from zest.research.exploratory_research_compile import compile_exploratory_research
+from zest.research.proposals import NoveltyBasis
+from zest.tools.capabilities import (
     DIAGNOSTIC_ECHO_CAPABILITY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
 )

@@ -1,8 +1,8 @@
-# Research OS — Repository Layout
+# Zest — Repository Layout
 
 This document describes the **actual repository tree**, **package boundaries**, and **import rules**.
 
-It does not replace `.cursor/rules/research-os.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, `TECHNICAL_REQUIREMENTS.md`, or `TECHNICAL_DECISIONS.md`.
+It does not replace `.cursor/rules/zest.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, `TECHNICAL_REQUIREMENTS.md`, or `TECHNICAL_DECISIONS.md`.
 
 It does not choose frameworks, ORM, API stack, workflow product, secrets product, observability vendor, container runtime, or companion stores.
 
@@ -11,8 +11,8 @@ It does not choose frameworks, ORM, API stack, workflow product, secrets product
 ## Tree
 
 ```
-research-os/
-├── src/research_os/          # Python control-plane package (Decision 001)
+zest/
+├── src/zest/          # Python control-plane package (Decision 001)
 │   ├── core/
 │   ├── research/
 │   ├── application/
@@ -46,19 +46,19 @@ Constitutional design docs stay at the **repository root**. Do not move them int
 
 | Location | Why |
 |---|---|
-| `src/research_os/` | Control plane in Python: Core, Research, Application, Data access, Tools contracts, Platform **ports**, Interface |
+| `src/zest/` | Control plane in Python: Core, Research, Application, Data access, Tools contracts, Platform **ports**, Interface |
 | `contracts/` | Language-neutral schemas/contracts so Workers/Integrations are not Python-locked |
 | `workers/` | Out-of-process execution (Decisions 005, 014). May be Python now; other languages later |
 | `integrations/` | Concrete adapters. Core and Research **must not** import these |
 | `benchmarks/research/` | Engineering evaluation fixtures (Decision 029). Not Domain SoR or Research Memory |
-| `src/research_os/benchmark/` | Provider-neutral harness (Decision 030). Imports Research. Must not import postgres/Application/Workers/provider SDKs |
+| `src/zest/benchmark/` | Provider-neutral harness (Decision 030). Imports Research. Must not import postgres/Application/Workers/provider SDKs |
 | `var/artifacts/` | First artifact **byte** store adapter (local filesystem). Identity/hash stay in PostgreSQL |
 
-Workers and Integrations are **not** subpackages of `research_os`. That keeps “do not import concrete Integrations from Core/Research” visible in the tree.
+Workers and Integrations are **not** subpackages of `zest`. That keeps “do not import concrete Integrations from Core/Research” visible in the tree.
 
 ---
 
-## Package boundaries (`src/research_os`)
+## Package boundaries (`src/zest`)
 
 ### `core`
 
@@ -100,7 +100,7 @@ Ports for orchestration coordination (Decision 004), secrets (013), observabilit
 
 A4 adds the first **local process Worker adapter** (`local_process_worker`) behind `WorkerPort`. That adapter is not architecture. Core and Research must not import it or `subprocess`.
 
-The ModelPort **protocol** currently lives in Research (`research_os.research.model_port`). Concrete adapters belong in Integrations (or a later Platform adapter). No provider is selected.
+The ModelPort **protocol** currently lives in Research (`zest.research.model_port`). Concrete adapters belong in Integrations (or a later Platform adapter). No provider is selected.
 
 Must not: own policy, own Evidence/Finding, select Temporal/Redis/Vault/Docker here.
 
@@ -161,7 +161,7 @@ Only layer that may perform side effects, and only after Core authorization.
 
 ## `integrations/`
 
-Replaceable connectors. `integrations/strix/` is a **reserved adapter slot**. Strix is optional, not Research OS, not Core, not ModelPort owner (Decisions 005, 008, 015).
+Replaceable connectors. `integrations/strix/` is a **reserved adapter slot**. Strix is optional, not Zest, not Core, not ModelPort owner (Decisions 005, 008, 015).
 
 Core/Research must not import `integrations/`.
 

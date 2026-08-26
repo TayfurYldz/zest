@@ -4,10 +4,10 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.research.mutation import build_mutation_matrix
-from research_os.research.selection import HunterFamilyView
-from research_os.research.types import ResearchInputError
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.research.mutation import build_mutation_matrix
+from zest.research.selection import HunterFamilyView
+from zest.research.types import ResearchInputError
 
 
 def _family(family_id: str) -> HunterFamilyView:

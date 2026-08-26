@@ -1,6 +1,6 @@
 """PostgreSQL spine tests. SQLite is not a substitute.
 
-Requires RESEARCH_OS_TEST_DATABASE_URL pointing at a disposable database.
+Requires ZEST_TEST_DATABASE_URL pointing at a disposable database.
 Skipped (not silently passed against another engine) when the URL is absent.
 """
 
@@ -23,23 +23,23 @@ if str(_SRC) not in sys.path:
 from alembic import command
 from alembic.config import Config
 
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
 )
-from research_os.core.authorization import AuthorizationSourceView
-from research_os.core.budget import BudgetUsage, IssuedBudget
-from research_os.core.capability import CapabilityAuthorizationView
-from research_os.core.enums import (
+from zest.core.authorization import AuthorizationSourceView
+from zest.core.budget import BudgetUsage, IssuedBudget
+from zest.core.capability import CapabilityAuthorizationView
+from zest.core.enums import (
     AuthorizationSourceState,
     ReasonCode,
     ScopeRuleEffect,
 )
-from research_os.core.execution import ExecutionRequest, evaluate_execution
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.tools.registry import load_capability_registry
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.core.execution import ExecutionRequest, evaluate_execution
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.tools.registry import load_capability_registry
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     ExperimentRecord,
@@ -53,10 +53,10 @@ from research_os.data.records import (
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
-    from research_os.data.postgres.engine import validate_test_database_url
+    from zest.data.postgres.engine import validate_test_database_url
 
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 
@@ -81,7 +81,7 @@ class PostgresSpineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         assert TEST_URL is not None
-        from research_os.data.postgres.engine import redacted_database_url
+        from zest.data.postgres.engine import redacted_database_url
 
         print(
             "DESTRUCTIVE PostgreSQL integration tests: TRUNCATE CASCADE against "

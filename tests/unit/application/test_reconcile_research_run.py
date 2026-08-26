@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.reconcile_research_run import (
+from zest.application.reconcile_research_run import (
     ReconcileResearchRun,
     ReconcileResearchRunCommand,
     ReconciliationResolution,
 )
-from research_os.application.orchestration_config import fingerprint_for_start
-from research_os.data.records import ExecutionAttemptRecord, ResearchOrchestrationRecord
-from research_os.research.orchestration import OrchestrationBounds
+from zest.application.orchestration_config import fingerprint_for_start
+from zest.data.records import ExecutionAttemptRecord, ResearchOrchestrationRecord
+from zest.research.orchestration import OrchestrationBounds
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_spine
 

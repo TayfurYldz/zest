@@ -14,17 +14,17 @@ if str(_UNIT) not in sys.path:
 
 import pathsetup  # noqa: F401
 
-from research_os.application.osd_settings import LINUX_ENV_FILE, resolve_alembic_ini
-from research_os.interface.research_osd import _alembic_ini
+from zest.application.osd_settings import LINUX_ENV_FILE, resolve_alembic_ini
+from zest.interface.zestd import _alembic_ini
 
 REPO = Path(__file__).resolve().parents[3]
-OSD_UNIT = REPO / "deploy/systemd/research-osd.service"
-DASHBOARD_UNIT = REPO / "deploy/systemd/research-os-dashboard.service"
-ENV_EXAMPLE = REPO / "config/research-osd.env.example"
+OSD_UNIT = REPO / "deploy/systemd/zestd.service"
+DASHBOARD_UNIT = REPO / "deploy/systemd/zest-dashboard.service"
+ENV_EXAMPLE = REPO / "config/zestd.env.example"
 PYPROJECT = REPO / "pyproject.toml"
-INSTALL_SH = REPO / "scripts/install_research_os_release.sh"
-VERIFY_PY = REPO / "scripts/verify_research_os_release.py"
-MATURITY = REPO / "src/research_os/maturity.py"
+INSTALL_SH = REPO / "scripts/install_zest_release.sh"
+VERIFY_PY = REPO / "scripts/verify_zest_release.py"
+MATURITY = REPO / "src/zest/maturity.py"
 
 
 def _active_unit_lines(text: str) -> str:
@@ -37,11 +37,11 @@ class SystemdUnitTests(unittest.TestCase):
     def test_osd_unit_uses_real_entrypoint_and_local_env(self) -> None:
         text = OSD_UNIT.read_text(encoding="utf-8")
         active = _active_unit_lines(text)
-        self.assertIn("User=research-os", active)
-        self.assertIn("Group=research-os", active)
-        self.assertIn("WorkingDirectory=/opt/research-os/current", active)
+        self.assertIn("User=zest", active)
+        self.assertIn("Group=zest", active)
+        self.assertIn("WorkingDirectory=/opt/zest/current", active)
         self.assertIn(f"EnvironmentFile={LINUX_ENV_FILE}", active)
-        self.assertIn("ExecStart=/opt/research-os/current/.venv/bin/research-osd", active)
+        self.assertIn("ExecStart=/opt/zest/current/.venv/bin/zestd", active)
         self.assertIn("Restart=on-failure", active)
         self.assertIn("RestartSec=5", active)
         self.assertIn("TimeoutStopSec=30", active)
@@ -61,15 +61,15 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertNotIn("PrivateDevices=true", active)
         self.assertNotIn("ProtectKernelTunables=true", active)
         self.assertNotIn("password", text.lower())
-        self.assertNotIn("RESEARCH_OS_DATABASE_URL=", active)
+        self.assertNotIn("ZEST_DATABASE_URL=", active)
 
     def test_dashboard_unit_is_local_client_only(self) -> None:
         text = DASHBOARD_UNIT.read_text(encoding="utf-8")
-        self.assertIn("User=research-os", text)
+        self.assertIn("User=zest", text)
         self.assertIn(f"EnvironmentFile={LINUX_ENV_FILE}", text)
-        self.assertIn("research-os-dashboard --host 127.0.0.1 --port 8765", text)
-        self.assertIn("Wants=research-osd.service", text)
-        self.assertNotIn("Requires=research-osd.service", text)
+        self.assertIn("zest-dashboard --host 127.0.0.1 --port 8765", text)
+        self.assertIn("Wants=zestd.service", text)
+        self.assertNotIn("Requires=zestd.service", text)
         self.assertNotIn("0.0.0.0", text)
         self.assertNotIn("/home/tayfur", text)
 
@@ -77,17 +77,17 @@ class SystemdUnitTests(unittest.TestCase):
 class PackagingAndEnvTests(unittest.TestCase):
     def test_pyproject_scripts_and_python_floor(self) -> None:
         text = PYPROJECT.read_text(encoding="utf-8")
-        self.assertIn('research-osd = "research_os.interface.research_osd:main"', text)
-        self.assertIn('research-os-dashboard = "research_os.interface.dashboard:main"', text)
+        self.assertIn('zestd = "zest.interface.zestd:main"', text)
+        self.assertIn('zest-dashboard = "zest.interface.dashboard:main"', text)
         self.assertIn('requires-python = ">=3.11"', text)
         self.assertIn('"/alembic.ini"', text)
 
     def test_env_example_is_secret_free_and_loopback(self) -> None:
         text = ENV_EXAMPLE.read_text(encoding="utf-8")
-        self.assertIn("RESEARCH_OSD_BIND_HOST=127.0.0.1", text)
-        self.assertIn("RESEARCH_OSD_URL=http://127.0.0.1:8766", text)
-        self.assertIn("/etc/research-os/research-os.env", text)
-        self.assertNotIn("RESEARCH_OSD_BIND_HOST=0.0.0.0", text)
+        self.assertIn("ZEST_BIND_HOST=127.0.0.1", text)
+        self.assertIn("ZEST_URL=http://127.0.0.1:8766", text)
+        self.assertIn("/etc/zest/zest.env", text)
+        self.assertNotIn("ZEST_BIND_HOST=0.0.0.0", text)
         self.assertNotIn("/home/tayfur", text)
         self.assertNotIn("password=", text.lower())
         self.assertNotIn("api_key=", text.lower())
@@ -101,7 +101,7 @@ class PackagingAndEnvTests(unittest.TestCase):
 
     def test_install_script_verifies_before_updating_current_symlink(self) -> None:
         text = INSTALL_SH.read_text(encoding="utf-8")
-        verify_pos = text.find('verify_research_os_release.py" "${VERIFY_ARGS[@]}"')
+        verify_pos = text.find('verify_zest_release.py" "${VERIFY_ARGS[@]}"')
         chown_pos = text.find('chown -R "root:${SERVICE_GROUP}" "$RELEASE_DIR"')
         link_pos = text.find('ln -sfn "releases/${RELEASE_ID}" "$CURRENT_LINK"')
         self.assertNotEqual(verify_pos, -1, "release verification step not found")
@@ -126,7 +126,7 @@ class PackagingAndEnvTests(unittest.TestCase):
         mkdir_pos = text.find('mkdir -p "$RELEASE_DIR"')
         venv_pos = text.find('"$PYTHON" -m venv "${RELEASE_DIR}/.venv"')
         install_pos = text.find('python -m pip install "${RELEASE_DIR}"')
-        release_verify_pos = text.find('"${RELEASE_DIR}/.venv/bin/python" "${RELEASE_DIR}/scripts/verify_research_os_release.py"')
+        release_verify_pos = text.find('"${RELEASE_DIR}/.venv/bin/python" "${RELEASE_DIR}/scripts/verify_zest_release.py"')
         link_pos = text.find('ln -sfn "releases/${RELEASE_ID}" "$CURRENT_LINK"')
         for label, pos in {
             "source validation": source_verify_pos,
@@ -155,20 +155,20 @@ class PackagingAndEnvTests(unittest.TestCase):
         tree = ast.parse(source)
         self.assertTrue(any(isinstance(node, ast.FunctionDef) and node.name == "assert_env_file" for node in tree.body))
 
-    def test_verify_script_has_no_top_level_research_os_imports(self) -> None:
+    def test_verify_script_has_no_top_level_zest_imports(self) -> None:
         source = VERIFY_PY.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in tree.body:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     self.assertFalse(
-                        alias.name.startswith("research_os"),
+                        alias.name.startswith("zest"),
                         f"top-level import of {alias.name} breaks stdlib bootstrap",
                     )
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     self.assertFalse(
-                        node.module.startswith("research_os"),
+                        node.module.startswith("zest"),
                         f"top-level import from {node.module} breaks stdlib bootstrap",
                     )
 
@@ -179,7 +179,7 @@ class PackagingAndEnvTests(unittest.TestCase):
         self.assertIn("state_writable=ok", collector)
         self.assertIn("log_writable=ok", collector)
         self.assertIn("secret_scan=none", collector)
-        self.assertNotIn("safe sudo -u research-os test -w", collector)
+        self.assertNotIn("safe sudo -u zest test -w", collector)
 
     def test_collector_safe_preserves_command_status(self) -> None:
         collector = (REPO / "scripts/vds_checkpoint16_collect.sh").read_text(encoding="utf-8")
@@ -219,7 +219,7 @@ class AlembicResolutionTests(unittest.TestCase):
 
 class DashboardBindTests(unittest.TestCase):
     def test_dashboard_rejects_public_bind(self) -> None:
-        from research_os.interface.dashboard import main
+        from zest.interface.dashboard import main
 
         self.assertEqual(main(["--host", "0.0.0.0", "--port", "8765"]), 2)
 

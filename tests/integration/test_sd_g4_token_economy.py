@@ -1,7 +1,7 @@
 """SD-G4 token economy policy integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -27,19 +27,19 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.budget_consumption import BudgetConsumptionRejected
-from research_os.application.budget_enforced_model import BudgetEnforcedModelPort
-from research_os.application.program_daily_budget import (
+from zest.application.budget_consumption import BudgetConsumptionRejected
+from zest.application.budget_enforced_model import BudgetEnforcedModelPort
+from zest.application.program_daily_budget import (
     AllocateProgramDailyBudget,
     AllocateProgramDailyBudgetCommand,
     ProgramDailyBudgetUsage,
     program_daily_budget_id,
 )
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import ProgramPolicyRecord, ResearchOrchestrationRecord
-from research_os.research.model_port import ModelCallRequest, ModelRole
-from research_os.research.model_runtime import (
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import ProgramPolicyRecord, ResearchOrchestrationRecord
+from zest.research.model_port import ModelCallRequest, ModelRole
+from zest.research.model_runtime import (
     AuthMode,
     ModelRuntimeIdentity,
     RuntimeClass,
@@ -55,7 +55,7 @@ class _FixtureModelPort:
         self.calls: list[ModelCallRequest] = []
 
     def complete(self, request: ModelCallRequest):
-        from research_os.research.model_port import ModelCallResult
+        from zest.research.model_port import ModelCallResult
 
         self.calls.append(request)
         return ModelCallResult(
@@ -71,7 +71,7 @@ class _FixtureModelPort:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG4TokenEconomyIntegrationTests(unittest.TestCase):
     engine = None
@@ -116,7 +116,7 @@ class SDG4TokenEconomyIntegrationTests(unittest.TestCase):
             uow.commit()
 
     def _set_daily_limit(self, limit: int) -> None:
-        from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+        from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 
         with PostgresUnitOfWork(self.engine) as uow:
             existing = uow.program_policies.get("prog-1")

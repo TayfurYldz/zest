@@ -5,8 +5,8 @@ import unittest
 import pathsetup  # noqa: F401
 
 from e2e.lab.http_auth_lab import ALICE_PASSWORD, ALICE_USERNAME, SESSION_COOKIE_NAME, Gate20AuthLab
-from research_os.worker_runtime.python.capabilities import execute
-from research_os.worker_runtime.python.http_authentication import execute_http_authentication
+from zest.worker_runtime.python.capabilities import execute
+from zest.worker_runtime.python.http_authentication import execute_http_authentication
 from support.worker_requests import valid_worker_request
 
 

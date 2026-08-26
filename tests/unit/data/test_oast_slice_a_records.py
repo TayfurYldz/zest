@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.data.errors import PersistenceInputError
-from research_os.data.records import (
+from zest.data.errors import PersistenceInputError
+from zest.data.records import (
     OastCallbackDeliveryRecord,
     OastCorrelationRecord,
 )

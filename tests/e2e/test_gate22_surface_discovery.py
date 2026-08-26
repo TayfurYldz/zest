@@ -29,38 +29,38 @@ from e2e.lab.surface_discovery_lab import (
     Gate22SurfaceLab,
 )
 from integration.harness import PostgresUnitOfWorkFactory, alembic_upgrade, configured_test_url, truncate_spine
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.discovery.runner import SurfaceDiscoveryStart
-from research_os.application.session_binding import session_material_reference
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
-from research_os.data.records import (
+from zest.application.discovery.runner import SurfaceDiscoveryStart
+from zest.application.session_binding import session_material_reference
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
+from zest.data.records import (
     AuthorizationSourceRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
     SessionContextRecord,
 )
-from research_os.maturity import (
+from zest.maturity import (
     GATE_04B_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
 )
-from research_os.platform.secrets import CompositeSecretPort, InMemorySecretStore
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
-from research_os.research.discovery.context_pack import pack_surface_discovery_context
-from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
-from research_os.research.discovery.frontier import FrontierItem
-from research_os.research.discovery.graph import rebuild_attack_surface_graph
-from research_os.research.discovery.inference import DiscoveryInference
-from research_os.research.discovery.types import (
+from zest.platform.secrets import CompositeSecretPort, InMemorySecretStore
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
+from zest.research.discovery.context_pack import pack_surface_discovery_context
+from zest.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
+from zest.research.discovery.frontier import FrontierItem
+from zest.research.discovery.graph import rebuild_attack_surface_graph
+from zest.research.discovery.inference import DiscoveryInference
+from zest.research.discovery.types import (
     ANONYMOUS_IDENTITY_ID,
     SURFACE_DISCOVERY_STRATEGY_VERSION,
     AttackSurfaceEdgeKind,
@@ -69,13 +69,13 @@ from research_os.research.discovery.types import (
     DiscoveryInferenceKind,
     DiscoverySourcePlane,
 )
-from research_os.research.exploration import EXPLORATION_STRATEGY_VERSION
-from research_os.research.identity_session import Identity, local_dev_credential
-from research_os.research.orchestration import OrchestrationBounds
-from research_os.research.target_model import TARGET_MODEL_STRATEGY_VERSION, TargetEpistemicStatus
-from research_os.worker_runtime.python.browser_engine import BrowserEngineUnavailable
-from research_os.worker_runtime.python.browser_page import execute_browser_page
-from research_os.worker_runtime.python.http_transaction import execute_http_transaction
+from zest.research.exploration import EXPLORATION_STRATEGY_VERSION
+from zest.research.identity_session import Identity, local_dev_credential
+from zest.research.orchestration import OrchestrationBounds
+from zest.research.target_model import TARGET_MODEL_STRATEGY_VERSION, TargetEpistemicStatus
+from zest.worker_runtime.python.browser_engine import BrowserEngineUnavailable
+from zest.worker_runtime.python.browser_page import execute_browser_page
+from zest.worker_runtime.python.http_transaction import execute_http_transaction
 from support.fake_model import ScriptedModelPort
 
 TEST_URL = configured_test_url()
@@ -93,7 +93,7 @@ def _playwright_installed() -> bool:
 
 def _chromium_engine():
     try:
-        from research_os.worker_runtime.python.playwright_chromium_engine import (
+        from zest.worker_runtime.python.playwright_chromium_engine import (
             PlaywrightChromiumEngine,
         )
 

@@ -4,11 +4,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.runtime_outcomes import (
+from zest.application.runtime_outcomes import (
     runtime_outcome_from_exception,
     stop_reason_for_runtime_outcome,
 )
-from research_os.research.model_port import (
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ProviderAuthError,
     ProviderRateLimitError,
@@ -16,8 +16,8 @@ from research_os.research.model_port import (
     RuntimeProcessError,
     RuntimeUnavailableError,
 )
-from research_os.research.model_runtime import RuntimeOutcome
-from research_os.research.orchestration import StopReason
+from zest.research.model_runtime import RuntimeOutcome
+from zest.research.orchestration import StopReason
 
 
 class RuntimeOutcomeMappingTests(unittest.TestCase):

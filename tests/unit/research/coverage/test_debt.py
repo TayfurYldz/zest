@@ -5,24 +5,24 @@ from collections import Counter
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ScopeClassification
-from research_os.research.coverage.debt import compute_coverage_debt
-from research_os.research.coverage.types import (
+from zest.core.enums import ScopeClassification
+from zest.research.coverage.debt import compute_coverage_debt
+from zest.research.coverage.types import (
     CoverageCell,
     CoverageHypothesisView,
     CoverageMatrix,
     CoverageState,
 )
-from research_os.research.discovery.graph import (
+from zest.research.discovery.graph import (
     AttackSurfaceGraph,
     AttackSurfaceNode,
 )
-from research_os.research.discovery.types import (
+from zest.research.discovery.types import (
     AttackSurfaceNodeKind,
     AttackSurfaceEdgeKind,
 )
-from research_os.research.selection import HunterFamilyView
-from research_os.research.target_model import TargetEpistemicStatus
+from zest.research.selection import HunterFamilyView
+from zest.research.target_model import TargetEpistemicStatus
 
 
 def _node(

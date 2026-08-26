@@ -4,24 +4,24 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.registry_external_anomaly_source import (
+from zest.application.registry_external_anomaly_source import (
     SOURCE_SYSTEM,
     admit_registry_external_anomaly_candidates,
     load_identity_anomaly_context,
 )
-from research_os.application.select_research_opportunities import (
+from zest.application.select_research_opportunities import (
     SelectResearchOpportunities,
     SelectResearchOpportunitiesCommand,
 )
-from research_os.data.records import (
+from zest.data.records import (
     DiscoveryFactRecord,
     DiscoveryFactSourceRecord,
     HunterFamilyRecord,
     ObservationRecord,
     WorkerResultRecord,
 )
-from research_os.research.exploration import OpportunityKind, ResearchPolicyBudget
-from research_os.research.identity_anomaly import IDENTITY_ANOMALY_STRATEGY_VERSION, IdentityAnomalyClass
+from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
+from zest.research.identity_anomaly import IDENTITY_ANOMALY_STRATEGY_VERSION, IdentityAnomalyClass
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 

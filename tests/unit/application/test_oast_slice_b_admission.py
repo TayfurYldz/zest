@@ -4,18 +4,18 @@ import hashlib
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from research_os.application.admit_oast_callback import AdmitOastCallback
-from research_os.application.arm_oast_correlation import (
+from zest.application.admit_oast_callback import AdmitOastCallback
+from zest.application.arm_oast_correlation import (
     ArmOastCorrelation,
     OastCorrelationArmError,
 )
-from research_os.data.records import (
+from zest.data.records import (
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     HypothesisRecord,
     ResearchRunRecord,
 )
-from research_os.research.oast.types import OastCallbackDelivery
+from zest.research.oast.types import OastCallbackDelivery
 from tests.support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 
 

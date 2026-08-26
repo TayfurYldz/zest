@@ -5,19 +5,19 @@ from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.errors import OrchestrationIntegrityError
-from research_os.application.orchestration_config import (
+from zest.application.errors import OrchestrationIntegrityError
+from zest.application.orchestration_config import (
     configuration_from_record,
     fingerprint_for_start,
     scope_fingerprint,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import (
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,
@@ -26,9 +26,9 @@ from research_os.data.records import (
     IssuedBudgetRecord,
     ResearchOrchestrationRecord,
 )
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationPhase, OrchestrationState
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.application.plan_records import experiment_plan_record_for
+from zest.research.orchestration import OrchestrationBounds, OrchestrationPhase, OrchestrationState
+from zest.research.planning import plan_diagnostic_echo
+from zest.application.plan_records import experiment_plan_record_for
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort

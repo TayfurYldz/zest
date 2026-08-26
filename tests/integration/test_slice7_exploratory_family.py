@@ -1,7 +1,7 @@
 """Slice 7 exploratory execution + human-gated family promotion.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -26,26 +26,26 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.application.execute_exploratory_hypothesis import (
+from zest.application.execute_exploratory_hypothesis import (
     ExecuteExploratoryHypothesis,
     ExecuteExploratoryHypothesisCommand,
 )
-from research_os.application.promote_exploratory_family import (
+from zest.application.promote_exploratory_family import (
     PromoteExploratoryFamily,
     PromoteExploratoryFamilyCommand,
 )
-from research_os.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.orchestration import OrchestrationBounds
+from zest.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.orchestration import OrchestrationBounds
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()
@@ -103,7 +103,7 @@ def _enabled_names(engine) -> set[str]:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class Slice7ExploratoryPostgresTests(unittest.TestCase):
     engine = None

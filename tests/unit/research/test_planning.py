@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.planning import (
+from zest.research.planning import (
     DIAGNOSTIC_LOOP_STATEMENT,
     human_seeded_hypothesis,
     plan_admitted_hypothesis,
     plan_diagnostic_echo,
 )
-from research_os.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
-from research_os.research.types import ExperimentPlan, ResearchInputError
+from zest.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
+from zest.research.types import ExperimentPlan, ResearchInputError
 
 
 class ResearchPlanningTests(unittest.TestCase):

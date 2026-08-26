@@ -15,31 +15,31 @@ from e2e.lab.http_auth_lab import (
     SESSION_COOKIE_NAME,
     Gate20AuthLab,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.session_lifecycle import revoke_session
-from research_os.application.transition_a.http_authentication import HTTP_AUTHENTICATION_OBSERVATION_KIND
-from research_os.core.enums import ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import ExperimentRecord, ResearchRunRecord, SessionContextRecord
-from research_os.platform.secrets import CompositeSecretPort, EnvSecretResolver, InMemorySecretStore
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.compiler import ExperimentCompileError, ExperimentIntent, compile_experiment_intent
-from research_os.research.http_authentication import plan_http_login
-from research_os.research.http_transaction import HttpRequestTemplate, plan_http_transaction
-from research_os.research.identity_session import (
+from zest.application.session_lifecycle import revoke_session
+from zest.application.transition_a.http_authentication import HTTP_AUTHENTICATION_OBSERVATION_KIND
+from zest.core.enums import ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import ExperimentRecord, ResearchRunRecord, SessionContextRecord
+from zest.platform.secrets import CompositeSecretPort, EnvSecretResolver, InMemorySecretStore
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.compiler import ExperimentCompileError, ExperimentIntent, compile_experiment_intent
+from zest.research.http_authentication import plan_http_login
+from zest.research.http_transaction import HttpRequestTemplate, plan_http_transaction
+from zest.research.identity_session import (
     CredentialReference,
     HttpFormLoginProfile,
     Identity,
     SessionState,
     local_dev_credential,
 )
-from research_os.research.types import ResearchInputError
-from research_os.worker_runtime.python.runtime import build_result, utc_now_rfc3339
+from zest.research.types import ResearchInputError
+from zest.worker_runtime.python.runtime import build_result, utc_now_rfc3339
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_spine

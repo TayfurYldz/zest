@@ -22,21 +22,21 @@ from datetime import datetime
 
 import pathsetup  # noqa: F401
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.hunter_coverage_opportunity_source import (
+from zest.application.hunter_coverage_opportunity_source import (
     HunterCoverageOpportunitySource,
     HunterCoverageOpportunitySourceCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import HypothesisRecord, IssuedBudgetRecord
-from research_os.research.coverage.types import CoverageCell, CoverageState
-from research_os.research.exploration import OpportunityKind, ResearchPolicyBudget
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState
-from research_os.research.scheduler.types import HunterScore, ScoredCell
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import HypothesisRecord, IssuedBudgetRecord
+from zest.research.coverage.types import CoverageCell, CoverageState
+from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState
+from zest.research.scheduler.types import HunterScore, ScoredCell
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.operator_hq_read_model import (
+from zest.application.operator_hq_read_model import (
     MAX_ITEMS_PER_COLLECTION,
     _BoundedRepositoryProxy,
     _bundle,

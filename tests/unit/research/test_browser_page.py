@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.browser_lineage import http_template_from_network_event
-from research_os.research.browser_page import (
+from zest.research.browser_lineage import http_template_from_network_event
+from zest.research.browser_page import (
     plan_browser_interact,
     plan_browser_navigate,
     plan_browser_observe,
 )
-from research_os.research.compiler import ExperimentCompileError
-from research_os.research.types import ResearchInputError
-from research_os.tools.registry import load_capability_registry
+from zest.research.compiler import ExperimentCompileError
+from zest.research.types import ResearchInputError
+from zest.tools.registry import load_capability_registry
 
 ORIGIN = "http://127.0.0.1:9"
 
@@ -58,7 +58,7 @@ class BrowserPageCompilerTests(unittest.TestCase):
         self.assertIsNotNone(observe.capability_definition_fingerprint)
 
     def test_unknown_action_rejected(self) -> None:
-        from research_os.research.browser_page import plan_browser_page, BrowserPageIntent
+        from zest.research.browser_page import plan_browser_page, BrowserPageIntent
 
         with self.assertRaises(ResearchInputError):
             plan_browser_page(
@@ -70,7 +70,7 @@ class BrowserPageCompilerTests(unittest.TestCase):
             )
 
     def test_extra_args_rejected(self) -> None:
-        from research_os.research.compiler import ExperimentIntent, compile_experiment_intent
+        from zest.research.compiler import ExperimentIntent, compile_experiment_intent
 
         with self.assertRaises(ExperimentCompileError) as ctx:
             compile_experiment_intent(
@@ -103,7 +103,7 @@ class BrowserPageCompilerTests(unittest.TestCase):
             )
 
     def test_interact_cannot_become_se0(self) -> None:
-        from research_os.research.browser_page import plan_browser_page, BrowserPageIntent
+        from zest.research.browser_page import plan_browser_page, BrowserPageIntent
 
         with self.assertRaises(ExperimentCompileError) as ctx:
             plan_browser_page(
@@ -125,7 +125,7 @@ class BrowserPageCompilerTests(unittest.TestCase):
         self.assertEqual(ctx.exception.reason_code, "RISK_UNDERSTATEMENT")
 
     def test_arbitrary_selector_and_js_forbidden(self) -> None:
-        from research_os.research.compiler import ExperimentIntent, compile_experiment_intent
+        from zest.research.compiler import ExperimentIntent, compile_experiment_intent
 
         with self.assertRaises(ExperimentCompileError):
             compile_experiment_intent(

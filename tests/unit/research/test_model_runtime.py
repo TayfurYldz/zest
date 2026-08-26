@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.model_port import ContentPolicyBlockedError, ModelCallRequest, ModelPortError, ModelRole
-from research_os.research.model_runtime import (
+from zest.research.model_port import ContentPolicyBlockedError, ModelCallRequest, ModelPortError, ModelRole
+from zest.research.model_runtime import (
     AuthMode,
     RuntimeClass,
     RuntimeKind,
@@ -13,7 +13,7 @@ from research_os.research.model_runtime import (
     cli_session_runtime_identity,
     reject_secret_keys,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _request(**overrides) -> ModelCallRequest:

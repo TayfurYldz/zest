@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-import research_os.integrations.models.cli_session as cli_session
-from research_os.integrations.models.cli_session import (
+import zest.integrations.models.cli_session as cli_session
+from zest.integrations.models.cli_session import (
     CODEX_MODELS_ENV,
     CODEX_DIAGNOSTIC_TIMEOUT_MS,
     CODEX_SKIP_GIT_REPO_CHECK_FLAG,
@@ -22,13 +22,13 @@ from research_os.integrations.models.cli_session import (
     probe_codex_cli,
     probe_codex_configurations,
 )
-from research_os.integrations.models.discovery import (
+from zest.integrations.models.discovery import (
     ProbeMode,
     Readiness,
     discover_configured_runtimes,
     gate_04b_status,
 )
-from research_os.integrations.models.json_schemas import (
+from zest.integrations.models.json_schemas import (
     DIAGNOSTIC_OUTPUT_SCHEMA,
     FALSIFIER_OUTPUT_SCHEMA,
     GENERATOR_APPLICATION_SCHEMA,
@@ -39,11 +39,11 @@ from research_os.integrations.models.json_schemas import (
     schema_for_request,
     validate_strict_transport_schema,
 )
-from research_os.interface.cli import build_status_snapshot
-from research_os.maturity import GATE_04B_STATUS
-from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
-from research_os.platform.readiness import ReadinessStage
-from research_os.research.model_port import (
+from zest.interface.cli import build_status_snapshot
+from zest.maturity import GATE_04B_STATUS
+from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
+from zest.platform.readiness import ReadinessStage
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelRole,
@@ -53,16 +53,16 @@ from research_os.research.model_port import (
     RuntimeProcessError,
     StructuredOutputTransportError,
 )
-from research_os.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
-from research_os.research.output_contracts import (
+from zest.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
+from zest.research.output_contracts import (
     ACCEPTED_NOVELTY_BASIS,
     DIAGNOSTIC_CONTRACT,
     FALSIFIER_CONTRACT,
     GENERATOR_CONTRACT,
 )
-from research_os.research.proposals import parse_novelty_basis
-from research_os.research.types import ResearchInputError
-from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+from zest.research.proposals import parse_novelty_basis
+from zest.research.types import ResearchInputError
+from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 API_KEY_PREFIX = "sk" + "-"
 
@@ -203,7 +203,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
     def test_two_valid_models_are_independently_benchmark_compatible(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         runner = _argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"}))
         results = probe_codex_configurations(env=env, runner=runner, live_probe=True)
@@ -223,7 +223,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
     def test_one_valid_one_unavailable_does_not_infer_compatibility(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         results = probe_codex_configurations(
             env=env,
@@ -295,7 +295,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
                 stdout=_transport_stdout(_generator_transport()),
             )
 
-        with tempfile.TemporaryDirectory(prefix="research-os-codex-test-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="zest-codex-test-") as tmp:
             adapter = CodexCliSessionAdapter(
                 allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
                 executable="codex",
@@ -421,7 +421,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
     def test_no_credential_leakage_in_probe_payload(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
             "OPENAI_API_KEY": "synthetic-secret-value",
         }
         result = probe_codex_cli(
@@ -447,7 +447,7 @@ class CodexDiscoveryTests(unittest.TestCase):
     def test_available_model_configurations_requires_independent_readiness(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         both = discover_configured_runtimes(
             env=env,
@@ -486,7 +486,7 @@ class CodexDiscoveryTests(unittest.TestCase):
 
     def test_invalid_configuration_is_not_available(self) -> None:
         report = discover_configured_runtimes(
-            env={CODEX_MODELS_ENV: "gpt-5.5,gpt-5.5", "RESEARCH_OS_CODEX_EXECUTABLE": "codex"}
+            env={CODEX_MODELS_ENV: "gpt-5.5,gpt-5.5", "ZEST_CODEX_EXECUTABLE": "codex"}
         )
         self.assertNotIn("gpt-5.5", report.available_model_configurations)
         cli = [item for item in report.entries if item.runtime_kind == "CLI_SESSION"]
@@ -673,7 +673,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         result = adapter.complete(
             ModelCallRequest(
                 role=ModelRole.GENERATOR,
-                correlation_id="research-os.codex.diagnostic",
+                correlation_id="zest.codex.diagnostic",
                 context_fingerprint="codex-diagnostic",
                 instructions='Return a JSON object {"diagnostic": true} only. Do not call tools.',
                 payload={"diagnostic": True},
@@ -753,7 +753,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
     def test_both_configured_models_remain_independent_and_gate04b_pending(self) -> None:
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         results = probe_codex_configurations(
             env=env,
@@ -809,7 +809,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
 
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         report = discover_configured_runtimes(env=env, argv_runner=runner)
         self.assertEqual(report.probe_mode, ProbeMode.PASSIVE.value)
@@ -849,7 +849,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
         snapshot = build_status_snapshot(
             env={
                 CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-                "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+                "ZEST_CODEX_EXECUTABLE": "codex",
             },
             argv_runner=runner,
         )
@@ -866,7 +866,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
 
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         report = discover_configured_runtimes(
             env=env,
@@ -909,7 +909,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
 
         env = {
             CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            "ZEST_CODEX_EXECUTABLE": "codex",
         }
         results = probe_codex_configurations(env=env, runner=runner, live_probe=True)
         by_id = {item.configuration_id: item for item in results}

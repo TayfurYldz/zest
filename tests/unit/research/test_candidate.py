@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.candidate import (
+from zest.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLAIM,
     DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
     CandidateAdmissionContext,
@@ -16,8 +16,8 @@ from research_os.research.candidate import (
     propose_diagnostic_candidate,
     transition_candidate,
 )
-from research_os.research.evidence import DIAGNOSTIC_ECHO_MATCHED_CLAIM
-from research_os.research.types import ResearchInputError
+from zest.research.evidence import DIAGNOSTIC_ECHO_MATCHED_CLAIM
+from zest.research.types import ResearchInputError
 
 
 def _evidence(**overrides) -> CandidateEvidenceRef:

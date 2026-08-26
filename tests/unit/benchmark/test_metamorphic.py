@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.baselines import create_baseline
-from research_os.benchmark.evaluate import evaluate_scenario
-from research_os.benchmark.metamorphic import assert_variant_aligned
-from research_os.benchmark.scenarios import context_from_visible, load_scenario, load_scenarios
-from research_os.research.epistemic import EpistemicClass
+from zest.benchmark.baselines import create_baseline
+from zest.benchmark.evaluate import evaluate_scenario
+from zest.benchmark.metamorphic import assert_variant_aligned
+from zest.benchmark.scenarios import context_from_visible, load_scenario, load_scenarios
+from zest.research.epistemic import EpistemicClass
 
 REPO = Path(__file__).resolve().parents[3]
 SCENARIO_DIR = REPO / "benchmarks" / "research" / "scenarios"

@@ -6,35 +6,35 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.promotion_pipeline import (
+from zest.application.promotion_pipeline import (
     AdvancePromotionCommand,
     AdvancePromotionPipeline,
     PromotionOutcome,
     PromotionPipeline,
     PromoteOnAssessment,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import IssuedBudgetRecord
-from research_os.research.assessment import AssessmentOutcome, ResearchFeedback
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
-from research_os.research.planning import plan_diagnostic_echo
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import IssuedBudgetRecord
+from zest.research.assessment import AssessmentOutcome, ResearchFeedback
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.research.planning import plan_diagnostic_echo
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
@@ -42,7 +42,7 @@ from support.recording_worker import (
     completed_diagnostic_outcome,
     invocation_outcome,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.spine import CREATED_AT, seed_authorization_run, seed_spine
 
 

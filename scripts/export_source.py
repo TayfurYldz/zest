@@ -11,11 +11,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from research_os.source_export import export_source_archive, find_source_root
+from zest.source_export import export_source_archive, find_source_root
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Deterministic Research OS source export")
+    parser = argparse.ArgumentParser(description="Deterministic Zest source export")
     parser.add_argument("--output", required=True)
     parser.add_argument("--include-untracked-source", action="store_true")
     args = parser.parse_args(argv)

@@ -29,7 +29,7 @@ Worker and does not create Evidence or Findings.
 
 Files:
 
-- `src/research_os/application/executor_replay_manifest.py`
+- `src/zest/application/executor_replay_manifest.py`
 
 Behavior:
 
@@ -65,7 +65,7 @@ and privacy-preserving redaction metadata.
 
 Files:
 
-- `src/research_os/application/executor_replay_bundle.py`
+- `src/zest/application/executor_replay_bundle.py`
 
 Behavior:
 
@@ -96,9 +96,9 @@ the Core-issued envelope; every redirect still requires reauthorization.
 
 Files:
 
-- `src/research_os/application/executor_fabric_assessment.py`
-- `src/research_os/worker_runtime/python/http_transaction.py`
-- `workers/python/research_os_worker/http_transaction.py`
+- `src/zest/application/executor_fabric_assessment.py`
+- `src/zest/worker_runtime/python/http_transaction.py`
+- `workers/python/zest_worker/http_transaction.py`
 - `tests/e2e/lab/https_transaction_lab.py`
 - `tests/unit/application/test_executor_fabric_assessment.py`
 - `tests/unit/worker_runtime/test_http_transaction.py`

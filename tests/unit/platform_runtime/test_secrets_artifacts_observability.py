@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import (
+from zest.application.operator_status import OperatorStatusSnapshot, render_operator_status
+from zest.maturity import (
     GATE_04B_STATUS,
     GATE_15_STATUS,
     GATE_16_STATUS,
@@ -15,24 +15,24 @@ from research_os.maturity import (
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
 )
-from research_os.platform.artifacts import ArtifactStoreError, LocalArtifactStore
-from research_os.platform.health import ComponentHealth, HealthCheck
-from research_os.platform.observability import InMemoryObservability, TelemetryEvent
-from research_os.platform.secrets import (
+from zest.platform.artifacts import ArtifactStoreError, LocalArtifactStore
+from zest.platform.health import ComponentHealth, HealthCheck
+from zest.platform.observability import InMemoryObservability, TelemetryEvent
+from zest.platform.secrets import (
     EnvSecretResolver,
     SecretReference,
     SecretResolutionStatus,
     SecretScheme,
     UnavailableSecretResolver,
 )
-from research_os.platform.strix import classify_strix_process, StrixProcessClass
+from zest.platform.strix import classify_strix_process, StrixProcessClass
 
 
 class SecretPortTests(unittest.TestCase):
     def test_env_reference_resolves_and_unavailable_fails_closed(self) -> None:
-        resolver = EnvSecretResolver({"RESEARCH_OS_DEV_SECRET": "value"})
+        resolver = EnvSecretResolver({"ZEST_DEV_SECRET": "value"})
         resolved = resolver.resolve(
-            SecretReference(SecretScheme.ENV_REFERENCE, "RESEARCH_OS_DEV_SECRET")
+            SecretReference(SecretScheme.ENV_REFERENCE, "ZEST_DEV_SECRET")
         )
         self.assertEqual(resolved.status, SecretResolutionStatus.RESOLVED)
         missing = resolver.resolve(SecretReference(SecretScheme.ENV_REFERENCE, "MISSING"))

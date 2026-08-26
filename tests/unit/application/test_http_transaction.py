@@ -7,25 +7,25 @@ from urllib.parse import urlsplit
 import pathsetup  # noqa: F401
 
 from e2e.lab.http_transaction_lab import EXTERNAL_REDIRECT, Gate19HttpLab
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.scope_reauthorization import reevaluate_redirect_location
-from research_os.application.transition_a.http_transaction import (
+from zest.application.scope_reauthorization import reevaluate_redirect_location
+from zest.application.transition_a.http_transaction import (
     HTTP_TRANSACTION_OBSERVATION_KIND,
     HttpTransactionNormalizer,
 )
-from research_os.application.transition_a.registry import NormalizerRegistry
-from research_os.core.enums import ExecutionDecisionKind, ReasonCode, ScopeDecision, ScopeRuleEffect
-from research_os.core.execution import evaluate_execution
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.http_transaction import plan_http_transaction_read
-from research_os.tools.registry import load_capability_registry
-from research_os.worker_runtime.python.runtime import build_result, utc_now_rfc3339
+from zest.application.transition_a.registry import NormalizerRegistry
+from zest.core.enums import ExecutionDecisionKind, ReasonCode, ScopeDecision, ScopeRuleEffect
+from zest.core.execution import evaluate_execution
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.http_transaction import plan_http_transaction_read
+from zest.tools.registry import load_capability_registry
+from zest.worker_runtime.python.runtime import build_result, utc_now_rfc3339
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import seed_spine
@@ -237,7 +237,7 @@ class HttpTransactionApplicationTests(unittest.TestCase):
         self.assertEqual(list(factory.store.observations.values()), [])
 
     def test_path_ambiguity_denied_before_dispatch(self) -> None:
-        from research_os.research.compiler import ExperimentCompileError
+        from zest.research.compiler import ExperimentCompileError
 
         use_case, _, port = _use_case()
         with self.assertRaises(ExperimentCompileError):
@@ -247,7 +247,7 @@ class HttpTransactionApplicationTests(unittest.TestCase):
     def test_method_action_side_effect_mismatch_denied_by_core(self) -> None:
         plan = _plan(self.origin)
         object.__setattr__(plan, "side_effect_level", 1)
-        from research_os.application.capability_binding import capability_view_for_plan
+        from zest.application.capability_binding import capability_view_for_plan
 
         view = capability_view_for_plan(plan)
         decision = evaluate_execution(
@@ -343,7 +343,7 @@ class HttpTransactionApplicationTests(unittest.TestCase):
         self.assertNotIn("rule-generic", matched)
 
     def test_authorized_dispatch_carries_core_derived_envelope(self) -> None:
-        from research_os.application.execute_planned_experiment import AuthorizedDispatch
+        from zest.application.execute_planned_experiment import AuthorizedDispatch
 
         use_case, _, _ = _use_case()
         authorized = use_case.authorize(
@@ -381,7 +381,7 @@ class HttpTransactionCapabilityAuthorizationTests(unittest.TestCase):
             authorized_origin="http://127.0.0.1:9",
             path="/ok",
         )
-        from research_os.application.capability_binding import capability_view_for_plan
+        from zest.application.capability_binding import capability_view_for_plan
         from dataclasses import replace
 
         view = capability_view_for_plan(plan)
@@ -391,8 +391,8 @@ class HttpTransactionCapabilityAuthorizationTests(unittest.TestCase):
         self.assertEqual(decision.reason_code, ReasonCode.DEFINITION_FINGERPRINT_MISMATCH)
 
     def test_mutate_at_level_zero_denied(self) -> None:
-        from research_os.application.capability_binding import capability_view_for
-        from research_os.core.enums import SideEffectLevel
+        from zest.application.capability_binding import capability_view_for
+        from zest.core.enums import SideEffectLevel
 
         view = capability_view_for("http.transaction", "mutate", effective_side_effect=0)
         decision = evaluate_execution(

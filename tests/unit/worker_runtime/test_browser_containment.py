@@ -8,7 +8,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.worker_runtime.python.browser_containment import (
+from zest.worker_runtime.python.browser_containment import (
     BROWSER_WORKER_PROTOCOL,
     CONTAINMENT_MESSAGE_TYPE,
     CONTAINMENT_NOT_ESTABLISHED,
@@ -21,9 +21,9 @@ from research_os.worker_runtime.python.browser_containment import (
     reset_containment,
     set_containment,
 )
-from research_os.worker_runtime.python.browser_engine import BrowserRuntimeLimits
-from research_os.worker_runtime.python.browser_page import execute_browser_page
-from research_os.worker_runtime.python.persistent_runtime import run_persistent
+from zest.worker_runtime.python.browser_engine import BrowserRuntimeLimits
+from zest.worker_runtime.python.browser_page import execute_browser_page
+from zest.worker_runtime.python.persistent_runtime import run_persistent
 from support.worker_requests import valid_worker_request
 
 LIMITS = BrowserRuntimeLimits()

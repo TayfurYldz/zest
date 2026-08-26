@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from research_os.application.identity import new_opaque_id
-from research_os.research.oast.types import (
+from zest.application.identity import new_opaque_id
+from zest.research.oast.types import (
     OastCallback,
     OastCallbackNotFoundError,
     OastPort,

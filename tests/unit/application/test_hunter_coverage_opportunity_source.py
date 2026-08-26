@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.errors import ApplicationError
-from research_os.application.hunter_coverage_opportunity_source import (
+from zest.application.errors import ApplicationError
+from zest.application.hunter_coverage_opportunity_source import (
     HunterCoverageOpportunitySource,
     HunterCoverageOpportunitySourceCommand,
 )
-from research_os.data.records import OpportunitySelectionCandidateRecord, ResearchOpportunityRecord
-from research_os.research.coverage.types import CoverageCell, CoverageState
-from research_os.research.exploration import OpportunityKind
-from research_os.research.scheduler.types import HunterScore, ScoredCell
+from zest.data.records import OpportunitySelectionCandidateRecord, ResearchOpportunityRecord
+from zest.research.coverage.types import CoverageCell, CoverageState
+from zest.research.exploration import OpportunityKind
+from zest.research.scheduler.types import HunterScore, ScoredCell
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 
@@ -132,7 +132,7 @@ class HunterCoverageOpportunitySourceTests(unittest.TestCase):
         cell = _scored()
         # Pre-seed a canonical opportunity with the exact identity this cell
         # would produce, simulating a prior cycle that already admitted it.
-        from research_os.application.hunter_coverage_opportunity_source import (
+        from zest.application.hunter_coverage_opportunity_source import (
             _candidate_from_scored_cell,
         )
 

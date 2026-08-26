@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.runner import run_cli
+from zest.benchmark.runner import run_cli
 
 REPO = Path(__file__).resolve().parents[3]
 

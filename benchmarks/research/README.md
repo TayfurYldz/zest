@@ -33,7 +33,7 @@ If hidden material is serialized into a model-visible structure, that is a **ben
 |---|---|
 | `development` | Visible to developers and coding assistants. Used to debug the harness. The shipped fixtures live here. **Not** an unseen holdout. |
 | `calibration` | May be inspected at defined milestones. Once used for tuning, it is not holdout. Load with `--include-calibration`. |
-| `sealed_holdout` | Must live **outside** the repository tree used by Cursor/development agents. Load only from `--sealed-holdout-path` or `RESEARCH_OS_BENCHMARK_HOLDOUT_PATH`. |
+| `sealed_holdout` | Must live **outside** the repository tree used by Cursor/development agents. Load only from `--sealed-holdout-path` or `ZEST_BENCHMARK_HOLDOUT_PATH`. |
 
 In-repo `--include-holdout` is rejected. A file the development agent can read is not a statistically clean holdout. Encryption with a key in the same workspace is also not clean.
 
@@ -94,7 +94,7 @@ uv run python scripts/run_research_benchmark.py --baseline BAD_HALLUCINATOR --ru
 uv run python scripts/run_research_benchmark.py --compare-baseline GENERIC_TEMPLATE_BASELINE
 uv run python scripts/run_research_benchmark.py --sealed-holdout-path D:\sealed-research-holdout
 uv run python scripts/run_research_benchmark.py --write-results
-uv run python scripts/run_research_benchmark.py --adapter openai --model "$env:RESEARCH_OS_OPENAI_MODEL"
+uv run python scripts/run_research_benchmark.py --adapter openai --model "$env:ZEST_OPENAI_MODEL"
 uv run python scripts/run_research_benchmark.py --discover
 uv run python scripts/run_research_benchmark.py --discover-and-compare --runs-per-scenario 3
 ```

@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.target_model import (
+from zest.research.target_model import (
     TargetElementKind,
     TargetEpistemicStatus,
     TargetInferenceDraft,
@@ -13,7 +13,7 @@ from research_os.research.target_model import (
     admit_target_inference,
     project_diagnostic_target_model,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _view(**overrides) -> TargetObservationView:

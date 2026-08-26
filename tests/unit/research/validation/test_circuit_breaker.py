@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.validation.circuit_breaker import (
+from zest.research.validation.circuit_breaker import (
     CircuitBreakerAction,
     FamilyTelemetry,
     evaluate_family_circuit_breaker,

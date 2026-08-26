@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.nday import (
+from zest.research.nday import (
     NDAY_LANE_VERSION,
     NDayAdvisory,
     ObservedTechVersion,
     match_nday_advisories,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _observed(*, scope: str = "IN_SCOPE", version: str = "1.4.2") -> ObservedTechVersion:

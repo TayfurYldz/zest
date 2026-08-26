@@ -8,22 +8,22 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.contract_validation import ContractValidator
-from research_os.platform.package_resources import contract_schema_documents, iter_packaged_scenario_json
-from research_os.source_export import export_source_archive, find_source_root, iter_export_paths
+from zest.platform.contract_validation import ContractValidator
+from zest.platform.package_resources import contract_schema_documents, iter_packaged_scenario_json
+from zest.source_export import export_source_archive, find_source_root, iter_export_paths
 
 
 REQUIRED_OPERATIONAL_EXPORT_PATHS = frozenset(
     {
-        "deploy/systemd/research-osd.service",
-        "deploy/systemd/research-os-dashboard.service",
-        "deploy/logrotate/research-os",
-        "scripts/install_research_os_release.sh",
+        "deploy/systemd/zestd.service",
+        "deploy/systemd/zest-dashboard.service",
+        "deploy/logrotate/zest",
+        "scripts/install_zest_release.sh",
         "scripts/vds_checkpoint16_collect.sh",
         "scripts/vds_checkpoint16_fixture.py",
-        "scripts/verify_research_os_release.py",
-        "src/research_os/qualification/j11_fencing.py",
-        "src/research_os/qualification/staging_spine.py",
+        "scripts/verify_zest_release.py",
+        "src/zest/qualification/j11_fencing.py",
+        "src/zest/qualification/staging_spine.py",
     }
 )
 
@@ -32,7 +32,7 @@ class PackagedResourceTests(unittest.TestCase):
     def test_contract_validator_uses_packaged_schemas(self) -> None:
         validator = ContractValidator()
         schemas = contract_schema_documents()
-        self.assertIn("urn:research-os:contracts:v1:worker-request", schemas)
+        self.assertIn("urn:zest:contracts:v1:worker-request", schemas)
         self.assertGreaterEqual(len(schemas), 2)
 
     def test_development_scenarios_are_packaged(self) -> None:
@@ -51,7 +51,7 @@ class PackagedResourceTests(unittest.TestCase):
             self.assertNotIn("  __pycache__/", text)
             self.assertNotIn("  .pytest_cache/", text)
             self.assertTrue(archive.is_file())
-            self.assertIn("src/research_os/", text)
+            self.assertIn("src/zest/", text)
 
     def test_untracked_shell_scripts_are_source_export_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,14 +69,14 @@ class PackagedResourceTests(unittest.TestCase):
     def test_untracked_deploy_assets_are_source_export_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            osd = root / "deploy" / "systemd" / "research-osd.service"
-            dashboard = root / "deploy" / "systemd" / "research-os-dashboard.service"
-            logrotate = root / "deploy" / "logrotate" / "research-os"
+            osd = root / "deploy" / "systemd" / "zestd.service"
+            dashboard = root / "deploy" / "systemd" / "zest-dashboard.service"
+            logrotate = root / "deploy" / "logrotate" / "zest"
             osd.parent.mkdir(parents=True)
             logrotate.parent.mkdir(parents=True)
-            osd.write_text("[Service]\nExecStart=/opt/research-os/current/.venv/bin/research-osd\n", encoding="utf-8")
-            dashboard.write_text("[Service]\nExecStart=/opt/research-os/current/.venv/bin/research-os-dashboard\n", encoding="utf-8")
-            logrotate.write_text("/var/log/research-os/*.log {}\n", encoding="utf-8")
+            osd.write_text("[Service]\nExecStart=/opt/zest/current/.venv/bin/zestd\n", encoding="utf-8")
+            dashboard.write_text("[Service]\nExecStart=/opt/zest/current/.venv/bin/zest-dashboard\n", encoding="utf-8")
+            logrotate.write_text("/var/log/zest/*.log {}\n", encoding="utf-8")
             selected = iter_export_paths(
                 root,
                 include_untracked_source=True,
@@ -91,7 +91,7 @@ class PackagedResourceTests(unittest.TestCase):
             root = Path(tmp)
             local_memory = root / ".claude" / "agent-memory-local" / "brain" / "targets" / "target.md"
             standalone_session = root / "agent-memory-local" / "brain" / "sessions" / "session.md"
-            source = root / "src" / "research_os" / "__init__.py"
+            source = root / "src" / "zest" / "__init__.py"
             local_memory.parent.mkdir(parents=True)
             standalone_session.parent.mkdir(parents=True)
             source.parent.mkdir(parents=True)
@@ -106,7 +106,7 @@ class PackagedResourceTests(unittest.TestCase):
         exported = {path.relative_to(root).as_posix() for path in selected}
         self.assertNotIn(".claude/agent-memory-local/brain/targets/target.md", exported)
         self.assertNotIn("agent-memory-local/brain/sessions/session.md", exported)
-        self.assertIn("src/research_os/__init__.py", exported)
+        self.assertIn("src/zest/__init__.py", exported)
 
     def test_checkpoint16_artifact_contains_installer_operational_assets(self) -> None:
         root = find_source_root()
@@ -131,11 +131,11 @@ class PackagedResourceTests(unittest.TestCase):
 
     def test_installer_referenced_optional_assets_are_exported(self) -> None:
         root = find_source_root()
-        installer = (root / "scripts" / "install_research_os_release.sh").read_text(encoding="utf-8")
+        installer = (root / "scripts" / "install_zest_release.sh").read_text(encoding="utf-8")
         referenced = {
-            "deploy/systemd/research-osd.service",
-            "deploy/systemd/research-os-dashboard.service",
-            "deploy/logrotate/research-os",
+            "deploy/systemd/zestd.service",
+            "deploy/systemd/zest-dashboard.service",
+            "deploy/logrotate/zest",
         }
         for path in referenced:
             self.assertIn(path, installer)
@@ -155,10 +155,10 @@ class PackagedResourceTests(unittest.TestCase):
             root = workspace / "root"
             root.mkdir()
             (root / "pyproject.toml").write_text("[project]\nname = 'deterministic'\n", encoding="utf-8")
-            package = root / "src" / "research_os"
+            package = root / "src" / "zest"
             package.mkdir(parents=True)
             (package / "__init__.py").write_text("", encoding="utf-8")
-            script = root / "scripts" / "install_research_os_release.sh"
+            script = root / "scripts" / "install_zest_release.sh"
             script.parent.mkdir()
             script.write_text("#!/usr/bin/env bash\ntrue\n", encoding="utf-8")
             first, first_manifest = export_source_archive(

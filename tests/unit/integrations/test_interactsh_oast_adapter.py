@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from research_os.integrations.oast.interactsh import (
+from zest.integrations.oast.interactsh import (
     INTERACTSH_PROVIDER_ADAPTER_ID,
     MAX_INTERACTSH_JSONL_BYTES,
     InteractshAdapterError,

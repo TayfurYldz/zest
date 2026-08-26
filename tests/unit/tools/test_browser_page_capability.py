@@ -4,11 +4,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.tools.browser_page_policy import (
+from zest.tools.browser_page_policy import (
     BROWSER_PAGE_MAX_NETWORK_REQUESTS,
     validate_browser_page_arguments,
 )
-from research_os.tools.registry import load_capability_registry
+from zest.tools.registry import load_capability_registry
 
 
 class BrowserPageCapabilityTests(unittest.TestCase):

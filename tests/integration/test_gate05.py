@@ -1,6 +1,6 @@
 """GATE 05 — Verification / Candidate integrity on real PostgreSQL.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 VALIDATED Candidate is not a Finding. GATE 04B may remain PENDING.
 """
 
@@ -20,61 +20,61 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.errors import ApplicationError
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.data.postgres.engine import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.candidate import CandidateAdmissionOutcome, CandidateState
-from research_os.research.planning import DIAGNOSTIC_CLAIM, plan_diagnostic_echo
-from research_os.research.verification import VerificationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.candidate import CandidateAdmissionOutcome, CandidateState
+from zest.research.planning import DIAGNOSTIC_CLAIM, plan_diagnostic_echo
+from zest.research.verification import VerificationOutcome
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from integration.harness import (
     FixedClock,
@@ -87,7 +87,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 WORKERS_PYTHON = _REPO / "workers" / "python"

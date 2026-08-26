@@ -19,19 +19,19 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.autonomous_research_controller import (  # noqa: E402
+from zest.application.autonomous_research_controller import (  # noqa: E402
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.core.enums import ScopeRuleEffect  # noqa: E402
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch  # noqa: E402
-from research_os.data.postgres.engine import (  # noqa: E402
+from zest.core.enums import ScopeRuleEffect  # noqa: E402
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch  # noqa: E402
+from zest.data.postgres.engine import (  # noqa: E402
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork  # noqa: E402
-from research_os.research.orchestration import OrchestrationBounds  # noqa: E402
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork  # noqa: E402
+from zest.research.orchestration import OrchestrationBounds  # noqa: E402
 from integration.harness import FixedClock  # noqa: E402
 from support.fake_model import ScriptedModelPort  # noqa: E402
 from support.recording_worker import RecordingWorkerPort  # noqa: E402

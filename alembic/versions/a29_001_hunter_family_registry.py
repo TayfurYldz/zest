@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.data.postgres.tables import hunter_family
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.data.postgres.tables import hunter_family
 
 revision: str = "a29_001_hunter_family_registry"
 down_revision: Union[str, Sequence[str], None] = "a28_001_token_economy"

@@ -11,16 +11,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from research_os.benchmark.runner import identity_for_cli_session, identity_for_live, run_cli
-from research_os.interface.git_provenance import collect_source_provenance
-from research_os.integrations.models.cli_session import (
+from zest.benchmark.runner import identity_for_cli_session, identity_for_live, run_cli
+from zest.interface.git_provenance import collect_source_provenance
+from zest.integrations.models.cli_session import (
     CodexCliSessionAdapter,
     load_codex_model_configurations,
     probe_codex_cli,
 )
-from research_os.integrations.models.discovery import ProbeMode, discover_configured_runtimes, gate_04b_status
-from research_os.integrations.models.factory import resolve_live_adapter
-from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+from zest.integrations.models.discovery import ProbeMode, discover_configured_runtimes, gate_04b_status
+from zest.integrations.models.factory import resolve_live_adapter
+from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
 def resolve_live(adapter_id: str, model_id: str | None):

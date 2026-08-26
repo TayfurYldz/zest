@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.research.oast.types import (
+from zest.research.oast.types import (
     OastCallbackNotFoundError,
     OastTokenExpiredError,
 )

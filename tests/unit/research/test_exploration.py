@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.exploration import (
+from zest.research.exploration import (
     DiagnosticOpportunitySources,
     NegativeKnowledge,
     OpportunityKind,
@@ -17,7 +17,7 @@ from research_os.research.exploration import (
     propose_diagnostic_opportunities,
     select_research_opportunities,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _opp(**overrides) -> ResearchOpportunity:
@@ -30,7 +30,7 @@ def _opp(**overrides) -> ResearchOpportunity:
     identity = opportunity_structural_identity(
         kind=kind, source_refs=sources, context_signature=context, proposed_direction=direction
     )
-    from research_os.research.exploration import OpportunityDimensions
+    from zest.research.exploration import OpportunityDimensions
 
     values = dict(
         opportunity_id="opp-1",

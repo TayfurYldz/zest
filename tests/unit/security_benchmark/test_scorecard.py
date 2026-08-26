@@ -6,23 +6,23 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.security_benchmark.leakage import leakage_hits
-from research_os.security_benchmark.report import (
+from zest.security_benchmark.leakage import leakage_hits
+from zest.security_benchmark.report import (
     SecurityBenchmarkReportError,
     write_immutable_report,
 )
-from research_os.security_benchmark.scenarios import (
+from zest.security_benchmark.scenarios import (
     load_research_selection_scenarios,
     load_scenarios,
 )
-from research_os.security_benchmark.scorecard import (
+from zest.security_benchmark.scorecard import (
     ObservedScenarioResult,
     aggregate_research_selection_scorecard,
     aggregate_scorecard,
     evaluate_scenario,
     gate15_scorecard_pass,
 )
-from research_os.security_benchmark.types import (
+from zest.security_benchmark.types import (
     BENCHMARK_VERSION,
     HardFailCode,
     RESEARCH_SELECTION_BENCHMARK_VERSION,

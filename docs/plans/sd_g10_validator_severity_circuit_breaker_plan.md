@@ -31,9 +31,9 @@ The gate must prove three things:
 
 Files:
 
-- `src/research_os/research/validation/tier_gate.py`
-- `src/research_os/research/validation/severity.py`
-- `src/research_os/research/validation/circuit_breaker.py`
+- `src/zest/research/validation/tier_gate.py`
+- `src/zest/research/validation/severity.py`
+- `src/zest/research/validation/circuit_breaker.py`
 
 Tests:
 

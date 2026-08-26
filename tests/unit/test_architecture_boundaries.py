@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = REPO_ROOT / "src" / "research_os"
+SRC_ROOT = REPO_ROOT / "src" / "zest"
 CORE_DIR = SRC_ROOT / "core"
 RESEARCH_DIR = SRC_ROOT / "research"
 APPLICATION_DIR = SRC_ROOT / "application"
@@ -76,14 +76,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 CORE_DIR,
                 forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS + ("playwright",),
                 forbidden_prefixes=(
-                    "research_os.data",
-                    "research_os.workers",
-                    "research_os.platform.local_process_worker",
-                    "research_os.application",
-                    "research_os.research",
-                    "research_os.benchmark",
-                    "research_os.security_benchmark",
-                    "research_os.integrations",
+                    "zest.data",
+                    "zest.workers",
+                    "zest.platform.local_process_worker",
+                    "zest.application",
+                    "zest.research",
+                    "zest.benchmark",
+                    "zest.security_benchmark",
+                    "zest.integrations",
                 ),
             ),
             [],
@@ -111,13 +111,13 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "playwright",
                 ),
                 forbidden_prefixes=(
-                    "research_os.data",
-                    "research_os.workers",
-                    "research_os.platform",
-                    "research_os.application",
-                    "research_os.benchmark",
-                    "research_os.security_benchmark",
-                    "research_os.integrations",
+                    "zest.data",
+                    "zest.workers",
+                    "zest.platform",
+                    "zest.application",
+                    "zest.benchmark",
+                    "zest.security_benchmark",
+                    "zest.integrations",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -133,14 +133,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 + PERSISTENCE_LIBS
                 + ("openai", "anthropic", "google", "langchain", "playwright"),
                 forbidden_prefixes=(
-                    "research_os.data.postgres",
-                    "research_os.platform.local_process_worker",
-                    "research_os.platform.persistent_browser_worker",
-                    "research_os.workers",
-                    "research_os.benchmark",
-                    "research_os.security_benchmark",
+                    "zest.data.postgres",
+                    "zest.platform.local_process_worker",
+                    "zest.platform.persistent_browser_worker",
+                    "zest.workers",
+                    "zest.benchmark",
+                    "zest.security_benchmark",
                     "integrations",
-                    "research_os.integrations",
+                    "zest.integrations",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -170,7 +170,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
             for name in _imported_modules(tree):
-                if name == "research_os.research" or name.startswith("research_os.research."):
+                if name == "zest.research" or name.startswith("zest.research."):
                     found.append(f"{path.relative_to(REPO_ROOT)} imports {name}")
             for needle in needles:
                 if needle in text:
@@ -186,12 +186,12 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 + SCHEMA_LIBS
                 + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
                 forbidden_prefixes=(
-                    "research_os.data",
-                    "research_os.application",
-                    "research_os.workers",
-                    "research_os.platform",
-                    "research_os.integrations",
-                    "research_os.security_benchmark",
+                    "zest.data",
+                    "zest.application",
+                    "zest.workers",
+                    "zest.platform",
+                    "zest.integrations",
+                    "zest.security_benchmark",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -208,14 +208,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 + SCHEMA_LIBS
                 + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
                 forbidden_prefixes=(
-                    "research_os.data",
-                    "research_os.application",
-                    "research_os.workers",
-                    "research_os.platform",
-                    "research_os.integrations",
-                    "research_os.benchmark",
-                    "research_os.research",
-                    "research_os.core",
+                    "zest.data",
+                    "zest.application",
+                    "zest.workers",
+                    "zest.platform",
+                    "zest.integrations",
+                    "zest.benchmark",
+                    "zest.research",
+                    "zest.core",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -228,7 +228,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             _violations(
                 PLATFORM_DIR,
                 forbidden_roots=(),
-                forbidden_prefixes=("research_os.application", "research_os.research"),
+                forbidden_prefixes=("zest.application", "zest.research"),
             ),
             [],
         )
@@ -237,8 +237,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 WORKERS_DIR,
-                forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS + ("research_os",),
-                forbidden_prefixes=("research_os.data", "research_os.application"),
+                forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS + ("zest",),
+                forbidden_prefixes=("zest.data", "zest.application"),
             ),
             [],
         )
@@ -247,11 +247,11 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 SRC_ROOT / "worker_runtime",
                 forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS,
                 forbidden_prefixes=(
-                    "research_os.data",
-                    "research_os.application",
-                    "research_os.core",
-                    "research_os.research",
-                    "research_os.integrations",
+                    "zest.data",
+                    "zest.application",
+                    "zest.core",
+                    "zest.research",
+                    "zest.integrations",
                 ),
             ),
             [],
@@ -266,9 +266,9 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         found = []
         for name in _imported_modules(tree):
             root = name.split(".", 1)[0]
-            if root in PERSISTENCE_LIBS or name.startswith("research_os.data") or name.startswith(
-                "research_os.core"
-            ) or name.startswith("research_os.research"):
+            if root in PERSISTENCE_LIBS or name.startswith("zest.data") or name.startswith(
+                "zest.core"
+            ) or name.startswith("zest.research"):
                 found.append(name)
         self.assertEqual(found, [])
 
@@ -296,8 +296,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         tree = ast.parse(text, filename=str(path))
         found = []
         for name in _imported_modules(tree):
-            if name.startswith("research_os.data") or name.startswith("research_os.core") or name.startswith(
-                "research_os.research"
+            if name.startswith("zest.data") or name.startswith("zest.core") or name.startswith(
+                "zest.research"
             ):
                 found.append(name)
         self.assertEqual(found, [])
@@ -307,7 +307,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         found = []
         for name in _imported_modules(tree):
-            if name.startswith("research_os.data") or name.startswith("research_os.core"):
+            if name.startswith("zest.data") or name.startswith("zest.core"):
                 found.append(name)
         self.assertEqual(found, [])
 
@@ -320,13 +320,13 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         for path in paths:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for name in _imported_modules(tree):
-                if name.startswith("research_os.core") or name.startswith("research_os.data"):
+                if name.startswith("zest.core") or name.startswith("zest.data"):
                     found.append(f"{path.name} imports {name}")
         self.assertEqual(found, [])
 
     def test_http_authentication_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_authentication.py"
-        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_authentication.py"
+        packaged = WORKERS_DIR / "python" / "zest_worker" / "http_authentication.py"
         self.assertEqual(
             runtime.read_text(encoding="utf-8"),
             packaged.read_text(encoding="utf-8"),
@@ -334,7 +334,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
     def test_http_raw_exchange_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_raw_exchange.py"
-        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_raw_exchange.py"
+        packaged = WORKERS_DIR / "python" / "zest_worker" / "http_raw_exchange.py"
         self.assertEqual(
             runtime.read_text(encoding="utf-8"),
             packaged.read_text(encoding="utf-8"),
@@ -342,7 +342,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
     def test_http_transaction_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_transaction.py"
-        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_transaction.py"
+        packaged = WORKERS_DIR / "python" / "zest_worker" / "http_transaction.py"
         self.assertEqual(
             runtime.read_text(encoding="utf-8"),
             packaged.read_text(encoding="utf-8"),
@@ -350,7 +350,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
     def test_http_state_transition_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_state_transition.py"
-        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_state_transition.py"
+        packaged = WORKERS_DIR / "python" / "zest_worker" / "http_state_transition.py"
         self.assertEqual(
             runtime.read_text(encoding="utf-8"),
             packaged.read_text(encoding="utf-8"),
@@ -365,7 +365,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         )
         for name in names:
             runtime = SRC_ROOT / "worker_runtime" / "python" / name
-            packaged = WORKERS_DIR / "python" / "research_os_worker" / name
+            packaged = WORKERS_DIR / "python" / "zest_worker" / name
             self.assertEqual(
                 runtime.read_text(encoding="utf-8"),
                 packaged.read_text(encoding="utf-8"),
@@ -375,7 +375,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
     def test_canonical_worker_capability_json_matches_packaged_copies(self) -> None:
         canonical = SRC_ROOT / "resources" / "contracts" / "v1" / "capabilities"
         runtime = SRC_ROOT / "worker_runtime" / "python" / "resources" / "capabilities"
-        packaged = WORKERS_DIR / "python" / "research_os_worker" / "resources" / "capabilities"
+        packaged = WORKERS_DIR / "python" / "zest_worker" / "resources" / "capabilities"
         worker_files = {path.name for path in runtime.glob("*.json")}
         self.assertEqual(worker_files, {path.name for path in packaged.glob("*.json")})
         self.assertEqual(
@@ -422,7 +422,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         )
         for name in names:
             runtime = SRC_ROOT / "worker_runtime" / "python" / name
-            packaged = WORKERS_DIR / "python" / "research_os_worker" / name
+            packaged = WORKERS_DIR / "python" / "zest_worker" / name
             self.assertEqual(
                 runtime.read_text(encoding="utf-8"),
                 packaged.read_text(encoding="utf-8"),
@@ -432,7 +432,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
     def test_playwright_is_confined_to_worker_engine(self) -> None:
         allowed = {
             SRC_ROOT / "worker_runtime" / "python" / "playwright_chromium_engine.py",
-            WORKERS_DIR / "python" / "research_os_worker" / "playwright_chromium_engine.py",
+            WORKERS_DIR / "python" / "zest_worker" / "playwright_chromium_engine.py",
         }
         found = []
         for directory in (
@@ -460,8 +460,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_existing_capability_fingerprints_are_unchanged(self) -> None:
-        from research_os.tools.fingerprint import fingerprint_capability_document
-        from research_os.tools.registry import load_capability_registry
+        from zest.tools.fingerprint import fingerprint_capability_document
+        from zest.tools.registry import load_capability_registry
 
         load_capability_registry.cache_clear()
         registry = load_capability_registry()
@@ -486,12 +486,12 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 SRC_ROOT / "tools",
                 forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
                 forbidden_prefixes=(
-                    "research_os.core",
-                    "research_os.research",
-                    "research_os.application",
-                    "research_os.data",
-                    "research_os.workers",
-                    "research_os.worker_runtime",
+                    "zest.core",
+                    "zest.research",
+                    "zest.application",
+                    "zest.data",
+                    "zest.workers",
+                    "zest.worker_runtime",
                 ),
             ),
             [],
@@ -502,7 +502,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             _violations(
                 CORE_DIR,
                 forbidden_roots=(),
-                forbidden_prefixes=("research_os.worker_runtime", "research_os.workers"),
+                forbidden_prefixes=("zest.worker_runtime", "zest.workers"),
             ),
             [],
         )

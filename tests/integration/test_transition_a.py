@@ -1,6 +1,6 @@
 """Transition A PostgreSQL tests. SQLite is not a substitute.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ if str(_REPO / "tests") not in sys.path:
 from alembic import command
 from alembic.config import Config
 
-from research_os.application.ingest_worker_invocation import (
+from zest.application.ingest_worker_invocation import (
     IngestCompletedWorkerInvocation,
     IngestionStatus,
 )
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     ExperimentRecord,
     HypothesisRecord,
@@ -40,15 +40,15 @@ from research_os.data.records import (
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.worker_requests import valid_worker_request
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
-    from research_os.data.postgres.engine import validate_test_database_url
+    from zest.data.postgres.engine import validate_test_database_url
 
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
@@ -224,8 +224,8 @@ class TransitionAPostgresTests(unittest.TestCase):
         request = valid_worker_request()
         first = use_case.execute(request, _completed(request))
         self.assertEqual(first.status, IngestionStatus.INGESTED)
-        from research_os.data.errors import PersistenceConflictError
-        from research_os.data.records import WorkerResultRecord
+        from zest.data.errors import PersistenceConflictError
+        from zest.data.records import WorkerResultRecord
 
         with PostgresUnitOfWork(self.engine) as uow:
             with self.assertRaises(PersistenceConflictError):
@@ -302,7 +302,7 @@ class TransitionAPostgresTests(unittest.TestCase):
 
     def test_midway_observation_failure_rolls_back_worker_result(self) -> None:
         assert self.engine is not None
-        from research_os.data.errors import PersistenceError
+        from zest.data.errors import PersistenceError
 
         with PostgresUnitOfWork(self.engine) as uow:
             _seed(uow)
@@ -339,7 +339,7 @@ class TransitionAPostgresTests(unittest.TestCase):
     def test_observation_fk_rejects_orphan(self) -> None:
         assert self.engine is not None
         from sqlalchemy.exc import IntegrityError
-        from research_os.data.records import ObservationRecord
+        from zest.data.records import ObservationRecord
 
         with PostgresUnitOfWork(self.engine) as uow:
             _seed(uow)

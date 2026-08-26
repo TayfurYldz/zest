@@ -12,7 +12,7 @@ from integrations.models.errors import classify_provider_exception
 from integrations.models.factory import probe_live_adapter
 from integrations.models.json_schemas import FALSIFIER_OUTPUT_SCHEMA, GENERATOR_OUTPUT_SCHEMA
 from integrations.models.secrets import REDACTED, SecretReference, redact_secret
-from research_os.research.model_port import (
+from zest.research.model_port import (
     ModelCallRequest,
     ModelRole,
     ProviderAuthError,
@@ -155,7 +155,7 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
         self.assertIsInstance(rate, ProviderRateLimitError)
 
     def test_content_filter_is_policy_blocked(self) -> None:
-        from research_os.research.model_port import ContentPolicyBlockedError
+        from zest.research.model_port import ContentPolicyBlockedError
 
         blocked = classify_provider_exception(RuntimeError("content_filter"))
         self.assertIsInstance(blocked, ContentPolicyBlockedError)

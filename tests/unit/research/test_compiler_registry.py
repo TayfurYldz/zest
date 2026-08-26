@@ -6,8 +6,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ScopeClassification
-from research_os.research.compiler_registry import (
+from zest.core.enums import ScopeClassification
+from zest.research.compiler_registry import (
     COMPILER_AUTHORIZATION_DIFFERENTIAL,
     COMPILER_GENERIC_PLANNER,
     COMPILER_MUTATION_MATRIX_CELL,
@@ -22,17 +22,17 @@ from research_os.research.compiler_registry import (
     GenericPlannerCompiler,
     assert_plan_not_understated,
 )
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.mutation import mutate_for_node
-from research_os.research.mutation.matrix import build_mutation_matrix
-from research_os.research.planning import plan_admitted_hypothesis
-from research_os.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
-from research_os.research.selection import HunterFamilyView
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.research.protocol.parser_plan import build_protocol_parser_plan
-from research_os.tools.capabilities import (
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.mutation import mutate_for_node
+from zest.research.mutation.matrix import build_mutation_matrix
+from zest.research.planning import plan_admitted_hypothesis
+from zest.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
+from zest.research.selection import HunterFamilyView
+from zest.research.target_model import TargetEpistemicStatus
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.research.protocol.parser_plan import build_protocol_parser_plan
+from zest.tools.capabilities import (
     DIAGNOSTIC_ECHO_CAPABILITY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
     HTTP_RAW_EXCHANGE_CAPABILITY,

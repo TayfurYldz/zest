@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.data.postgres.tables import SPINE_TABLES, metadata
+from zest.data.postgres.tables import SPINE_TABLES, metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = REPO_ROOT / "src" / "research_os" / "data"
+DATA_DIR = REPO_ROOT / "src" / "zest" / "data"
 ALEMBIC_ENV = REPO_ROOT / "alembic" / "env.py"
 ALEMBIC_VERSIONS = REPO_ROOT / "alembic" / "versions"
 MIGRATION = ALEMBIC_VERSIONS / "a3_001_persistence_spine.py"

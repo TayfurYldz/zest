@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.baselines import (
+from zest.benchmark.baselines import (
     FABRICATED_SOURCE_ID,
     ScriptedModelPort,
     cautious_falsifier,
@@ -13,12 +13,12 @@ from research_os.benchmark.baselines import (
     good_generator,
     poisoned_hypothesis_generator,
 )
-from research_os.benchmark.evaluate import evaluate_scenario, evaluate_suite
-from research_os.benchmark.metrics import HardFailCode, normalize_claim
-from research_os.benchmark.runner import _clean_contract_scenarios
-from research_os.benchmark.scenarios import load_scenario, load_scenarios
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.model_port import ModelPortError, ModelRole
+from zest.benchmark.evaluate import evaluate_scenario, evaluate_suite
+from zest.benchmark.metrics import HardFailCode, normalize_claim
+from zest.benchmark.runner import _clean_contract_scenarios
+from zest.benchmark.scenarios import load_scenario, load_scenarios
+from zest.research.admission import AdmissionOutcome
+from zest.research.model_port import ModelPortError, ModelRole
 
 REPO = Path(__file__).resolve().parents[3]
 SCENARIO_DIR = REPO / "benchmarks" / "research" / "scenarios"

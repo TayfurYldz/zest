@@ -7,11 +7,11 @@ from sqlalchemy.dialects import postgresql
 
 import pathsetup  # noqa: F401
 
-from research_os.data.errors import PersistenceInputError
-from research_os.data.postgres.discovery_repositories import (
+from zest.data.errors import PersistenceInputError
+from zest.data.postgres.discovery_repositories import (
     PostgresDiscoveryFactRepository,
 )
-from research_os.data.postgres.repositories import (
+from zest.data.postgres.repositories import (
     PostgresHypothesisRepository,
     PostgresImpactChainRepository,
 )

@@ -5,14 +5,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.data.records import HunterFamilyRecord
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.types import ResearchInputError
+from zest.data.records import HunterFamilyRecord
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.types import ResearchInputError
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 

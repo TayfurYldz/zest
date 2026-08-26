@@ -12,12 +12,12 @@ if str(SRC) not in sys.path:
 if str(REPO / "tests") not in sys.path:
     sys.path.insert(0, str(REPO / "tests"))
 
-from research_os.platform.contract_validation import ContractValidator
-from research_os.platform.local_process_worker import (
+from zest.platform.contract_validation import ContractValidator
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
 )
-from research_os.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus
 
 EXAMPLES = Path(__file__).resolve().parent / "examples"
 

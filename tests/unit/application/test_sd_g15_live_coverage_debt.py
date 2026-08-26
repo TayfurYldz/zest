@@ -5,12 +5,12 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.coverage.debt_view import CoverageDebtSummary
-from research_os.application.coverage.live_debt import (
+from zest.application.coverage.debt_view import CoverageDebtSummary
+from zest.application.coverage.live_debt import (
     RefreshLiveCoverageDebt,
     RefreshLiveCoverageDebtCommand,
 )
-from research_os.data.records import ChangeEventRecord, CoverageDebtSnapshotRecord
+from zest.data.records import ChangeEventRecord, CoverageDebtSnapshotRecord
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 
 NOW = datetime(2026, 8, 20, 10, 0, tzinfo=timezone.utc)

@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.research.target_model import TargetObservationView
-from research_os.research.temporal import (
+from zest.research.target_model import TargetObservationView
+from zest.research.temporal import (
     ChangeCategory,
     ChangeOutcome,
     SnapshotOutcome,

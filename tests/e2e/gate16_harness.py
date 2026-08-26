@@ -8,73 +8,73 @@ from dataclasses import dataclass
 from e2e.lab.http_ground_truth_lab import TRUE_BOLA, GroundTruthLab
 from e2e.lab.http_workflow_lab import WorkflowLab
 from integration.harness import NOW, FixedClock
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
-from research_os.application.prepare_planned_experiment import (
+from zest.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.record_human_review import (
+from zest.application.record_human_review import (
     RecordHumanReview,
     RecordHumanReviewCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
-from research_os.application.submit_finding_proposal import (
+from zest.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.core.enums import ActorType, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import (
+from zest.core.enums import ActorType, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.research.candidate import (
+from zest.research.candidate import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
     HTTP_STATE_TRANSITION_CLASSIFICATION,
     propose_state_transition_candidate,
 )
-from research_os.research.finding_proposal import HumanReviewDecision
-from research_os.research.planning import (
+from zest.research.finding_proposal import HumanReviewDecision
+from zest.research.planning import (
     HTTP_STATE_TRANSITION_CLAIM,
     plan_authorization_differential,
     plan_state_transition,
 )
-from research_os.security_benchmark.scenarios import SecurityGroundTruthScenario
-from research_os.security_benchmark.scorecard import ObservedScenarioResult
-from research_os.security_benchmark.types import ExpectedSecurityClass
+from zest.security_benchmark.scenarios import SecurityGroundTruthScenario
+from zest.security_benchmark.scorecard import ObservedScenarioResult
+from zest.security_benchmark.types import ExpectedSecurityClass
 from support.recording_worker import RecordingWorkerPort
 from support.sd_g10_validator import seed_validator_pass
 
@@ -86,11 +86,11 @@ class CrossClassProbe:
     result: ObservedScenarioResult
     workflow_proposal_from_bola_evidence: object
 MODEL_MODULE_MARKERS = (
-    "research_os.integrations.models.cli_session",
+    "zest.integrations.models.cli_session",
     "openai",
     "anthropic",
 )
-STRIX_MODULE_MARKERS = ("research_os.integrations.strix.adapter",)
+STRIX_MODULE_MARKERS = ("zest.integrations.strix.adapter",)
 
 
 def prefix_for(scenario_id: str) -> str:
@@ -448,7 +448,7 @@ def run_bola_cross_class(factory) -> ObservedScenarioResult:
         assert admitted.evidence_id is not None
         with factory.open() as uow:
             evidence = uow.evidence.get(admitted.evidence_id)
-            from research_os.research.candidate import CandidateAdmissionContext, CandidateEvidenceRef
+            from zest.research.candidate import CandidateAdmissionContext, CandidateEvidenceRef
 
             context = CandidateAdmissionContext(
                 research_run_id=run_id,

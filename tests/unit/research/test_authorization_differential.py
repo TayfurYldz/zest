@@ -7,18 +7,18 @@ from urllib.parse import urlsplit
 
 import pathsetup  # noqa: F401
 
-from research_os.application.transition_a.authorization_differential import (
+from zest.application.transition_a.authorization_differential import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_NORMALIZER_VERSION,
     HttpAuthorizationDifferentialNormalizer,
 )
-from research_os.application.transition_a.registry import NormalizerRegistry
-from research_os.research.assessment import AssessmentOutcome, default_evaluator_registry
-from research_os.research.candidate import (
+from zest.application.transition_a.registry import NormalizerRegistry
+from zest.research.assessment import AssessmentOutcome, default_evaluator_registry
+from zest.research.candidate import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
     admit_candidate,
     propose_authorization_differential_candidate,
 )
-from research_os.research.evidence import (
+from zest.research.evidence import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     EvidenceAdmissionContext,
     EvidenceAdmissionOutcome,
@@ -27,12 +27,12 @@ from research_os.research.evidence import (
     admit_evidence,
     propose_authorization_differential_evidence,
 )
-from research_os.research.evaluators.authorization_differential import (
+from zest.research.evaluators.authorization_differential import (
     HttpAuthorizationDifferentialEvaluator,
 )
-from research_os.research.feedback import ExperimentFeedback, ObservedFact
-from research_os.research.planning import plan_authorization_differential
-from research_os.worker_runtime.python.http_authorization import execute_http_authorization
+from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.planning import plan_authorization_differential
+from zest.worker_runtime.python.http_authorization import execute_http_authorization
 from support.worker_requests import valid_worker_request
 from e2e.lab.http_idor_lab import Gate14Lab
 
@@ -254,7 +254,7 @@ class HttpAuthorizationDifferentialUnitTests(unittest.TestCase):
         )
 
     def test_candidate_requires_admitted_supporting_claim(self) -> None:
-        from research_os.research.candidate import CandidateAdmissionContext, CandidateEvidenceRef
+        from zest.research.candidate import CandidateAdmissionContext, CandidateEvidenceRef
 
         context = CandidateAdmissionContext(
             research_run_id="run-1",
@@ -400,9 +400,9 @@ class HttpAuthorizationDifferentialUnitTests(unittest.TestCase):
                 names.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.add(node.module)
-        self.assertNotIn("research_os.research.model_runtime", names)
-        self.assertNotIn("research_os.integrations.models.cli_session", names)
-        self.assertNotIn("research_os.integrations.strix.adapter", names)
+        self.assertNotIn("zest.research.model_runtime", names)
+        self.assertNotIn("zest.integrations.models.cli_session", names)
+        self.assertNotIn("zest.integrations.strix.adapter", names)
         self.assertNotIn("openai", names)
 
 

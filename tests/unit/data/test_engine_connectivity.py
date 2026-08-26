@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.data.errors import DatabaseUnavailableError, PersistenceError
-from research_os.data.postgres.engine import (
+from zest.data.errors import DatabaseUnavailableError, PersistenceError
+from zest.data.postgres.engine import (
     check_schema_head,
     create_sync_engine,
     ping_database,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 
-DEAD_URL = "postgresql+psycopg://research_os_test@127.0.0.1:1/research_os_test"
+DEAD_URL = "postgresql+psycopg://zest_test@127.0.0.1:1/zest_test"
 
 
 class EngineConnectivityTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class EngineConnectivityTests(unittest.TestCase):
     def test_integrity_errors_are_not_mapped_as_unavailable(self) -> None:
         from sqlalchemy.exc import IntegrityError
 
-        from research_os.data.postgres.engine import is_connectivity_failure
+        from zest.data.postgres.engine import is_connectivity_failure
 
         self.assertFalse(is_connectivity_failure(IntegrityError("stmt", {}, Exception("orig"))))
         self.assertFalse(is_connectivity_failure(PersistenceError("persistence write failed")))

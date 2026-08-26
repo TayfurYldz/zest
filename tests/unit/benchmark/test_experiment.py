@@ -7,21 +7,21 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.baselines import create_baseline
-from research_os.benchmark.errors import BenchmarkError
-from research_os.benchmark.experiment import (
+from zest.benchmark.baselines import create_baseline
+from zest.benchmark.errors import BenchmarkError
+from zest.benchmark.experiment import (
     compare_experiments,
     run_experiment,
     write_immutable_report,
 )
-from research_os.benchmark.identity import (
+from zest.benchmark.identity import (
     BenchmarkExperimentConfig,
     ModelConfigurationIdentity,
     current_instruction_identity,
 )
-from research_os.benchmark.scenarios import load_scenario, load_scenarios, parse_scenario
-from research_os.benchmark.suite import build_suite_manifest, scenario_integrity_hash
-from research_os.research.model_port import ModelPortError
+from zest.benchmark.scenarios import load_scenario, load_scenarios, parse_scenario
+from zest.benchmark.suite import build_suite_manifest, scenario_integrity_hash
+from zest.research.model_port import ModelPortError
 
 REPO = Path(__file__).resolve().parents[3]
 SCENARIO_DIR = REPO / "benchmarks" / "research" / "scenarios"
@@ -51,7 +51,7 @@ class RepeatedRunTests(unittest.TestCase):
         self.assertGreaterEqual(summary.research_quality_failures, 1)
 
     def test_provider_auth_is_not_research_quality_failure(self) -> None:
-        from research_os.research.model_port import ProviderAuthError
+        from zest.research.model_port import ProviderAuthError
 
         scenario = load_scenario(SCENARIO_DIR / "01_clean_diagnostic.json")
         port = create_baseline("GOOD_BASELINE")
@@ -156,7 +156,7 @@ class FingerprintAndReportTests(unittest.TestCase):
 
 class RuntimeIdentityTests(unittest.TestCase):
     def test_api_and_cli_benchmark_identities_differ(self) -> None:
-        from research_os.benchmark.runner import identity_for_cli_session, identity_for_live
+        from zest.benchmark.runner import identity_for_cli_session, identity_for_live
 
         api = identity_for_live(
             adapter_identity="openai.responses",

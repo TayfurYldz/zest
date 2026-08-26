@@ -1,7 +1,7 @@
 """PostgreSQL integration tests for the a43 budget CHECK repair.
 
 SQLite is not a substitute. The suite is skipped without an explicit isolated
-RESEARCH_OS_TEST_DATABASE_URL.
+ZEST_TEST_DATABASE_URL.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ from integration.harness import (  # noqa: E402
     truncate_spine,
     warn_destructive,
 )
-from research_os.data.postgres.engine import create_sync_engine  # noqa: E402
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork  # noqa: E402
+from zest.data.postgres.engine import create_sync_engine  # noqa: E402
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork  # noqa: E402
 
 TEST_URL = configured_test_url()
 LEGACY_CONSTRAINT = "ck_budget_consumption_resource_type"
@@ -86,7 +86,7 @@ def _insert_consumption(connection, *, resource_type: str, suffix: str) -> None:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class BudgetResourceTypeCheckRepairIntegrationTests(unittest.TestCase):
     engine = None

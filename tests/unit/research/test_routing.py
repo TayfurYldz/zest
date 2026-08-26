@@ -11,8 +11,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.model_port import ModelRole
-from research_os.research.model_runtime import (
+from zest.research.model_port import ModelRole
+from zest.research.model_runtime import (
     AuthMode,
     ModelPriceClass,
     ModelRuntimeIdentity,
@@ -22,7 +22,7 @@ from research_os.research.model_runtime import (
     api_runtime_identity,
     cli_session_runtime_identity,
 )
-from research_os.research.routing import (
+from zest.research.routing import (
     ROUTING_POLICY_VERSION,
     CandidateLocality,
     LocalityConstraint,
@@ -36,7 +36,7 @@ from research_os.research.routing import (
     reconsider_runtime,
     select_runtime,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 # --- Pre-SD-G4 behavior helpers ------------------------------------------------

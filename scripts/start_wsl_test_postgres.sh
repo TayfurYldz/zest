@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Isolated Research OS integration-test PostgreSQL (WSL user-space cluster).
+# Isolated Zest integration-test PostgreSQL (WSL user-space cluster).
 # Not architecture. Not a production database. Destructive tests may TRUNCATE this DB.
 #
 # Does not use the system PostgreSQL cluster and does not require sudo.
@@ -7,15 +7,15 @@
 
 set -euo pipefail
 
-BIN="${RESEARCH_OS_PG_BIN:-/usr/lib/postgresql/18/bin}"
-DATA="${RESEARCH_OS_PG_TEST_DATA:-$HOME/.local/share/research-os-pg-test}"
-PORT="${RESEARCH_OS_PG_TEST_PORT:-55432}"
-USER_NAME="${RESEARCH_OS_PG_TEST_USER:-research_os_test}"
-DB_NAME="${RESEARCH_OS_PG_TEST_DB:-research_os_test}"
+BIN="${ZEST_PG_BIN:-/usr/lib/postgresql/18/bin}"
+DATA="${ZEST_PG_TEST_DATA:-$HOME/.local/share/zest-pg-test}"
+PORT="${ZEST_PG_TEST_PORT:-55432}"
+USER_NAME="${ZEST_PG_TEST_USER:-zest_test}"
+DB_NAME="${ZEST_PG_TEST_DB:-zest_test}"
 
 if [[ ! -x "${BIN}/initdb" || ! -x "${BIN}/pg_ctl" ]]; then
   echo "PostgreSQL 18 server binaries not found at ${BIN}" >&2
-  echo "Install postgresql-18 in WSL, or set RESEARCH_OS_PG_BIN." >&2
+  echo "Install postgresql-18 in WSL, or set ZEST_PG_BIN." >&2
   exit 1
 fi
 
@@ -59,4 +59,4 @@ fi
 
 echo
 echo "Destructive integration tests may TRUNCATE this database."
-echo "RESEARCH_OS_TEST_DATABASE_URL=postgresql+psycopg://${USER_NAME}@127.0.0.1:${PORT}/${DB_NAME}"
+echo "ZEST_TEST_DATABASE_URL=postgresql+psycopg://${USER_NAME}@127.0.0.1:${PORT}/${DB_NAME}"

@@ -1,7 +1,7 @@
 """SD-G6 mutation engine + OAST core integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent.
+ZEST_TEST_DATABASE_URL is absent.
 """
 
 from __future__ import annotations
@@ -27,21 +27,21 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.admit_oast_callback import (
+from zest.application.admit_oast_callback import (
     AdmitOastCallback,
     OastCallbackAdmissionResult,
 )
-from research_os.application.record_mutation_variants import RecordMutationVariants
-from research_os.core.enums import ScopeClassification
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.application.record_mutation_variants import RecordMutationVariants
+from zest.core.enums import ScopeClassification
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     OastTokenRecord,
     ProgramPolicyRecord,
 )
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.target_model import TargetEpistemicStatus
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.target_model import TargetEpistemicStatus
 from fixtures.oast import LoopbackOastPort
 
 TEST_URL = configured_test_url()
@@ -76,7 +76,7 @@ def _graph() -> AttackSurfaceGraph:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG6MutationOastIntegrationTests(unittest.TestCase):
     engine = None

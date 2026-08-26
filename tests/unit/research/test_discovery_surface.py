@@ -4,22 +4,22 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.discovery.canonical import (
+from zest.research.discovery.canonical import (
     admit_route_templates,
     canonical_key,
     instance_token_from_segment,
     route_template_from_paths,
 )
-from research_os.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
-from research_os.research.discovery.context_pack import pack_surface_discovery_context
-from research_os.research.discovery.control_resolve import (
+from zest.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
+from zest.research.discovery.context_pack import pack_surface_discovery_context
+from zest.research.discovery.control_resolve import (
     ControlResolutionOutcome,
     DurableControlSignature,
     LiveControlView,
     resolve_control_ref,
 )
-from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
-from research_os.research.discovery.frontier import (
+from zest.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
+from zest.research.discovery.frontier import (
     FrontierEvent,
     FrontierEventKind,
     FrontierItem,
@@ -27,12 +27,12 @@ from research_os.research.discovery.frontier import (
     next_selection_generation,
     select_eligible_frontier,
 )
-from research_os.research.discovery.graph import rebuild_attack_surface_graph
-from research_os.research.discovery.inference import (
+from zest.research.discovery.graph import rebuild_attack_surface_graph
+from zest.research.discovery.inference import (
     DiscoveryInferenceDraft,
     admit_discovery_inference,
 )
-from research_os.research.discovery.projection import (
+from zest.research.discovery.projection import (
     ControlEventView,
     ControlView,
     NetworkEventView,
@@ -42,9 +42,9 @@ from research_os.research.discovery.projection import (
     project_observation_view,
     seed_inspect_path_frontier,
 )
-from research_os.research.discovery.selection import select_surface_discovery_opportunities
-from research_os.research.discovery.templates import admit_route_template_inferences
-from research_os.research.discovery.types import (
+from zest.research.discovery.selection import select_surface_discovery_opportunities
+from zest.research.discovery.templates import admit_route_template_inferences
+from zest.research.discovery.types import (
     ANONYMOUS_IDENTITY_ID,
     SURFACE_DISCOVERY_STRATEGY_VERSION,
     ControlEventKind,
@@ -53,9 +53,9 @@ from research_os.research.discovery.types import (
     DiscoveryInferenceKind,
     DiscoverySourcePlane,
 )
-from research_os.research.exploration import EXPLORATION_STRATEGY_VERSION, NegativeKnowledge
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.research.types import ResearchInputError
+from zest.research.exploration import EXPLORATION_STRATEGY_VERSION, NegativeKnowledge
+from zest.research.target_model import TargetEpistemicStatus
+from zest.research.types import ResearchInputError
 
 
 def _bounds(**overrides) -> DiscoveryBounds:
@@ -717,7 +717,7 @@ class SelectionIsolationTests(unittest.TestCase):
             )
 
     def test_negative_knowledge_is_context_bound(self) -> None:
-        from research_os.research.discovery.selection import opportunity_from_frontier
+        from zest.research.discovery.selection import opportunity_from_frontier
 
         config = DiscoveryRunConfig(
             research_run_id="run-1",

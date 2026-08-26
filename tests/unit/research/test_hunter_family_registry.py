@@ -6,18 +6,18 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ScopeClassification
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.selection import (
+from zest.core.enums import ScopeClassification
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.selection import (
     HunterFamilyView,
     HypothesisFamily,
     claim_from_template,
     families_for_node,
     family_for_claim,
 )
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.research.types import ResearchInputError
+from zest.research.target_model import TargetEpistemicStatus
+from zest.research.types import ResearchInputError
 
 
 def _node(
@@ -118,7 +118,7 @@ class FamilyResolverTests(unittest.TestCase):
             version=1,
         )
         node = _node(node_id="n1", kind=AttackSurfaceNodeKind.HOSTNAME, canonical_key="example.com")
-        from research_os.research.discovery.graph import AttackSurfaceEdge, AttackSurfaceEdgeKind
+        from zest.research.discovery.graph import AttackSurfaceEdge, AttackSurfaceEdgeKind
 
         identity_node = AttackSurfaceNode(
             node_id="identity:ANONYMOUS",
@@ -306,7 +306,7 @@ class ClaimTemplateTests(unittest.TestCase):
 
 class FamilyForClaimBackwardsCompatibilityTests(unittest.TestCase):
     def test_object_authorization_claim_maps_to_enum(self) -> None:
-        from research_os.research.planning import HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+        from zest.research.planning import HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
 
         self.assertEqual(
             family_for_claim(HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM),
@@ -314,7 +314,7 @@ class FamilyForClaimBackwardsCompatibilityTests(unittest.TestCase):
         )
 
     def test_workflow_transition_claim_maps_to_enum(self) -> None:
-        from research_os.research.planning import HTTP_STATE_TRANSITION_CLAIM
+        from zest.research.planning import HTTP_STATE_TRANSITION_CLAIM
 
         self.assertEqual(
             family_for_claim(HTTP_STATE_TRANSITION_CLAIM),

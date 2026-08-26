@@ -40,17 +40,17 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 ### P0 — G5 Sertleştirmesi
 
-**Dosya**: `src/research_os/application/hunt_validation.py`
+**Dosya**: `src/zest/application/hunt_validation.py`
 - **Fonksiyon**: `_enqueue_v3`
 - **Değişiklik**: İlk satırda `node.scope_classification != ScopeClassification.IN_SCOPE` ise `HuntValidationTierError` yükselt.
 - **Test**: `tests/unit/application/test_hunt_cycle.py` — yeni test: UNKNOWN node ve OUT_OF_SCOPE node ile V3 kuyruk denemesi → açık hata.
 
 ### P1 — Mutation Engine
 
-**Dosya**: `src/research_os/research/mutation/__init__.py`
+**Dosya**: `src/zest/research/mutation/__init__.py`
 - Modül init; dışa aktarılan tipler.
 
-**Dosya**: `src/research_os/research/mutation/types.py`
+**Dosya**: `src/zest/research/mutation/types.py`
 - **Sınıf**: `MutationVariant`
   - Alanlar: `variant_id`, `node_id`, `family_id`, `mutation_rule_id`, `target_reference`, `scope_classification`, `capability_id`, `action`, `arguments`, `provenance`.
   - `to_public_summary()` ile boyut sınırlı (≤ 2 KB), sır içermeyen audit payload.
@@ -59,7 +59,7 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 - **Protokol**: `MutationFamily`
   - `generate(node, provenance, variant_id_prefix) -> tuple[MutationVariant, ...]`
 
-**Dosya**: `src/research_os/research/mutation/families.py`
+**Dosya**: `src/zest/research/mutation/families.py`
 - Aile implementasyonları:
   - `ParamPollutionFamily`
   - `TypeJugglingFamily`
@@ -71,17 +71,17 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 - Her aile: girdi gözlemden (EXACT_PATH/HTTP_OPERATION + parametre adayları) → deterministik varyant kümesi.
 - Her varyant `provenance = {"node_id", "family_id", "mutation_rule_id"}` taşır.
 
-**Dosya**: `src/research_os/research/mutation/engine.py`
+**Dosya**: `src/zest/research/mutation/engine.py`
 - **Fonksiyon**: `mutate_for_node(node, graph, *, variant_id_prefix: str) -> tuple[MutationVariant, ...]`
 - `MutationEngine.mutate(node, graph, *, variant_id_prefix: str)` arayüzü.
 - IN_SCOPE olmayan node için boş tuple döner (K1).
 - ID üretimi research katmanında değil, application katmanında yapılır (F2).
 - Determinizm testi: aynı girdi → aynı varyant seti.
 
-**Dosya**: `src/research_os/research/mutation/intent.py`
+**Dosya**: `src/zest/research/mutation/intent.py`
 - **Yeni helper**: `mutation_variant_to_intent(variant, budget_id) -> ExperimentIntent`.
 
-**Dosya**: `src/research_os/application/record_mutation_variants.py` (yeni)
+**Dosya**: `src/zest/application/record_mutation_variants.py` (yeni)
 - **Use case**: `RecordMutationVariants`
   - `MutationEngine` ile varyant üretir.
   - Her varyantı `audit_event` ledger'ına `MUTATION_VARIANT_PLANNED` olarak yazar.
@@ -97,7 +97,7 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 ### P2 — OAST Çekirdeği
 
-**Dosya**: `src/research_os/research/oast/types.py`
+**Dosya**: `src/zest/research/oast/types.py`
 - **Sınıf**: `OastToken`
   - Alanlar: `token_id`, `research_run_id`, `hypothesis_id`, `target_reference`, `expires_at`.
 - **Protokol**: `OastPort`
@@ -111,7 +111,7 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
   - Bellek içi token/callback store; test/fixture sınırında, application identity kullanabilir.
   - Süresi dolmuş token'a `poll` çağrısı `OastTokenExpiredError` verir.
 
-**Dosya**: `src/research_os/application/admit_oast_callback.py`
+**Dosya**: `src/zest/application/admit_oast_callback.py`
 - **Use case**: `AdmitOastCallback`
   - Callback'i evidence hattına `UNTRUSTED_EXTERNAL` olarak taşır.
   - Stale token reddi.
@@ -129,24 +129,24 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 ### P3 — Rate-Limit Enforcement
 
-**Dosya**: `src/research_os/application/program_research_context.py`
+**Dosya**: `src/zest/application/program_research_context.py`
 - **Sınıf**: `ProgramPolicyView`
   - Yeni alan: `rate_limit_profile: RateLimitProfileRecord | None`
 - **Fonksiyon**: `load_program_research_context`
   - Program'a ait rate limit profillerini `uow.rate_limit_profiles.list_for_program` ile çeker; ilkini view'a bağlar.
 - **Fonksiyon**: `derive_loopback_only` dokunulmaz.
 
-**Dosya**: `src/research_os/core/rate_limit.py` (yeni)
+**Dosya**: `src/zest/core/rate_limit.py` (yeni)
 - **Sınıf**: `RateLimitCheck`
   - `allowed: bool`, `reason_code: ReasonCode`, `next_allowed_at: datetime | None`
 - **Fonksiyon**: `check_rate_limit(profile, recent_attempts, now) -> RateLimitCheck`
   - `max_requests_per_window` / `window_seconds` bazlı.
   - Limit aşımında `ReasonCode.PROGRAM_POLICY_DENIED` veya yeni `RATE_LIMIT_DENIED` (eğer eklenirse).
 
-**Dosya**: `src/research_os/core/enums.py`
+**Dosya**: `src/zest/core/enums.py`
 - **Değişiklik**: Yeni `ReasonCode.RATE_LIMIT_DENIED` ekle (mevcut assert'leri etkilemez; yeni testler kullanır).
 
-**Dosya**: `src/research_os/application/execute_planned_experiment.py`
+**Dosya**: `src/zest/application/execute_planned_experiment.py`
 - **Fonksiyon**: `authorize`
   - Core `evaluate_execution` çağrısından ÖNCE rate-limit kontrolü ekle.
   - Aşış varsa `ResearchLoopOutcome` DISPATCH_DENIED ile döner.
@@ -167,7 +167,7 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 **Dosya**: `tests/integration/test_sd_g6_rate_limit.py`
 - PostgreSQL'li uçtan uca: pencere dolu → `ExecutePlannedExperiment` → `RATE_LIMIT_DENIED`.
 
-**Dosya**: `src/research_os/maturity.py`
+**Dosya**: `src/zest/maturity.py`
 - Yeni: `GATE_06_STATUS = "PENDING"`
 - Docstring paragrafı ekle: "SD-G6 = Mutation Engine + OAST Core + Rate-Limit Enforcement; eski GATE 06 değildir."
 

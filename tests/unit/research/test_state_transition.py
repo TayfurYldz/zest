@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.assessment import AssessmentOutcome, default_evaluator_registry
-from research_os.research.candidate import (
+from zest.research.assessment import AssessmentOutcome, default_evaluator_registry
+from zest.research.candidate import (
     CandidateAdmissionContext,
     CandidateEvidenceRef,
     CandidateProposal,
@@ -15,7 +15,7 @@ from research_os.research.candidate import (
     propose_authorization_differential_candidate,
     propose_state_transition_candidate,
 )
-from research_os.research.evidence import (
+from zest.research.evidence import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     HTTP_STATE_TRANSITION_CLAIM,
     EvidenceAdmissionContext,
@@ -24,10 +24,10 @@ from research_os.research.evidence import (
     propose_authorization_differential_evidence,
     propose_state_transition_evidence,
 )
-from research_os.research.evaluators.state_transition import HttpStateTransitionEvaluator
-from research_os.research.feedback import ExperimentFeedback, ObservedFact
-from research_os.research.invariant import InvariantKind
-from research_os.research.planning import plan_state_transition
+from zest.research.evaluators.state_transition import HttpStateTransitionEvaluator
+from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.invariant import InvariantKind
+from zest.research.planning import plan_state_transition
 
 
 def _plan(**overrides):

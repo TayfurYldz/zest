@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core import CoreInputError, evaluate_execution
+from zest.core import CoreInputError, evaluate_execution
 from fixtures import base_request
 
 

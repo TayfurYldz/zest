@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from research_os.research.model_port import (
+from zest.research.model_port import (
     ModelCallRequest,
     ModelCallResult,
     ModelPortError,
     ModelRole,
 )
-from research_os.research.planning import DIAGNOSTIC_CLAIM, DIAGNOSTIC_DISCONFIRMING_OBSERVATION
-from research_os.tools.capabilities import DIAGNOSTIC_ECHO_CAPABILITY
+from zest.research.planning import DIAGNOSTIC_CLAIM, DIAGNOSTIC_DISCONFIRMING_OBSERVATION
+from zest.tools.capabilities import DIAGNOSTIC_ECHO_CAPABILITY
 
 FAKE_ADAPTER_IDENTITY = "fake-test"
 

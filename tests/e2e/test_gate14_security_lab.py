@@ -1,6 +1,6 @@
 """GATE 14 — Authorized local security-research pipeline E2E.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
 GATE 14 may be PASS while GATE 04B remains PENDING. No Codex/LLM/Strix/internet target.
 """
@@ -29,92 +29,92 @@ from integration.harness import (
     alembic_upgrade,
     truncate_spine,
 )
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.errors import ApplicationError
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
-from research_os.application.prepare_planned_experiment import (
+from zest.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.record_human_review import (
+from zest.application.record_human_review import (
     RecordHumanReview,
     RecordHumanReviewCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
-from research_os.application.submit_finding_proposal import (
+from zest.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.core.enums import ActorType, ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import (
+from zest.core.enums import ActorType, ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.maturity import (
+from zest.maturity import (
     GATE_04B_STATUS,
     GATE_14_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.candidate import CandidateState
-from research_os.research.evidence import HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
-from research_os.research.finding_proposal import (
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.candidate import CandidateState
+from zest.research.evidence import HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+from zest.research.finding_proposal import (
     FindingCreationOutcome,
     FindingProposalState,
     HumanReviewDecision,
 )
-from research_os.research.planning import plan_authorization_differential
-from research_os.research.verification import VerificationOutcome
+from zest.research.planning import plan_authorization_differential
+from zest.research.verification import VerificationOutcome
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.sd_g10_validator import seed_validator_pass
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 GATE14_HUMAN = "gate14-human-reviewer"
@@ -814,7 +814,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         self._run_probe(
             factory, "exp-1", _plan(self._origin(), actor="alice", own="alice", cross="bob")
         )
-        self.assertNotIn("research_os.integrations.models.cli_session", sys.modules)
+        self.assertNotIn("zest.integrations.models.cli_session", sys.modules)
         self.assertNotIn("openai", sys.modules)
 
     def test_alembic_head_includes_http_classification(self) -> None:

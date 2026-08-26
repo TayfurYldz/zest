@@ -1,6 +1,6 @@
 """A7-lite PostgreSQL tests. SQLite is not a substitute.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -23,20 +23,20 @@ if str(_REPO / "tests") not in sys.path:
 from alembic import command
 from alembic.config import Config
 
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceConflictError
-from research_os.data.postgres.engine import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceConflictError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     ExecutionAttemptRecord,
     ExperimentRecord,
@@ -45,15 +45,15 @@ from research_os.data.records import (
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.research.planning import plan_diagnostic_echo
+from zest.research.planning import plan_diagnostic_echo
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
-    from research_os.data.postgres.engine import validate_test_database_url
+    from zest.data.postgres.engine import validate_test_database_url
 
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
 
@@ -252,7 +252,7 @@ class A7ControlLoopPostgresTests(unittest.TestCase):
                 scope=_allow_scope(),
             )
         )
-        from research_os.application.execute_planned_experiment import AuthorizedDispatch
+        from zest.application.execute_planned_experiment import AuthorizedDispatch
 
         self.assertIsInstance(authorized, AuthorizedDispatch)
         assert isinstance(authorized, AuthorizedDispatch)
@@ -300,7 +300,7 @@ class A7ControlLoopPostgresTests(unittest.TestCase):
             scope=_allow_scope(),
         )
         authorized = use_case.authorize(command)
-        from research_os.application.execute_planned_experiment import AuthorizedDispatch
+        from zest.application.execute_planned_experiment import AuthorizedDispatch
 
         assert isinstance(authorized, AuthorizedDispatch)
         with PostgresUnitOfWork(self.engine) as uow:

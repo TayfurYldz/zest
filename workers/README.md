@@ -2,7 +2,7 @@
 
 Out-of-process **execution** runtimes. This is the only layer allowed to perform side effects, and only after Core authorization.
 
-Not part of the `research_os` Python package. Core and Research must not import this tree.
+Not part of the `zest` Python package. Core and Research must not import this tree.
 
 ## First local runtime (A4 / Decision 021)
 

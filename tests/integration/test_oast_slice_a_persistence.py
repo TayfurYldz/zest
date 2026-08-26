@@ -1,7 +1,7 @@
 """PostgreSQL integration tests for OAST-1 Slice A persistence.
 
 SQLite is not a substitute. The suite is skipped without an explicit isolated
-RESEARCH_OS_TEST_DATABASE_URL.
+ZEST_TEST_DATABASE_URL.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from integration.harness import (  # noqa: E402
     truncate_spine,
     warn_destructive,
 )
-from research_os.data.postgres.engine import create_sync_engine  # noqa: E402
+from zest.data.postgres.engine import create_sync_engine  # noqa: E402
 
 TEST_URL = configured_test_url()
 
@@ -106,7 +106,7 @@ def _seed_execution_spine(engine) -> None:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class OastSliceAPersistenceIntegrationTests(unittest.TestCase):
     engine = None
@@ -126,7 +126,7 @@ class OastSliceAPersistenceIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         assert self.engine is not None
         truncate_spine(self.engine)
-        from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+        from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 
         with PostgresUnitOfWork(self.engine) as uow:
             seed_authorized_spine(uow, created_at=NOW)

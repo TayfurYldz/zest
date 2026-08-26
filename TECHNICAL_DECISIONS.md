@@ -1,8 +1,8 @@
-# Research OS — Technical Decisions
+# Zest — Technical Decisions
 
 This file records explicit technical decisions.
 
-It does not replace `.cursor/rules/research-os.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, or `TECHNICAL_REQUIREMENTS.md`.
+It does not replace `.cursor/rules/zest.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, or `TECHNICAL_REQUIREMENTS.md`.
 
 Decisions must stay inside those documents. A language choice does not choose a framework, database, orchestrator, broker, or provider.
 
@@ -193,7 +193,7 @@ No serialization format is chosen here.
 
 - Passes Stage 1. Strongest of the four as a pure control-plane language.
 - Not selected as primary because of Stage 2: slower Research/domain iteration and less convenient AI/security-workflow experimentation.
-- Go is not missing capability. Python is chosen because it also satisfies mandatory gates **if the documented constraints are enforced**, and it is more productive for the first Research OS implementation.
+- Go is not missing capability. Python is chosen because it also satisfies mandatory gates **if the documented constraints are enforced**, and it is more productive for the first Zest implementation.
 
 ### Risks
 
@@ -268,7 +268,7 @@ No additional language was added.
 
 **Primary language: Python**
 
-Python is selected because it satisfies the mandatory architecture/security gates and provides the best current first-implementation productivity for Research OS.
+Python is selected because it satisfies the mandatory architecture/security gates and provides the best current first-implementation productivity for Zest.
 
 Go remains a credible alternative, especially for Core/control-plane/runtime components.
 
@@ -618,7 +618,7 @@ Partial failure of (10) is the sharpest test: transactional multi-record update 
 ### Project-specific fit
 
 - **AuditEvent and immutable Evidence do not require event-sourcing the whole domain.** They require append/immutable *records* inside the SoR.
-- Audit trail ≠ event sourcing. Research OS needs reconstructable audit and immutable Evidence, not a mandatory event log as the only truth.
+- Audit trail ≠ event sourcing. Zest needs reconstructable audit and immutable Evidence, not a mandatory event log as the only truth.
 
 ### Risks
 
@@ -837,7 +837,7 @@ Python is the locked first-implementation language (Decision 001). The database 
 
 **ACCEPT WITH CONSTRAINTS**
 
-The primary System of Record for Research OS v1 is **PostgreSQL**.
+The primary System of Record for Zest v1 is **PostgreSQL**.
 
 PostgreSQL is the durable store for Program, AuthorizationSource, ScopeRule, ResearchRun, Budget, Asset, AssetRelation, Observation, Hypothesis, Experiment, WorkerResult metadata/reference, Artifact metadata/reference, Evidence, Candidate, Verification records, FindingProposal, Finding, Approval, Snapshot, ChangeEvent, and AuditEvent.
 
@@ -1074,7 +1074,7 @@ This decision does **not** require, name, or depend on specific extensions.
 
 **Fit:** Strongest **production** alternative. Viable Stage 1 production relational SoR family. Not selected because Stage 2 project fit is weaker than PostgreSQL, not because the family cannot preserve integrity.
 
-**Not identical products.** MySQL 8 and MariaDB have diverged (JSON type, sequences, optimizer, system versioning, privilege details). Hosting familiarity and replication lore are real. For Research OS they are one **family of alternatives**, not two independent winners.
+**Not identical products.** MySQL 8 and MariaDB have diverged (JSON type, sequences, optimizer, system versioning, privilege details). Hosting familiarity and replication lore are real. For Zest they are one **family of alternatives**, not two independent winners.
 
 **Why it is strong:**
 
@@ -1330,7 +1330,7 @@ Python is the locked first-implementation language (Decision 001). Orchestration
 
 **PRODUCT: DEFER**
 
-Research OS v1 uses a **hybrid orchestration strategy**:
+Zest v1 uses a **hybrid orchestration strategy**:
 
 | Layer | Role |
 |---|---|
@@ -1718,7 +1718,7 @@ It does **not** select:
 | Communication | One Worker contract. First implementation uses **local IPC / subprocess** (including the Windows host ↔ Kali/WSL OS-environment boundary). **No mandatory distributed broker.** No workflow-engine transport is selected |
 | Future | Same Worker contract → authenticated **remote** Workers over a later-chosen request/response (or other) transport. Broker/engine remain unchosen |
 
-Kali/WSL is the **initial security-tool integration environment**. It is **not** the architecture, **not** a production runtime mandate, and **not** a Control Plane dependency. Research OS must not depend on Kali or Strix (`TECHNICAL_REQUIREMENTS.md`).
+Kali/WSL is the **initial security-tool integration environment**. It is **not** the architecture, **not** a production runtime mandate, and **not** a Control Plane dependency. Zest must not depend on Kali or Strix (`TECHNICAL_REQUIREMENTS.md`).
 
 Strix is an optional **Integration** a Worker may use. Strix is **not** a Worker, not the Worker contract, and not the topology.
 
@@ -2379,7 +2379,7 @@ No dedicated cache is the only v1 choice that avoids a second SoR and extra ops 
 **Date:** 2026-08-16  
 **Depends on:** Decision 001 (Python primary; Core/Research no provider SDKs); Decision 002 (Research Memory is not SoR)
 
-This decision selects how **model calls** enter Research OS: the port, replaceability, and whether v1 routes across many models.
+This decision selects how **model calls** enter Zest: the port, replaceability, and whether v1 routes across many models.
 
 It does **not** select:
 
@@ -2406,7 +2406,7 @@ It does **not** select:
 
 Model output is always **UNTRUSTED STRUCTURED PROPOSAL**. It cannot grant scope, authorization, or budget; cannot create Evidence; cannot accept a Finding; cannot execute tools.
 
-Strix reasoning output, if Strix is used at all, follows the **same** rule. Strix is an optional Integration, not the ModelPort owner and not Research OS.
+Strix reasoning output, if Strix is used at all, follows the **same** rule. Strix is an optional Integration, not the ModelPort owner and not Zest.
 
 ---
 
@@ -2948,7 +2948,7 @@ Staged deployment is the only model that tells the truth about Phase A (Windows 
 **Date:** 2026-08-16  
 **Depends on:** Decision 001 (Python primary; Interface is application logic, not Core); Decision 010 (staged deployment); Decision 015 (Human Operator identity; Approval actor)
 
-This decision selects **how humans and external systems talk to Research OS**, and what exists in the first working implementation.
+This decision selects **how humans and external systems talk to Zest**, and what exists in the first working implementation.
 
 It does **not** select a web framework, CLI framework, desktop toolkit, API framework (FastAPI/Flask/etc.), or a dashboard product. n8n remains an example Integration, not Interface-as-Core.
 
@@ -3847,7 +3847,7 @@ Python classes, PostgreSQL types, OpenAPI documents, and Protobuf encodings are 
 
 ## Why this decision exists
 
-Decision 001: contracts are language-neutral; Python types are not architectural contracts. Decision 005: local IPC now, remote transport later, same Worker contract. A1 must exist as files Workers in Python/Go/Rust can validate without importing `research_os`.
+Decision 001: contracts are language-neutral; Python types are not architectural contracts. Decision 005: local IPC now, remote transport later, same Worker contract. A1 must exist as files Workers in Python/Go/Rust can validate without importing `zest`.
 
 Python classes as canonical truth would lock Workers to the control-plane package. OpenAPI as canonical truth would lock the Worker boundary to HTTP (Interface may use OpenAPI later; that is a different surface). Protobuf as **canonical** truth is a capable IDL but couples identity, codegen, and a binary encoding before any remote Worker exists. Avro pulls schema-registry/broker gravity. Hybrid dual-canonical (Schema + proto both “truth”) splits the SoR of the contract itself.
 
@@ -3860,7 +3860,7 @@ JSON Schema is validation-focused, inspectable, codegen-optional, and transport-
 | Gate | Meaning |
 |---|---|
 | Language-neutral | Go/Rust Workers are not blocked |
-| Independent of Core/Research classes | No `research_os` import required to know the shape |
+| Independent of Core/Research classes | No `zest` import required to know the shape |
 | Machine-validatable | Schema files parse; later a validator may be chosen |
 | Transport-neutral | Not HTTP, not a broker, not Postgres |
 | Versionable | Explicit major + in-message version |
@@ -4002,7 +4002,7 @@ Python types, PostgreSQL columns, and prompt text are **not** this decision’s 
 
 **STRATEGY: ACCEPT WITH CONSTRAINTS**
 
-Research OS optimizes for **high-confidence, evidence-backed, reproducible Findings**.
+Zest optimizes for **high-confidence, evidence-backed, reproducible Findings**.
 
 It does **not** optimize for maximum Candidate count, scanner-hit volume, or model-suspicion volume.
 
@@ -4278,7 +4278,7 @@ It does **not** select:
 
 **STRATEGY: ACCEPT WITH CONSTRAINTS**
 
-Research OS will be built to **support** expert-grade authorized research: persistent target understanding, invariant hypotheses, differential reasoning, and measured exploration.
+Zest will be built to **support** expert-grade authorized research: persistent target understanding, invariant hypotheses, differential reasoning, and measured exploration.
 
 It will **not** be described or sold as:
 
@@ -4303,7 +4303,7 @@ Do not claim N4 capability. Do not treat generic LLM prompting as a novelty engi
 
 ## Why this decision exists
 
-Without this lock, later Research work collapses to `LLM → tool → result → LLM`, or over-claims “AI finds novel classes.” Both fail the project identity: Research OS is not an AI vulnerability scanner.
+Without this lock, later Research work collapses to `LLM → tool → result → LLM`, or over-claims “AI finds novel classes.” Both fail the project identity: Zest is not an AI vulnerability scanner.
 
 Known-pattern replay (N1) is valuable and honest. Chain and invariant reasoning (N2/N3) need architecture: target/state model, differential tests, negative evidence, exploration vs exploitation. Those belong in **Research**, using Data records and Core-authorized execution — not in Core policy and not in a prompt.
 
@@ -4442,7 +4442,7 @@ Tool output and model output remain untrusted proposals (Decisions 008, 017).
 
 ## Anti-hype / measurement
 
-Research OS claims must be **measurement-driven**.
+Zest claims must be **measurement-driven**.
 
 Do not describe capabilities as autonomous novel vulnerability discovery, expert replacement, or zero-day machine unless empirical evaluation supports them.
 
@@ -4597,7 +4597,7 @@ This turn does **not** create `pyproject.toml`, a lockfile, or install anything.
 | **Lock artifact** | committed **`uv.lock`** (resolution record, not Domain truth) |
 | **Worker packaging** | **Not this pyproject.** `workers/python/` and Kali/WSL tool deps stay separate |
 
-**PRODUCT: uv is a replaceable installer**, not Research OS architecture.
+**PRODUCT: uv is a replaceable installer**, not Zest architecture.
 
 Declared dependencies live in `pyproject.toml`. The lockfile records a resolution. The venv holds installs. Core/Research import neither uv nor Hatchling.
 
@@ -4618,7 +4618,7 @@ Decision 001 listed packaging as a real Python risk: interpreter drift, unpinned
 | **`pyproject.toml`** | Declared project metadata and dependency *intent* | Not the resolver, not the venv, not Core |
 | **Lockfile** | Frozen resolution (hashes) for CI/`--frozen` installs | Not Domain; tool-specific format allowed |
 | **venv** | Isolated install target | Not a deployment topology (Decision 010) |
-| **uv** | First tool that creates venv, resolves, installs, locks | Not importable from `src/research_os` |
+| **uv** | First tool that creates venv, resolves, installs, locks | Not importable from `src/zest` |
 
 Runtime architecture remains: Core authorizes, Workers execute, Data persists. Packaging does not change that.
 
@@ -4634,7 +4634,7 @@ A packaging approach is eliminated if it cannot support:
 | Reproducible resolution | Lock or equivalent hashed freeze; “whatever pip got today” fails |
 | Windows + WSL | Same declared deps usable on the developer host and in WSL without a second metadata language |
 | CI | Non-interactive install from lock; no assumed global `pip install` of the app |
-| Editable / local | `pip`/`uv` editable install of `src/research_os` |
+| Editable / local | `pip`/`uv` editable install of `src/zest` |
 | Grouped deps | Runtime vs test/dev separable |
 | Isolation | No global interpreter as the architecture |
 | Non-leakage | Packaging tool is not a Domain/Core import |
@@ -4695,7 +4695,7 @@ Core and Research depend on **Python stdlib + later in-tree packages**, never on
 
 SQLAlchemy/psycopg/Alembic (Decision 020) are **Data-adapter libraries**. They may be *installed* into the control-plane venv because Phase A runs local PostgreSQL next to the Control Plane. **Import rules**, not extras, enforce boundaries:
 
-- `research_os.core` / `research_os.research` must not import uv, hatchling, sqlalchemy, psycopg, alembic
+- `zest.core` / `zest.research` must not import uv, hatchling, sqlalchemy, psycopg, alembic
 - Architecture tests (already used for Core) remain the regression guard
 
 Optional dependency groups (`dev`, `test`, later `integrations` providers) keep runtime vs development intent explicit. They are not a second architecture.
@@ -4976,7 +4976,7 @@ No tables for: wildcard grammar, CIDR matching, causal graphs, vectors, chain en
 2. **Research must not import** PostgreSQL drivers or treat mapped objects as domain truth.
 3. **Workers must not write the SoR.**
 4. **ORM entity ≠ Domain entity.** ORM lifecycle ≠ Candidate lifecycle. ORM relationship ≠ domain semantics. v1 does not use ORM as the mapping architecture.
-5. **SQLAlchemy `Table`/`MetaData` live in the Data adapter**, not in `research_os.core`.
+5. **SQLAlchemy `Table`/`MetaData` live in the Data adapter**, not in `zest.core`.
 6. **Transactions owned by Data adapter use-cases**, not Core.
 7. **Sync Engine in v1.** Async is a revisit, not a default.
 8. **Alembic scripts are required** for SoR evolution. `create_all` is not production.
@@ -5005,7 +5005,7 @@ Do not invent performance problems. Revisit does **not** mean: Core imports SQLA
 ## Open questions
 
 - Persistence port names and whether a generic `UnitOfWork` type is worth it in A3
-- Alembic script location (`src/research_os/data/...` vs repo-level `migrations/`)
+- Alembic script location (`src/zest/data/...` vs repo-level `migrations/`)
 - Isolation level for budget decrement (A3)
 - How append-only is enforced (REVOKE vs trigger vs application + tests)
 
@@ -5192,7 +5192,7 @@ Timeout is **not** negative Evidence. A completed diagnostic WorkerResult is **n
 1. **jsonschema does not replace `contracts/`.**
 2. **One-shot stdio is first local transport, not architecture.**
 3. **Core and Research must not import subprocess** or the concrete local adapter.
-4. **Workers must not import `research_os.core` / Data / PostgreSQL.**
+4. **Workers must not import `zest.core` / Data / PostgreSQL.**
 5. **Workers must not receive DB/model secrets** in the child environment.
 6. **Workers must not write the SoR.** A4 does not persist WorkerResult.
 7. **Do not fabricate WorkerResult** on crash, timeout, or protocol failure.
@@ -5274,7 +5274,7 @@ It does **not** select an orchestration engine, API framework, or make Applicati
 
 **STRATEGY: ACCEPT WITH CONSTRAINTS**
 
-An explicit `src/research_os/application/` layer owns **use-case coordination**.
+An explicit `src/zest/application/` layer owns **use-case coordination**.
 
 | Alternative | Stage 1 | Note |
 |---|---|---|
@@ -5328,7 +5328,7 @@ No existing layer can own Worker invocation → Transition A → persistence wit
 ## Constraints
 
 1. Application is not a new authority.
-2. Application must not import `research_os.data.postgres`, SQLAlchemy, psycopg, Alembic, subprocess, or `LocalProcessWorkerAdapter`.
+2. Application must not import `zest.data.postgres`, SQLAlchemy, psycopg, Alembic, subprocess, or `LocalProcessWorkerAdapter`.
 3. Application must not execute Workers.
 4. Application must not create Evidence, Candidate, or Finding.
 5. Orchestration **product** remains deferred (Decision 004).
@@ -5493,7 +5493,7 @@ Flow:
 7. TX2 records attempt/Experiment execution outcome.
 8. COMPLETED + valid WorkerResult → existing Transition A (`IngestCompletedWorkerInvocation`).
 
-Research OS does **not** claim exactly-once side effects.
+Zest does **not** claim exactly-once side effects.
 
 It uses: durable intent, unique request identity, risk-aware retry (not implemented in A7-lite), `UNKNOWN_OUTCOME` when necessary, and future reconciliation.
 
@@ -5529,7 +5529,7 @@ Execution success means the experiment **ran**. It does not mean the Hypothesis 
 
 Worker does not choose it. Model does not choose it. Interface should not normally choose it.
 
-`request_id` must be globally unique for the Research OS instance. Canonical contracts still see an opaque string.
+`request_id` must be globally unique for the Zest instance. Canonical contracts still see an opaque string.
 
 A6-lite ingestion idempotency remains `request_id` unique on `worker_result`. ExecutionAttempt uniqueness is the dispatch-side counterpart.
 
@@ -5764,7 +5764,7 @@ Semantic/vector hypothesis dedup is **deferred**. Exact claim merge across diffe
 
 ## Why
 
-`LLM → tool → LLM` and “give me 10 vulnerabilities” skip falsification, admission, and Core authorization. Research OS requires an untrusted proposal, an independent challenge, and domain admission before anything durable exists.
+`LLM → tool → LLM` and “give me 10 vulnerabilities” skip falsification, admission, and Core authorization. Zest requires an untrusted proposal, an independent challenge, and domain admission before anything durable exists.
 
 ## Constraints
 
@@ -6056,7 +6056,7 @@ GATE 04A ships development scenarios only. The holdout rule is in force for any 
 
 ## Why
 
-Without hidden evaluator data the benchmark becomes “the model sees the answer” or “we judge subjectively later.” Neither is acceptable for comparing Research OS behavior under a shared ResearchContext.
+Without hidden evaluator data the benchmark becomes “the model sees the answer” or “we judge subjectively later.” Neither is acceptable for comparing Zest behavior under a shared ResearchContext.
 
 ## Constraints
 
@@ -6099,7 +6099,7 @@ Does not rewrite Decisions 001–029. Does not select OpenAI, Anthropic, Gemini,
 
 Evaluate research *behavior* under the same ResearchContext:
 
-which scripted or future adapter produces better grounding, testability, falsification, and policy discipline for Research OS?
+which scripted or future adapter produces better grounding, testability, falsification, and policy discipline for Zest?
 
 Do not answer “which model is smartest?”
 
@@ -6174,7 +6174,7 @@ Model-call counts (Generator / Falsifier) are recorded now. Latency, tokens, and
 
 ## Why
 
-Provider choice must be empirical against Research OS behavior, not marketing or a hidden judge model. GATE 04A builds the measuring instrument. GATE 04B attaches real adapters to it.
+Provider choice must be empirical against Zest behavior, not marketing or a hidden judge model. GATE 04A builds the measuring instrument. GATE 04B attaches real adapters to it.
 
 ## Constraints
 
@@ -6275,7 +6275,7 @@ Structural proxies only: relevant sources used, required source groups combined,
 
 ## Reproducibility
 
-Reports record suite fingerprint, scenario identities, Research OS git commit when the script can obtain it (otherwise `unknown`), instruction fingerprints, model configuration identity, runs_per_scenario, timestamp, harness/evaluator versions. Git is engineering metadata in the benchmark script, not a Domain dependency. Reports are immutable files; overwrite is refused. Not PostgreSQL SoR.
+Reports record suite fingerprint, scenario identities, Zest git commit when the script can obtain it (otherwise `unknown`), instruction fingerprints, model configuration identity, runs_per_scenario, timestamp, harness/evaluator versions. Git is engineering metadata in the benchmark script, not a Domain dependency. Reports are immutable files; overwrite is refused. Not PostgreSQL SoR.
 
 ## Confidence
 
@@ -6333,7 +6333,7 @@ Three dataset classes:
 
 ## Sealed holdout
 
-Preferred: external directory at runtime via `RESEARCH_OS_BENCHMARK_HOLDOUT_PATH` or `--sealed-holdout-path`.
+Preferred: external directory at runtime via `ZEST_BENCHMARK_HOLDOUT_PATH` or `--sealed-holdout-path`.
 
 The repository contains schema/format docs, loader, and integrity rules. It does **not** need the sealed scenario files.
 
@@ -6396,13 +6396,13 @@ Does not rewrite Decisions 001–032. Does not select a production default provi
 
 Provider choice is an empirical GATE 04B result, not hype. The GATE 04A/04B-PREP harness is reused. Live adapters implement `ModelPort` below Research.
 
-Comparative PASS requires at least two real model configurations actually executed on the same comparable suite (suite fingerprint, scenario versions, instruction fingerprints, evaluator versions, Research OS commit). One live configuration, or only scripted baselines, is **PENDING**, not PASS.
+Comparative PASS requires at least two real model configurations actually executed on the same comparable suite (suite fingerprint, scenario versions, instruction fingerprints, evaluator versions, Zest commit). One live configuration, or only scripted baselines, is **PENDING**, not PASS.
 
 Missing SDK, credential, or explicit model id is **UNAVAILABLE**. UNAVAILABLE is not a benchmark failure and not a research-quality failure.
 
 ## Adapter boundary
 
-Research, Core, Application, and `research_os.benchmark` do not import provider SDKs. Concrete adapters live in `integrations/models/`. The benchmark script is the composition root: it may resolve a live adapter from an environment secret reference and inject a `ModelPort`.
+Research, Core, Application, and `zest.benchmark` do not import provider SDKs. Concrete adapters live in `integrations/models/`. The benchmark script is the composition root: it may resolve a live adapter from an environment secret reference and inject a `ModelPort`.
 
 Provider-specific authentication, request translation, structured-output transport, telemetry normalization, and error mapping are adapter responsibilities.
 
@@ -6426,7 +6426,7 @@ Record latency, input tokens, output tokens, retries, and provider cost only whe
 
 ## Comparison policy
 
-Same suite fingerprint, prompt fingerprints, evaluator versions, and Research OS commit are required for direct comparison. Output is dimensional. There is no `WINNER = X`. Repeated runs follow Decision 031. Hard failures stay fractions (`1/3`), not averaged PASS.
+Same suite fingerprint, prompt fingerprints, evaluator versions, and Zest commit are required for direct comparison. Output is dimensional. There is no `WINNER = X`. Repeated runs follow Decision 031. Hard failures stay fractions (`1/3`), not averaged PASS.
 
 Sealed holdout: run only if an external path exists; otherwise `SEALED HOLDOUT = UNAVAILABLE`. Development fixtures are not unseen.
 
@@ -7575,7 +7575,7 @@ Supported auth modes:
 - `LOCAL_NO_REMOTE_AUTH`
 - `EXTERNAL_RUNTIME_AUTH`
 
-Credentials and session material are not ResearchContext, SoR, Evidence, logs, or benchmark reports. Adapters hold composition-root references or rely on an already-authenticated local CLI session via a constructed child environment (`HOME`/`USERPROFILE` passthrough). Database URLs and provider API keys are stripped from child env. Research OS does not scrape undocumented credentials from another application.
+Credentials and session material are not ResearchContext, SoR, Evidence, logs, or benchmark reports. Adapters hold composition-root references or rely on an already-authenticated local CLI session via a constructed child environment (`HOME`/`USERPROFILE` passthrough). Database URLs and provider API keys are stripped from child env. Zest does not scrape undocumented credentials from another application.
 
 ## Outcome taxonomy
 
@@ -7665,12 +7665,12 @@ Locked:
 - Strix ≠ Evidence authority
 - Strix ≠ Finding authority
 
-Research OS ModelRuntime remains independently usable. No circular dependency with Strix model internals.
+Zest ModelRuntime remains independently usable. No circular dependency with Strix model internals.
 
 ## Architectural placement
 
 ```
-Research OS
+Zest
   → Application/Core authorization
   → controlled execution boundary
   → StrixIntegration (Platform port)
@@ -7733,7 +7733,7 @@ Runtime failure fabricates no Observation. Diagnostic success still remains untr
 
 ## External-agent/MCP handling
 
-An authenticated external coding agent may later consume Strix/security capabilities. Research OS remains authority.
+An authenticated external coding agent may later consume Strix/security capabilities. Zest remains authority.
 
 External agent/MCP cannot bypass:
 
@@ -7773,7 +7773,7 @@ If Strix is not installed: UNAVAILABLE / PENDING. Architecture tests may still P
 3. Do not implement security-specific scanning workflows in this gate.
 4. Do not implement provider/runtime safeguard bypass via Strix.
 5. Do not let Strix write the SoR.
-6. Do not treat Strix model configuration as Research OS ModelRuntime.
+6. Do not treat Strix model configuration as Zest ModelRuntime.
 
 ## Revisit triggers
 
@@ -7967,7 +7967,7 @@ Does not rewrite Decisions 001–048. Autonomous != unbounded. This is not `whil
 
 ## Strategy
 
-Research OS can repeatedly observe → reason → select → plan → authorize → execute → evaluate → remember under explicit bounded policy. The controller coordinates existing use cases and does not duplicate domain logic. Model output cannot recursively spawn agents; a new hypothesis/experiment becomes explicit domain state and re-enters the same pipeline.
+Zest can repeatedly observe → reason → select → plan → authorize → execute → evaluate → remember under explicit bounded policy. The controller coordinates existing use cases and does not duplicate domain logic. Model output cannot recursively spawn agents; a new hypothesis/experiment becomes explicit domain state and re-enters the same pipeline.
 
 ## Ownership
 
@@ -8080,13 +8080,13 @@ Classify AUTHORIZED-never-dispatched, DISPATCHING unknown, stale RUNNING checkpo
 
 ## DB / artifact operations
 
-`scripts/research_os_db.py`: migrate to head, schema version, ping. Backup/restore remain operator procedures, not a DBA product. No SQLite fallback.
+`scripts/zest_db.py`: migrate to head, schema version, ping. Backup/restore remain operator procedures, not a DBA product. No SQLite fallback.
 
 Local artifact store: bounded paths, no traversal, content hash, atomic write, size limits, evidence-linked delete refusal. Bytes stay off the DB.
 
 ## Operator status
 
-`research-os status` prints PostgreSQL, Worker, Model Runtimes (including SUBSCRIPTION_OAUTH=NOT_IMPLEMENTED), Strix, Auth, Orchestrator, Budget, Reconciliation, Observability, GATE 04B, and maturity flags. No secrets.
+`zest status` prints PostgreSQL, Worker, Model Runtimes (including SUBSCRIPTION_OAUTH=NOT_IMPLEMENTED), Strix, Auth, Orchestrator, Budget, Reconciliation, Observability, GATE 04B, and maturity flags. No secrets.
 
 ## Confidence
 
@@ -8160,11 +8160,11 @@ Status: **accepted with constraints** (QA remediation; GATE 13 VALIDATION_PENDIN
 
 Date: 2026-08-17
 
-The installed wheel/sdist must not depend on repository-root layout. Concrete integrations live under `research_os.integrations`. The diagnostic Python Worker is invoked as `python -m research_os.worker_runtime.python`. Canonical contracts and development benchmark fixtures are package resources loaded with `importlib.resources`. SEALED_HOLDOUT is not bundled.
+The installed wheel/sdist must not depend on repository-root layout. Concrete integrations live under `zest.integrations`. The diagnostic Python Worker is invoked as `python -m zest.worker_runtime.python`. Canonical contracts and development benchmark fixtures are package resources loaded with `importlib.resources`. SEALED_HOLDOUT is not bundled.
 
 Research must not import concrete integrations. Application depends on ports/contracts. Composition root may import integrations.
 
-`scripts/export_source.py` / `research-os export-source` produces a deterministic archive excluding `.git`, `.venv`, secrets, coverage, and runtime artifacts. Clean-install smoke is mandatory for final GATE 13 PASS.
+`scripts/export_source.py` / `zest export-source` produces a deterministic archive excluding `.git`, `.venv`, secrets, coverage, and runtime artifacts. Clean-install smoke is mandatory for final GATE 13 PASS.
 
 
 # Decision 054 — Runtime Operational Truthfulness
@@ -8181,7 +8181,7 @@ Worker HEALTHY requires a real diagnostic protocol probe. Strix executable witho
 
 Secret protection is recursive. Safe opaque `SecretReference` / `SessionReference` values are permitted. Exception serialization omits headers/tokens/bodies.
 
-Process-tree supervision terminates descendants (POSIX process group; Windows Job Object). Operator status uses `RESEARCH_OS_DATABASE_URL` for POSTGRESQL and reports TEST_POSTGRESQL separately. Benchmark provenance records dirty/untracked source; dirty runs are DEVELOPMENT / NON_AUTHORITATIVE.
+Process-tree supervision terminates descendants (POSIX process group; Windows Job Object). Operator status uses `ZEST_DATABASE_URL` for POSTGRESQL and reports TEST_POSTGRESQL separately. Benchmark provenance records dirty/untracked source; dirty runs are DEVELOPMENT / NON_AUTHORITATIVE.
 
 Provider error classification prefers structured class/code over HTTP-status heuristics. HTTP 403 is not automatically AUTH_FAILED.
 

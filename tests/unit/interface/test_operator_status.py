@@ -4,24 +4,24 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.integrations.models.cli_session import CODEX_MODELS_ENV
-from research_os.interface.cli import build_status_snapshot
-from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
-from research_os.platform.health import ComponentHealth
+from zest.application.operator_status import OperatorStatusSnapshot, render_operator_status
+from zest.integrations.models.cli_session import CODEX_MODELS_ENV
+from zest.interface.cli import build_status_snapshot
+from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
+from zest.platform.health import ComponentHealth
 
 
 class StatusDatabaseSeparationTests(unittest.TestCase):
     def test_application_db_is_not_test_db(self) -> None:
         snapshot = build_status_snapshot(
             env={
-                "RESEARCH_OS_DATABASE_URL": "postgresql+psycopg://app:secret-pass@127.0.0.1:5432/research_os",
-                "RESEARCH_OS_TEST_DATABASE_URL": "postgresql+psycopg://test:other-pass@127.0.0.1:55432/research_os_test",
+                "ZEST_DATABASE_URL": "postgresql+psycopg://app:secret-pass@127.0.0.1:5432/zest",
+                "ZEST_TEST_DATABASE_URL": "postgresql+psycopg://test:other-pass@127.0.0.1:55432/zest_test",
             }
         )
         self.assertNotIn("secret-pass", snapshot.application_dsn)
         self.assertNotIn("other-pass", snapshot.test_dsn)
-        self.assertIn("research_os_test", snapshot.test_dsn)
+        self.assertIn("zest_test", snapshot.test_dsn)
         self.assertNotEqual(snapshot.postgresql, snapshot.test_postgresql)
         text = render_operator_status(snapshot)
         self.assertIn("TEST_POSTGRESQL:", text)
@@ -33,8 +33,8 @@ class StatusDatabaseSeparationTests(unittest.TestCase):
             OperatorStatusSnapshot(
                 postgresql=ComponentHealth.HEALTHY.value,
                 test_postgresql=ComponentHealth.UNAVAILABLE.value,
-                application_dsn="postgresql+psycopg://127.0.0.1/research_os",
-                test_dsn="postgresql+psycopg://127.0.0.1/research_os_test",
+                application_dsn="postgresql+psycopg://127.0.0.1/zest",
+                test_dsn="postgresql+psycopg://127.0.0.1/zest_test",
                 worker={"local-python": ComponentHealth.UNAVAILABLE.value},
                 model_runtimes={"API": ComponentHealth.UNAVAILABLE.value},
                 strix=ComponentHealth.UNAVAILABLE.value,
@@ -74,7 +74,7 @@ class StatusQuotaSafetyTests(unittest.TestCase):
         snapshot = build_status_snapshot(
             env={
                 CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
-                "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+                "ZEST_CODEX_EXECUTABLE": "codex",
             },
             argv_runner=runner,
         )

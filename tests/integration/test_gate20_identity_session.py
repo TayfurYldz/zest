@@ -34,25 +34,25 @@ from integration.harness import (
     seed_authorized_spine,
     truncate_spine,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.core.enums import ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
-from research_os.data.records import ExperimentRecord
-from research_os.platform.local_process_worker import (
+from zest.core.enums import ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
+from zest.data.records import ExperimentRecord
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.platform.secrets import CompositeSecretPort, EnvSecretResolver, InMemorySecretStore
-from research_os.research.http_authentication import plan_http_login
-from research_os.research.http_transaction import HttpRequestTemplate, plan_http_transaction
-from research_os.research.identity_session import HttpFormLoginProfile, Identity, SessionState, local_dev_credential
+from zest.platform.secrets import CompositeSecretPort, EnvSecretResolver, InMemorySecretStore
+from zest.research.http_authentication import plan_http_login
+from zest.research.http_transaction import HttpRequestTemplate, plan_http_transaction
+from zest.research.identity_session import HttpFormLoginProfile, Identity, SessionState, local_dev_credential
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()

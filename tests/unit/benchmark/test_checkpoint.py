@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-import research_os.benchmark.runner as runner_module
-from research_os.benchmark.baselines import (
+import zest.benchmark.runner as runner_module
+from zest.benchmark.baselines import (
     BAD_HALLUCINATOR,
     GOOD_BASELINE,
     ScriptedModelPort,
@@ -19,24 +19,24 @@ from research_os.benchmark.baselines import (
     create_baseline,
     good_generator,
 )
-from research_os.benchmark.checkpoint import (
+from zest.benchmark.checkpoint import (
     BenchmarkCheckpointSession,
     BenchmarkOperationalPause,
 )
-from research_os.benchmark.errors import BenchmarkError
-from research_os.benchmark.experiment import compare_experiments, run_experiment
-from research_os.benchmark.identity import (
+from zest.benchmark.errors import BenchmarkError
+from zest.benchmark.experiment import compare_experiments, run_experiment
+from zest.benchmark.identity import (
     BenchmarkExperimentConfig,
     ModelConfigurationIdentity,
     current_instruction_identity,
 )
-from research_os.benchmark.runner import (
+from zest.benchmark.runner import (
     BENCHMARK_OPERATIONAL_PAUSE_EXIT_CODE,
     identity_for_live,
     run_cli,
 )
-from research_os.benchmark.scenarios import load_scenarios
-from research_os.research.model_port import (
+from zest.benchmark.scenarios import load_scenarios
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelCallResult,
@@ -1229,7 +1229,7 @@ class BenchmarkCheckpointCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertFalse(report.exists())
             self.assertIn("GATE 04B CONTRACT", out.getvalue())
-            self.assertNotIn("suite: research-os.development.v1", out.getvalue())
+            self.assertNotIn("suite: zest.development.v1", out.getvalue())
             self.assertTrue(good.calls)
             self.assertTrue(
                 all(

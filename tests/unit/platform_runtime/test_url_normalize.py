@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.url_normalize import (
+from zest.platform.url_normalize import (
     IDNA_ERROR,
     PARSE_ERROR,
     PATH_AMBIGUOUS,

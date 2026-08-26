@@ -17,15 +17,15 @@ import pathsetup  # noqa: F401
 REPO = Path(__file__).resolve().parents[3]
 FIXTURE = REPO / "scripts/vds_checkpoint16_fixture.py"
 COLLECTOR = REPO / "scripts/vds_checkpoint16_collect.sh"
-RESEARCH_OSD = REPO / "src/research_os/interface/research_osd.py"
-OPERATOR_API = REPO / "src/research_os/interface/operator_api.py"
+ZESTD = REPO / "src/zest/interface/zestd.py"
+OPERATOR_API = REPO / "src/zest/interface/operator_api.py"
 
 
 def _subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = ""
-    env.pop("RESEARCH_OSD_ALLOW_SPINE_TRUNCATE", None)
-    env.pop("RESEARCH_OS_DATABASE_URL", None)
+    env.pop("ZEST_ALLOW_SPINE_TRUNCATE", None)
+    env.pop("ZEST_DATABASE_URL", None)
     return env
 
 
@@ -35,8 +35,8 @@ class VdsFixtureSourceTests(unittest.TestCase):
         self.assertNotIn("integration.harness", source)
         self.assertNotIn("from integration", source)
         self.assertNotIn("sys.path", source)
-        self.assertIn("research_os.qualification.staging_spine", source)
-        self.assertIn("research_os.qualification.j11_fencing", source)
+        self.assertIn("zest.qualification.staging_spine", source)
+        self.assertIn("zest.qualification.j11_fencing", source)
         self.assertIn("require_explicit_spine_truncate", source)
         tree = ast.parse(source)
         imported = []
@@ -46,13 +46,13 @@ class VdsFixtureSourceTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.append(node.module.split(".", 1)[0])
         self.assertNotIn("integration", imported)
-        self.assertIn("research_os", imported)
+        self.assertIn("zest", imported)
 
     def test_runtime_entrypoint_does_not_import_qualification(self) -> None:
-        osd = RESEARCH_OSD.read_text(encoding="utf-8")
+        osd = ZESTD.read_text(encoding="utf-8")
         api = OPERATOR_API.read_text(encoding="utf-8")
-        self.assertNotIn("research_os.qualification", osd)
-        self.assertNotIn("research_os.qualification", api)
+        self.assertNotIn("zest.qualification", osd)
+        self.assertNotIn("zest.qualification", api)
 
     def test_collector_does_not_hack_pythonpath_or_tests_tree(self) -> None:
         source = COLLECTOR.read_text(encoding="utf-8")
@@ -135,7 +135,7 @@ class VdsFixtureReleaseImportTests(unittest.TestCase):
             wheels = sorted(
                 path
                 for path in dist.glob("*.whl")
-                if path.name.startswith("research_os-")
+                if path.name.startswith("zest-")
             )
             self.assertEqual(len(wheels), 1, list(dist.iterdir()))
             install = subprocess.run(
@@ -188,7 +188,7 @@ class VdsFixtureReleaseImportTests(unittest.TestCase):
                 env=env,
             )
             self.assertNotEqual(no_guard.returncode, 0)
-            self.assertIn("RESEARCH_OSD_ALLOW_SPINE_TRUNCATE=YES", no_guard.stderr)
+            self.assertIn("ZEST_ALLOW_SPINE_TRUNCATE=YES", no_guard.stderr)
             self.assertNotIn("database=", no_guard.stdout)
 
             missing = subprocess.run(
@@ -207,7 +207,7 @@ class VdsFixtureReleaseImportTests(unittest.TestCase):
                     str(python),
                     "-I",
                     "-c",
-                    "from research_os.qualification.staging_spine import "
+                    "from zest.qualification.staging_spine import "
                     "seed_authorized_spine, truncate_spine; print('import=ok')",
                 ],
                 check=False,
@@ -224,7 +224,7 @@ class VdsFixtureReleaseImportTests(unittest.TestCase):
                     str(python),
                     "-I",
                     "-c",
-                    "from research_os.qualification.j11_fencing import "
+                    "from zest.qualification.j11_fencing import "
                     "cleanup_j11_owner, prepare_j11_run, "
                     "run_two_process_owner_race; print('j11=ok')",
                 ],
@@ -242,8 +242,8 @@ class VdsFixtureReleaseImportTests(unittest.TestCase):
                     str(python),
                     "-I",
                     "-c",
-                    "import research_os, pathlib; "
-                    "root=pathlib.Path(research_os.__file__).resolve().parent; "
+                    "import zest, pathlib; "
+                    "root=pathlib.Path(zest.__file__).resolve().parent; "
                     "print(root); "
                     "print((root.parent / 'tests').exists())",
                 ],

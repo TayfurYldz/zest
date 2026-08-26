@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from research_os.data.records import AuditEventRecord
-from research_os.data.unit_of_work import UnitOfWork
+from zest.data.records import AuditEventRecord
+from zest.data.unit_of_work import UnitOfWork
 
 
 def seed_validator_pass(

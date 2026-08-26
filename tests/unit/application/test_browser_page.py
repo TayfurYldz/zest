@@ -5,24 +5,24 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.transition_a.browser_page import (
+from zest.application.transition_a.browser_page import (
     BROWSER_PAGE_OBSERVATION_KIND,
     BrowserPageNormalizer,
 )
-from research_os.application.transition_a.errors import MalformedNormalizedPayloadError
-from research_os.core.enums import ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import ExperimentRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.browser_page import plan_browser_navigate
-from research_os.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
-from research_os.tools.registry import load_capability_registry
+from zest.application.transition_a.errors import MalformedNormalizedPayloadError
+from zest.core.enums import ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import ExperimentRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.browser_page import plan_browser_navigate
+from zest.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
+from zest.tools.registry import load_capability_registry
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import seed_spine

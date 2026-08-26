@@ -9,20 +9,20 @@
 | Dosya | Değişiklik | Gerekçe |
 |-------|-----------|---------|
 | `alembic/versions/a33_001_hypothesis_identity.py` | Yeni migration: `hypothesis` tablosuna `identity_id TEXT NULLABLE` ekle; down_revision `a32_001_coverage_debt_snapshot`. | Hipotez artık kimlik bağlı; mevcut satırlar NULL = eski agnostik semantik. |
-| `src/research_os/data/postgres/tables.py` | `hypothesis` Table'a `Column("identity_id", Text, nullable=True)` ekle. | SQLAlchemy metadata sync. |
-| `src/research_os/data/records.py` | `HypothesisRecord.identity_id: str | None = None` + post-init validasyon (None veya non-empty string). | Data-layer record. |
-| `src/research_os/data/postgres/mapping.py` | `hypothesis_from_row` identity_id map et. | Record rebuild. |
-| `src/research_os/data/postgres/unit_of_work.py` | Gerek yok; hypothesis repository zaten full-row insert yapıyor. | — |
+| `src/zest/data/postgres/tables.py` | `hypothesis` Table'a `Column("identity_id", Text, nullable=True)` ekle. | SQLAlchemy metadata sync. |
+| `src/zest/data/records.py` | `HypothesisRecord.identity_id: str | None = None` + post-init validasyon (None veya non-empty string). | Data-layer record. |
+| `src/zest/data/postgres/mapping.py` | `hypothesis_from_row` identity_id map et. | Record rebuild. |
+| `src/zest/data/postgres/unit_of_work.py` | Gerek yok; hypothesis repository zaten full-row insert yapıyor. | — |
 
 ### 1.2 Üretim Hattı
 
 | Dosya | Değişiklik | Gerekçe |
 |-------|-----------|---------|
-| `src/research_os/application/generate_hunt_hypotheses.py` | `GenerateHuntHypothesesCommand` aynı kalır. `execute`: her `(node, family)` için tek değil, `node.identity_ids` üzerinden her kimlik için ayrı `HypothesisRecord` üretir; identity_id record'a yazılır. Kimliksiz node → `ANONYMOUS`. `GenerateHuntHypothesesResult.hypothesis_sources` 4-tuple `(hypothesis_id, node_id, family_id, identity_id)` olur. `_generation_audit` payload'a `identity_id` ekler; `claim` içinde `{identity_id}` bağlamı varsa template expand edilir. | Hipotez = (node, family, identity) üçlüsü. |
-| `src/research_os/application/hunt_validation.py` | `ValidateHuntTiers.execute` hypothesis.identity_id okuyabilir; V3 queue record'a `identity_id` alanı eklenir (mevcut `HuntV3QueueRecord` zaten yok; a30 migration `hunt_v3_queue` tablosuna ekleme gerekebilir — Bkz. 1.3). | V3 kuyruk onay kapısı kimlik bağlamını taşır. |
-| `src/research_os/application/coverage/hypothesis_view.py` | `build_coverage_hypothesis_view`: `hypothesis.identity_id` doğrudan `CoverageHypothesisView.identity_id` olarak kullanılır; yalnızca audit event'ten `identity_id` fallback olarak çekilir (eski kayıtlar). | Kimlikli hipotezler artık yalnızca kendi hücrelerini etkiler. |
-| `src/research_os/research/coverage/debt.py` | `compute_coverage_debt`: identity_id None olan hipotez tüm hücrelere yayılır (G8 geriye uyumluluk); identity_id non-None ise yalnızca `(node, family, identity)` hücresine etki eder. Docstring D7 sınırıyla güncellenir. | G8 semantiği daraltılır; G9'dan önceki NULL kayıtlar bozulmaz. |
-| `src/research_os/research/coverage/types.py` | Gerek yok; `CoverageHypothesisView.identity_id: str | None` zaten mevcut. | — |
+| `src/zest/application/generate_hunt_hypotheses.py` | `GenerateHuntHypothesesCommand` aynı kalır. `execute`: her `(node, family)` için tek değil, `node.identity_ids` üzerinden her kimlik için ayrı `HypothesisRecord` üretir; identity_id record'a yazılır. Kimliksiz node → `ANONYMOUS`. `GenerateHuntHypothesesResult.hypothesis_sources` 4-tuple `(hypothesis_id, node_id, family_id, identity_id)` olur. `_generation_audit` payload'a `identity_id` ekler; `claim` içinde `{identity_id}` bağlamı varsa template expand edilir. | Hipotez = (node, family, identity) üçlüsü. |
+| `src/zest/application/hunt_validation.py` | `ValidateHuntTiers.execute` hypothesis.identity_id okuyabilir; V3 queue record'a `identity_id` alanı eklenir (mevcut `HuntV3QueueRecord` zaten yok; a30 migration `hunt_v3_queue` tablosuna ekleme gerekebilir — Bkz. 1.3). | V3 kuyruk onay kapısı kimlik bağlamını taşır. |
+| `src/zest/application/coverage/hypothesis_view.py` | `build_coverage_hypothesis_view`: `hypothesis.identity_id` doğrudan `CoverageHypothesisView.identity_id` olarak kullanılır; yalnızca audit event'ten `identity_id` fallback olarak çekilir (eski kayıtlar). | Kimlikli hipotezler artık yalnızca kendi hücrelerini etkiler. |
+| `src/zest/research/coverage/debt.py` | `compute_coverage_debt`: identity_id None olan hipotez tüm hücrelere yayılır (G8 geriye uyumluluk); identity_id non-None ise yalnızca `(node, family, identity)` hücresine etki eder. Docstring D7 sınırıyla güncellenir. | G8 semantiği daraltılır; G9'dan önceki NULL kayıtlar bozulmaz. |
+| `src/zest/research/coverage/types.py` | Gerek yok; `CoverageHypothesisView.identity_id: str | None` zaten mevcut. | — |
 
 ### 1.3 V3 Queue Kimlik Genişlemesi (Gerekirse)
 
@@ -37,9 +37,9 @@
 
 | Dosya | İçerik |
 |-------|--------|
-| `src/research_os/research/scheduler/__init__.py` | Public export: `schedule`, `HunterScore`, `ScoredCell`, `ScoreExplain`, `FamilyStats`. |
-| `src/research_os/research/scheduler/types.py` | `ScoreExplain`, `FamilyStats`, `ScoredCell`, `HunterScoreMode` (FULL / CHEAP_ONLY) dataclass/enum'ları. |
-| `src/research_os/research/scheduler/score.py` | `schedule(matrix, family_stats, budget_view) -> tuple[ScoredCell, ...]`; sabit katsayılar; deterministik tie-break; `explain` dökümü. |
+| `src/zest/research/scheduler/__init__.py` | Public export: `schedule`, `HunterScore`, `ScoredCell`, `ScoreExplain`, `FamilyStats`. |
+| `src/zest/research/scheduler/types.py` | `ScoreExplain`, `FamilyStats`, `ScoredCell`, `HunterScoreMode` (FULL / CHEAP_ONLY) dataclass/enum'ları. |
+| `src/zest/research/scheduler/score.py` | `schedule(matrix, family_stats, budget_view) -> tuple[ScoredCell, ...]`; sabit katsayılar; deterministik tie-break; `explain` dökümü. |
 
 ### 2.2 Formül (K1 — Açıklanabilirlik)
 
@@ -70,13 +70,13 @@ score = base_score + family_bonus - novelty_penalty + budget_penalty
 
 | Dosya | İçerik |
 |-------|--------|
-| `src/research_os/application/run_hunt_scheduler.py` | `RunHuntScheduler` + `RunHuntSchedulerCommand` + `RunHuntSchedulerResult`. Matrisi `CoverageDebtView` ile hesaplar/ya da parametre olarak alır. `family_stats` için audit eventlerden sayım yapar. `ProgramDailyBudgetUsage` ile bütçe modunu belirler. Üst N hücreyi `HUNT_SCHEDULE_RECOMMENDED` audit eventine yazar; V3 kuyruğuna doğrudan yazmaz. `no_op` = matris değişmemiş. |
+| `src/zest/application/run_hunt_scheduler.py` | `RunHuntScheduler` + `RunHuntSchedulerCommand` + `RunHuntSchedulerResult`. Matrisi `CoverageDebtView` ile hesaplar/ya da parametre olarak alır. `family_stats` için audit eventlerden sayım yapar. `ProgramDailyBudgetUsage` ile bütçe modunu belirler. Üst N hücreyi `HUNT_SCHEDULE_RECOMMENDED` audit eventine yazar; V3 kuyruğuna doğrudan yazmaz. `no_op` = matris değişmemiş. |
 
 ### 3.2 Cycle Tüketim Dikişi
 
 | Dosya | Değişiklik |
 |-------|-----------|
-| `src/research_os/application/run_hunt_cycle.py` | `RunHuntCycleCommand`e `schedule: tuple[ScoredCell, ...] | None = None` ekle. Eğer `schedule` varsa, `GenerateHuntHypotheses` sadece schedule'daki `(node_id, family_id, identity_id)` hücreleri için hipotez üretir. Yoksa eski davranış (tüm graph). `RunHuntCycle` hâlâ V3 kuyruğuna yazar; onay kapısı değişmez. |
+| `src/zest/application/run_hunt_cycle.py` | `RunHuntCycleCommand`e `schedule: tuple[ScoredCell, ...] | None = None` ekle. Eğer `schedule` varsa, `GenerateHuntHypotheses` sadece schedule'daki `(node_id, family_id, identity_id)` hücreleri için hipotez üretir. Yoksa eski davranış (tüm graph). `RunHuntCycle` hâlâ V3 kuyruğuna yazar; onay kapısı değişmez. |
 
 ### 3.3 Audit Event
 
@@ -114,7 +114,7 @@ Tüm integration/e2e testlerdeki `a32_001_coverage_debt_snapshot` head assertion
 
 | Dosya | Değişiklik |
 |-------|-----------|
-| `src/research_os/maturity.py` | `GATE_09_STATUS = "PASS"` + SD-G9 docstring (eski GATE 09 değildir notu). |
+| `src/zest/maturity.py` | `GATE_09_STATUS = "PASS"` + SD-G9 docstring (eski GATE 09 değildir notu). |
 | `OPERATIONS.md` | SD-G9 bölümü: identity binding, HunterScore v2 formülü, scheduler/cycle ayrımı, test kanıtı. |
 
 ## Başlangıç Sırası

@@ -5,16 +5,16 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.ingest_worker_invocation import (
+from zest.application.ingest_worker_invocation import (
     IngestCompletedWorkerInvocation,
     IngestionStatus,
     observation_id_for,
     worker_result_id_for,
 )
-from research_os.application.transition_a.diagnostic_echo import (
+from zest.application.transition_a.diagnostic_echo import (
     DIAGNOSTIC_ECHO_NORMALIZER_VERSION,
 )
-from research_os.data.records import (
+from zest.data.records import (
     AuthorizationSourceRecord,
     ExperimentRecord,
     HypothesisRecord,
@@ -22,7 +22,7 @@ from research_os.data.records import (
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.worker_requests import valid_worker_request
 

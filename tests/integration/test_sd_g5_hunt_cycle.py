@@ -1,7 +1,7 @@
 """SD-G5 HunterFamily registry + hunt cycle integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -28,27 +28,27 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.discovery.snapshot_views import (
+from zest.application.discovery.snapshot_views import (
     _fact_from_record,
     _inference_from_record,
 )
-from research_os.application.run_hunt_cycle import RunHuntCycle, RunHuntCycleCommand
-from research_os.application.sensor.admit import AdmitSensorObservations
-from research_os.application.sensor.runner import SensorAcquisitionRunner
-from research_os.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import ProgramPolicyRecord, ScopeRuleV2Record
-from research_os.research.discovery.graph import rebuild_attack_surface_graph
-from research_os.research.sensor import (
+from zest.application.run_hunt_cycle import RunHuntCycle, RunHuntCycleCommand
+from zest.application.sensor.admit import AdmitSensorObservations
+from zest.application.sensor.runner import SensorAcquisitionRunner
+from zest.core.enums import ReasonCode, ScopeClassification, ScopeRuleEffect
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import ProgramPolicyRecord, ScopeRuleV2Record
+from zest.research.discovery.graph import rebuild_attack_surface_graph
+from zest.research.sensor import (
     CTLogSensor,
     CertificateMetaSensor,
     DNSSensor,
     TechnologyFingerprintSensor,
     WaybackArchiveSensor,
 )
-from research_os.research.sensor.fixture_loader import FileFixtureLoader
-from research_os.research.sensor.types import ScopeCensusView
+from zest.research.sensor.fixture_loader import FileFixtureLoader
+from zest.research.sensor.types import ScopeCensusView
 
 TEST_URL = configured_test_url()
 FIXTURE_DIR = _REPO / "tests" / "fixtures" / "sensor"
@@ -63,7 +63,7 @@ def _in_scope_view() -> ScopeCensusView:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG5HuntCycleIntegrationTests(unittest.TestCase):
     engine = None
@@ -249,7 +249,7 @@ class SDG5HuntCycleIntegrationTests(unittest.TestCase):
         )
 
     def test_no_op_cycle_when_graph_is_empty(self) -> None:
-        from research_os.research.discovery.graph import AttackSurfaceGraph
+        from zest.research.discovery.graph import AttackSurfaceGraph
 
         uow_factory = PostgresUnitOfWorkFactory(self.engine)
         use_case = RunHuntCycle(uow_factory)

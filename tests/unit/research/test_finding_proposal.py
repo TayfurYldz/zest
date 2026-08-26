@@ -4,12 +4,12 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.candidate import (
+from zest.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLAIM,
     DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
     CandidateState,
 )
-from research_os.research.finding_proposal import (
+from zest.research.finding_proposal import (
     DIAGNOSTIC_FINDING_PROPOSAL_TITLE,
     FindingCreationContext,
     FindingCreationOutcome,
@@ -27,7 +27,7 @@ from research_os.research.finding_proposal import (
     propose_diagnostic_finding_proposal,
     transition_finding_proposal,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _context(**overrides) -> FindingProposalAdmissionContext:

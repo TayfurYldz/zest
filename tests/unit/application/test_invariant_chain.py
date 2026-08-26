@@ -5,50 +5,50 @@ from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
-from research_os.application.admit_diagnostic_invariant import (
+from zest.application.admit_diagnostic_invariant import (
     AdmitDiagnosticInvariant,
     AdmitDiagnosticInvariantCommand,
 )
-from research_os.application.compose_diagnostic_chain import (
+from zest.application.compose_diagnostic_chain import (
     ComposeDiagnosticChain,
     ComposeDiagnosticChainCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.application.record_invariant_counterexample import (
+from zest.application.record_invariant_counterexample import (
     RecordInvariantCounterexample,
     RecordInvariantCounterexampleCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ReasonCode, ScopeRuleEffect, SideEffectLevel
-from research_os.core.execution import evaluate_execution
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.chain import ChainOutcome, experiment_plan_for_chain_step
-from research_os.research.epistemic import EpistemicClass
-from research_os.research.invariant import InvariantAdmissionOutcome, InvariantStatus
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.target_model import TargetEpistemicStatus
+from zest.core.enums import ExecutionDecisionKind, ReasonCode, ScopeRuleEffect, SideEffectLevel
+from zest.core.execution import evaluate_execution
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.research.admission import AdmissionOutcome
+from zest.research.chain import ChainOutcome, experiment_plan_for_chain_step
+from zest.research.epistemic import EpistemicClass
+from zest.research.invariant import InvariantAdmissionOutcome, InvariantStatus
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.target_model import TargetEpistemicStatus
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_spine
 from fixtures import base_request
-from research_os.research.chain import ChainNodeKind, ChainStep
+from zest.research.chain import ChainNodeKind, ChainStep
 
 
 class FixedClock:

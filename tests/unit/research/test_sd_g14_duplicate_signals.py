@@ -4,16 +4,16 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.report_duplicate import (
+from zest.research.report_duplicate import (
     DisclosedReportSignal,
     DuplicateSignalRelation,
     evaluate_disclosed_report_duplicate_signal,
 )
-from research_os.research.report_package import (
+from zest.research.report_package import (
     FindingReportInput,
     build_finding_report_package,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _finding() -> FindingReportInput:

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pathsetup  # noqa: F401
 
-from research_os.application.preflight import (
+from zest.application.preflight import (
     ModelReadinessInput,
     Preflight,
     PreflightCheckName,
@@ -14,15 +14,15 @@ from research_os.application.preflight import (
     SchemaHealthInput,
     WorkerReadinessInput,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.data.records import (
+from zest.core.enums import ScopeRuleEffect
+from zest.data.records import (
     ExecutionAttemptRecord,
     ResearchOrchestrationRecord,
     ScopeRuleV2Record,
 )
-from research_os.platform.health import ComponentHealth, HealthCheck
-from research_os.research.model_runtime import api_runtime_identity
-from research_os.research.routing import CandidateLocality, RuntimeCandidate
+from zest.platform.health import ComponentHealth, HealthCheck
+from zest.research.model_runtime import api_runtime_identity
+from zest.research.routing import CandidateLocality, RuntimeCandidate
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 
@@ -183,7 +183,7 @@ class PreflightTests(unittest.TestCase):
         self.assertFalse(_checks_by_name(report, PreflightCheckName.BUDGET_AVAILABLE)[0].passed)
 
     def test_exhausted_budget_denies(self) -> None:
-        from research_os.data.records import BudgetConsumptionRecord
+        from zest.data.records import BudgetConsumptionRecord
 
         store = self._store()
         store.budget_consumptions["c-1"] = BudgetConsumptionRecord(

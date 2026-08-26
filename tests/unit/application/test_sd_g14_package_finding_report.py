@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.errors import ApplicationError
-from research_os.application.package_finding_report import (
+from zest.application.errors import ApplicationError
+from zest.application.package_finding_report import (
     PackageFindingReport,
     PackageFindingReportCommand,
     REPORT_PACKAGE_BUILT,
 )
-from research_os.data.records import FindingProposalRecord, FindingRecord
+from zest.data.records import FindingProposalRecord, FindingRecord
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 

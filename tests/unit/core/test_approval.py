@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core import (
+from zest.core import (
     ActorType,
     ApprovalDecision,
     ApprovalView,
     ReasonCode,
     evaluate_recorded_approval,
 )
-from research_os.core.approval import check_approval
+from zest.core.approval import check_approval
 from fixtures import human_approval
 
 

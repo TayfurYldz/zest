@@ -23,44 +23,44 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.promote_exploratory_family import (
+from zest.application.promote_exploratory_family import (
     PromoteExploratoryFamily,
     PromoteExploratoryFamilyCommand,
 )
-from research_os.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.budget_ledger import ledger_totals
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.data.records import (
+from zest.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.budget_ledger import ledger_totals
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.data.records import (
     BudgetConsumptionRecord,
     DiscoveryFactRecord,
     DiscoveryFactSourceRecord,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.exploration import OpportunityKind, ResearchPolicyBudget
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.identity_anomaly import (
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.assessment import AssessmentOutcome
+from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.identity_anomaly import (
     IDENTITY_ANOMALY_CLAIM,
     is_exploratory_hypothesis_origin,
 )
-from research_os.research.orchestration import OrchestrationBounds
-from research_os.research.planning import plan_authorization_differential
+from zest.research.orchestration import OrchestrationBounds
+from zest.research.planning import plan_authorization_differential
 from integration.harness import (
     FixedClock,
     PostgresUnitOfWorkFactory,
@@ -264,7 +264,7 @@ def _counts(factory: PostgresUnitOfWorkFactory) -> dict[str, object]:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class Mr6aArcAnomalyAdmissionPostgresTests(unittest.TestCase):
     engine = None

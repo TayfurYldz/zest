@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.impact.chain import (
+from zest.research.impact.chain import (
     ImpactChain,
     ImpactEdge,
     ImpactGraphError,
     ImpactNode,
     ImpactScopeRef,
 )
-from research_os.research.impact.types import ImpactKind, ImpactRelation
+from zest.research.impact.types import ImpactKind, ImpactRelation
 
 
 def _scope() -> ImpactScopeRef:

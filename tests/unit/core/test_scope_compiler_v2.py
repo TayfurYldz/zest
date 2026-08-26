@@ -5,19 +5,19 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import (
+from zest.core.enums import (
     ReasonCode,
     ScopeClassification,
     ScopeDecision,
     ScopeRuleEffect,
 )
-from research_os.core.errors import CoreInputError
-from research_os.core.scope_compiler import (
+from zest.core.errors import CoreInputError
+from zest.core.scope_compiler import (
     ScopeRuleDefinition,
     compile_scope_rules,
     evaluate_scope_candidate,
 )
-from research_os.platform.url_normalize import normalize_url
+from zest.platform.url_normalize import normalize_url
 
 
 class ScopeCompilerV2Tests(unittest.TestCase):

@@ -6,26 +6,26 @@ from uuid import UUID
 
 import pathsetup  # noqa: F401
 
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     BUDGET_CONSUMPTION_LEDGER_IMPLEMENTED,
     AuthorizedDispatch,
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.program_research_context import ProgramPolicyView
-from research_os.application.ingest_worker_invocation import IngestionStatus
-from research_os.application.retry_policy import automatic_retry_allowed
-from research_os.core.enums import (
+from zest.application.program_research_context import ProgramPolicyView
+from zest.application.ingest_worker_invocation import IngestionStatus
+from zest.application.retry_policy import automatic_retry_allowed
+from zest.core.enums import (
     ExecutionDecisionKind,
     ReasonCode,
     ScopeRuleEffect,
 )
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceConflictError, PersistenceError
-from research_os.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord, RateLimitProfileRecord
-from research_os.platform.worker import InvocationStatus
-from research_os.research.planning import human_seeded_hypothesis, plan_diagnostic_echo
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceConflictError, PersistenceError
+from zest.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord, RateLimitProfileRecord
+from zest.platform.worker import InvocationStatus
+from zest.research.planning import human_seeded_hypothesis, plan_diagnostic_echo
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
     RecordingWorkerPort,
@@ -250,7 +250,7 @@ class PlanDurabilityTests(unittest.TestCase):
         self.assertEqual(reloaded.expected_observation, record.expected_observation)
 
     def test_prepare_then_mutated_plan_is_rejected(self) -> None:
-        from research_os.application.prepare_planned_experiment import (
+        from zest.application.prepare_planned_experiment import (
             PreparePlannedExperiment,
             PreparePlannedExperimentCommand,
         )
@@ -565,7 +565,7 @@ class LocalProcessLogicalLoopTests(unittest.TestCase):
     def test_local_diagnostic_worker_completes_the_logical_loop(self) -> None:
         from pathlib import Path
 
-        from research_os.platform.local_process_worker import (
+        from zest.platform.local_process_worker import (
             LocalProcessWorkerAdapter,
             LocalProcessWorkerConfig,
         )

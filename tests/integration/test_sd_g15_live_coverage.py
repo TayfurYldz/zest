@@ -1,7 +1,7 @@
 """SD-G15 live coverage debt integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.coverage.debt_view import CoverageDebtSummary
-from research_os.application.coverage.live_debt import (
+from zest.application.coverage.debt_view import CoverageDebtSummary
+from zest.application.coverage.live_debt import (
     RefreshLiveCoverageDebt,
     RefreshLiveCoverageDebtCommand,
 )
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     ChangeEventRecord,
     CoverageDebtSnapshotRecord,
     SnapshotRecord,
@@ -79,7 +79,7 @@ class StubCoverageView:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG15LiveCoverageIntegrationTests(unittest.TestCase):
     engine = None

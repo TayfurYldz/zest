@@ -21,24 +21,24 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.data.errors import PersistenceConflictError
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.errors import PersistenceConflictError
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     DiscoveryRunConfigRecord,
     FrontierEventRecord,
     FrontierItemRecord,
     ObservationRecord,
     WorkerResultRecord,
 )
-from research_os.application.discovery.project import project_observation, reconcile_missing_projections
+from zest.application.discovery.project import project_observation, reconcile_missing_projections
 from sqlalchemy import text
 
 TEST_URL = configured_test_url()
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
 
 
-@unittest.skipUnless(TEST_URL, "RESEARCH_OS_TEST_DATABASE_URL is not configured")
+@unittest.skipUnless(TEST_URL, "ZEST_TEST_DATABASE_URL is not configured")
 class Gate22DiscoveryPersistenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

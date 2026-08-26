@@ -1,10 +1,10 @@
-# Research OS HQ design system
+# Zest HQ design system
 
 ## 1. Context and goals
 
-Research OS HQ is a dark, high-information-density operational research command center. It exposes persisted provenance, authorization context, hypothesis testing, evidence lineage, coverage debt, and audit state. It is not a marketing site, generic SaaS admin panel, AI chat, Grafana clone, or fake attack graph.
+Zest HQ is a dark, high-information-density operational research command center. It exposes persisted provenance, authorization context, hypothesis testing, evidence lineage, coverage debt, and audit state. It is not a marketing site, generic SaaS admin panel, AI chat, Grafana clone, or fake attack graph.
 
-The frontend is a modular vanilla JavaScript surface under `src/research_os/hq/static/`. `dashboard.py` serves known package assets and remains the HTTP/API boundary. The HQ projection is read-only with respect to research semantics; PostgreSQL remains the source of truth.
+The frontend is a modular vanilla JavaScript surface under `src/zest/hq/static/`. `dashboard.py` serves known package assets and remains the HTTP/API boundary. The HQ projection is read-only with respect to research semantics; PostgreSQL remains the source of truth.
 
 ## 2. Semantic design tokens
 

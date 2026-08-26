@@ -7,8 +7,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.browser_resource_control import BrowserResourceReadiness
-from research_os.platform.process_tree import (
+from zest.platform.browser_resource_control import BrowserResourceReadiness
+from zest.platform.process_tree import (
     CREATE_NEW_PROCESS_GROUP,
     CREATE_SUSPENDED,
     spawn_kwargs,
@@ -100,7 +100,7 @@ class ProcessTreeTests(unittest.TestCase):
         self.assertEqual(windows["creationflags"], CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED)
 
     def test_timeout_cleans_grandchild_when_environment_allows(self) -> None:
-        from research_os.platform.process_tree import run_supervised
+        from zest.platform.process_tree import run_supervised
 
         script = (
             "import os, sys, time, subprocess\n"
@@ -123,7 +123,7 @@ class ProcessTreeTests(unittest.TestCase):
         self.assertFalse(_pid_alive(grandchild_pid), f"grandchild {grandchild_pid} still alive")
 
     def test_setsid_descendant_is_killed(self) -> None:
-        from research_os.platform.process_tree import run_supervised
+        from zest.platform.process_tree import run_supervised
 
         script = (
             "import os, sys, time, subprocess\n"
@@ -151,8 +151,8 @@ class ProcessTreeTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from research_os.platform.local_process_worker import LocalProcessWorkerConfig
-        from research_os.platform.persistent_browser_worker import PersistentBrowserWorkerAdapter
+        from zest.platform.local_process_worker import LocalProcessWorkerConfig
+        from zest.platform.persistent_browser_worker import PersistentBrowserWorkerAdapter
         from support.browser_worker_scripts import descendant_script
 
         handle, raw_path = tempfile.mkstemp(prefix="g21-child-", suffix=".pid")

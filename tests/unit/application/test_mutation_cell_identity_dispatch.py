@@ -6,17 +6,17 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.dispatch_approved_v3_queue import (
+from zest.application.dispatch_approved_v3_queue import (
     DispatchApprovedV3Queue,
     DispatchApprovedV3QueueCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import HuntV3QueueRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.compiler_registry import COMPILER_MUTATION_MATRIX_CELL, CompilerOutcome
-from research_os.research.mutation.identity import rebuild_authoritative_mutation_matrix
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import HuntV3QueueRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.compiler_registry import COMPILER_MUTATION_MATRIX_CELL, CompilerOutcome
+from zest.research.mutation.identity import rebuild_authoritative_mutation_matrix
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
     COMPLETED_AT,

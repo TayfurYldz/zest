@@ -24,11 +24,11 @@ AttackSurfaceGraph carries surface evidence for proxy/cache/protocol behavior.
 
 Files:
 
-- `src/research_os/research/selection.py`
-- `src/research_os/research/protocol/parser_plan.py`
-- `src/research_os/research/protocol/__init__.py`
-- `src/research_os/data/postgres/hunter_family_seed.py`
-- `src/research_os/application/hunt_validation.py`
+- `src/zest/research/selection.py`
+- `src/zest/research/protocol/parser_plan.py`
+- `src/zest/research/protocol/__init__.py`
+- `src/zest/data/postgres/hunter_family_seed.py`
+- `src/zest/application/hunt_validation.py`
 - `tests/unit/research/test_hunter_family_registry.py`
 - `tests/unit/data/test_sd_g13_hunter_family_seed.py`
 - `tests/unit/research/test_sd_g13_protocol_parser_plan.py`
@@ -61,7 +61,7 @@ Evidence:
 
 Files:
 
-- `src/research_os/application/hunt_v3_queue_approval.py`
+- `src/zest/application/hunt_v3_queue_approval.py`
 - `tests/unit/application/test_sd_g13_hunt_v3_queue_approval.py`
 - `tests/integration/test_sd_g13_protocol_queue_approval.py`
 

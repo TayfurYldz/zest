@@ -1,3 +1,3 @@
-﻿"""Compatibility shim. Canonical implementation is research_os.integrations.models.secrets."""
+﻿"""Compatibility shim. Canonical implementation is zest.integrations.models.secrets."""
 
-from research_os.integrations.models.secrets import *  # noqa: F403
+from zest.integrations.models.secrets import *  # noqa: F403

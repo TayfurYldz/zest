@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.platform.browser_resource_control import (
+from zest.platform.browser_resource_control import (
     BREACH_MEMORY_MAX,
     BREACH_PIDS_MAX,
     CGROUP_ROOT_ENV,
@@ -44,7 +44,7 @@ CHILD_CONTROL_FILES = (
     "memory.swap.max",
 )
 LIMITS = BrowserResourceLimits(max_memory_bytes=134_217_728, max_processes=8, max_tasks=8)
-CHILD_NAME = "research-os-browser-4242-abcd1234"
+CHILD_NAME = "zest-browser-4242-abcd1234"
 
 
 def _kernel_child(path: Path) -> None:
@@ -377,7 +377,7 @@ class WindowsAppliedJobLimitTests(unittest.TestCase):
     """Read back from the kernel what the Job Object actually enforces."""
 
     def setUp(self) -> None:
-        from research_os.platform.process_tree import spawn_supervised, terminate_tree
+        from zest.platform.process_tree import spawn_supervised, terminate_tree
 
         self._terminate = terminate_tree
         handle, raw = tempfile.mkstemp(prefix="g21-job-", suffix=".pid")
@@ -420,7 +420,7 @@ class WindowsAppliedJobLimitTests(unittest.TestCase):
         raise AssertionError
 
     def test_the_kernel_applied_the_aggregate_job_memory_limit(self) -> None:
-        from research_os.platform.process_tree import (
+        from zest.platform.process_tree import (
             JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
             JOB_OBJECT_LIMIT_JOB_MEMORY,
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -451,7 +451,7 @@ class WindowsAppliedJobLimitTests(unittest.TestCase):
         self.assertIn("does not match the declared ceiling", error or "")
 
     def test_descendants_are_job_members_and_die_with_the_job(self) -> None:
-        from research_os.platform.process_tree import (
+        from zest.platform.process_tree import (
             terminate_tree,
             windows_process_in_job,
         )
@@ -503,7 +503,7 @@ class ControllerSelectionTests(unittest.TestCase):
             self.assertIsInstance(controller, UnsupportedPlatformResourceController)
 
     def test_declared_worker_limits_match_the_enforced_platform_limits(self) -> None:
-        from research_os.worker_runtime.python.browser_engine import BrowserRuntimeLimits
+        from zest.worker_runtime.python.browser_engine import BrowserRuntimeLimits
 
         defaults = BrowserResourceLimits()
         worker = BrowserRuntimeLimits()

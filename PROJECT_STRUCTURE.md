@@ -1,10 +1,10 @@
-# Research OS — Project Structure
+# Zest — Project Structure
 
-This document defines the high-level architectural boundaries of Research OS.
+This document defines the high-level architectural boundaries of Zest.
 
 It is a design-phase artifact. It does not choose a technology stack, create folders, or prescribe implementations.
 
-Research OS is not an AI vulnerability scanner. The LLM is a reasoning component, not the system.
+Zest is not an AI vulnerability scanner. The LLM is a reasoning component, not the system.
 
 Core loop:
 
@@ -17,7 +17,7 @@ Core loop:
 In this architecture, "Tools execute" means execution proceeds through the Tools contract, Worker runtime, and Integration adapter path. Workers are the only layer that may perform side effects.
 
 ```
-Research OS
+Zest
 ├── Core
 ├── Research
 ├── Application
@@ -377,7 +377,7 @@ Orchestration callers sit below Research in the trust hierarchy. They dispatch w
 
 ## Interface
 
-**Purpose:** Let humans and external systems interact with Research OS.
+**Purpose:** Let humans and external systems interact with Zest.
 
 **Responsibility:** Expose requests, review, approval screens, and reporting. Human review is a permanent part of the system. AI recommendation and final judgment stay separate.
 
@@ -539,12 +539,12 @@ This keeps the authority chain: AI/Research proposes. Core authorizes/controls. 
 
 ## Strix Placement
 
-Strix is not Research OS.
+Strix is not Zest.
 
 Strix is an example of a possible integration. It is not a v1 commitment and is not a decided dependency.
 
 ```
-Research OS
+Zest
 ↓
 controlled execution boundary
 ↓

@@ -1,3 +1,3 @@
-"""Compatibility shim. Canonical code lives in research_os.integrations.strix."""
+"""Compatibility shim. Canonical code lives in zest.integrations.strix."""
 
-from research_os.integrations.strix import *  # noqa: F403
+from zest.integrations.strix import *  # noqa: F403

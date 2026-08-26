@@ -25,9 +25,9 @@
 
 | File | Change |
 |------|--------|
-| `src/research_os/research/coverage/__init__.py` | Package marker. |
-| `src/research_os/research/coverage/types.py` | `CoverageState` enum: `UNTESTED`, `HYPOTHESIZED`, `V1_PASSED`, `V2_PASSED`, `V3_QUEUED`, `COVERED`, `NOT_APPLICABLE`. `CoverageCell` dataclass: `node_canonical_key`, `identity_id`, `family_id`, `state`, `missing_evidence` (tuple[str]). `CoverageMatrix` dataclass: `research_run_id`, `strategy_version`, `cells` (tuple[CoverageCell, ...]), `cell_counts` (dict[str,int]), `total_debt` (int), `matrix_hash` (str). |
-| `src/research_os/research/coverage/debt.py` | `compute_coverage_debt(graph, registry, hypotheses_view) -> CoverageMatrix`. Iterates IN_SCOPE nodes only. For each node, expands `identity_ids` (empty → `ANONYMOUS`). For each applicable family from `families_for_node`, resolves state from `hypotheses_view` (UNTESTED if no hypothesis; otherwise highest tier reached). Missing evidence is a tuple of reason strings/ids, not raw secrets. Returns deterministic matrix + hash. |
+| `src/zest/research/coverage/__init__.py` | Package marker. |
+| `src/zest/research/coverage/types.py` | `CoverageState` enum: `UNTESTED`, `HYPOTHESIZED`, `V1_PASSED`, `V2_PASSED`, `V3_QUEUED`, `COVERED`, `NOT_APPLICABLE`. `CoverageCell` dataclass: `node_canonical_key`, `identity_id`, `family_id`, `state`, `missing_evidence` (tuple[str]). `CoverageMatrix` dataclass: `research_run_id`, `strategy_version`, `cells` (tuple[CoverageCell, ...]), `cell_counts` (dict[str,int]), `total_debt` (int), `matrix_hash` (str). |
+| `src/zest/research/coverage/debt.py` | `compute_coverage_debt(graph, registry, hypotheses_view) -> CoverageMatrix`. Iterates IN_SCOPE nodes only. For each node, expands `identity_ids` (empty → `ANONYMOUS`). For each applicable family from `families_for_node`, resolves state from `hypotheses_view` (UNTESTED if no hypothesis; otherwise highest tier reached). Missing evidence is a tuple of reason strings/ids, not raw secrets. Returns deterministic matrix + hash. |
 
 `hypotheses_view` shape (plain dataclass, no DB dependency):
 
@@ -47,22 +47,22 @@ Mapping highest_tier → `CoverageState` is a pure function in `debt.py`.
 
 | File | Change |
 |------|--------|
-| `src/research_os/application/coverage/__init__.py` | Package marker. |
-| `src/research_os/application/coverage/hypothesis_view.py` | `build_coverage_hypothesis_view(uow, research_run_id) -> tuple[CoverageHypothesisView, ...]`. Reads hypotheses for the run, joins latest audit_event tier decisions per `(hypothesis_id, family_id, node_canonical_key)`. V3 queued state read from `hunt_v3_queue`. No LLM. |
-| `src/research_os/application/coverage/debt_view.py` | `CoverageDebtView` use-case: rebuild graph via `summarize_attack_surface`, load registry via `uow.hunter_families.list_enabled()`, build hypothesis view, call `compute_coverage_debt`, return `CoverageDebtSummary` dataclass. |
-| `src/research_os/interface/cli.py` | Add `"coverage"` to `choices`. Implement `_cmd_coverage(rest)` with `--research-run-id` required. Prints family-level debt table (UNTESTED count per family) and top-10 most-debt nodes. Uses `RESEARCH_OS_DATABASE_URL`. |
+| `src/zest/application/coverage/__init__.py` | Package marker. |
+| `src/zest/application/coverage/hypothesis_view.py` | `build_coverage_hypothesis_view(uow, research_run_id) -> tuple[CoverageHypothesisView, ...]`. Reads hypotheses for the run, joins latest audit_event tier decisions per `(hypothesis_id, family_id, node_canonical_key)`. V3 queued state read from `hunt_v3_queue`. No LLM. |
+| `src/zest/application/coverage/debt_view.py` | `CoverageDebtView` use-case: rebuild graph via `summarize_attack_surface`, load registry via `uow.hunter_families.list_enabled()`, build hypothesis view, call `compute_coverage_debt`, return `CoverageDebtSummary` dataclass. |
+| `src/zest/interface/cli.py` | Add `"coverage"` to `choices`. Implement `_cmd_coverage(rest)` with `--research-run-id` required. Prints family-level debt table (UNTESTED count per family) and top-10 most-debt nodes. Uses `ZEST_DATABASE_URL`. |
 
 ### P3 — Snapshot Persistence (a32)
 
 | File | Change |
 |------|--------|
 | `alembic/versions/a32_001_coverage_debt_snapshot.py` | New migration. Table `coverage_debt_snapshot`: `snapshot_id` PK, `research_run_id` FK, `matrix_hash` (SHA-256), `cell_counts` JSONB, `total_debt` int, `created_at` tz. Same discipline as `attack_surface_snapshot` (counts/hash only). |
-| `src/research_os/data/records.py` | `CoverageDebtSnapshotRecord` dataclass. |
-| `src/research_os/data/postgres/tables.py` | `coverage_debt_snapshot` table; add to `SPINE_TABLES` / `APPEND_ONLY_TABLES`. |
-| `src/research_os/data/ports.py` | `CoverageDebtSnapshotRepository` protocol. |
-| `src/research_os/data/unit_of_work.py` + `postgres/unit_of_work.py` | `coverage_debt_snapshots` attribute. |
-| `src/research_os/data/postgres/repositories.py` | `PostgresCoverageDebtSnapshotRepository`. |
-| `src/research_os/application/coverage/debt_view.py` | Optional `persist=True` parameter to write snapshot after computing. |
+| `src/zest/data/records.py` | `CoverageDebtSnapshotRecord` dataclass. |
+| `src/zest/data/postgres/tables.py` | `coverage_debt_snapshot` table; add to `SPINE_TABLES` / `APPEND_ONLY_TABLES`. |
+| `src/zest/data/ports.py` | `CoverageDebtSnapshotRepository` protocol. |
+| `src/zest/data/unit_of_work.py` + `postgres/unit_of_work.py` | `coverage_debt_snapshots` attribute. |
+| `src/zest/data/postgres/repositories.py` | `PostgresCoverageDebtSnapshotRepository`. |
+| `src/zest/application/coverage/debt_view.py` | Optional `persist=True` parameter to write snapshot after computing. |
 
 ### P4 — Tests
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathsetup  # noqa: F401
 
-from research_os.core import (
+from zest.core import (
     ActorType,
     ApprovalDecision,
     ApprovalView,
@@ -16,8 +16,8 @@ from research_os.core import (
     ScopeRuleMatch,
     SideEffectLevel,
 )
-from research_os.core.capability import CapabilityAuthorizationView
-from research_os.tools.registry import load_capability_registry
+from zest.core.capability import CapabilityAuthorizationView
+from zest.tools.registry import load_capability_registry
 
 
 def active_source() -> AuthorizationSourceView:

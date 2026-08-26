@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.baselines import create_baseline
-from research_os.benchmark.cycle import RecordingModelPort, run_bounded_cycle
-from research_os.benchmark.evaluate import evaluate_scenario
-from research_os.benchmark.leakage import leakage_hits, model_visible_blob
-from research_os.benchmark.scenarios import context_from_visible, load_scenario, load_scenarios
-from research_os.research.cycle import context_model_payload
-from research_os.research.model_port import ModelCallRequest, ModelRole
+from zest.benchmark.baselines import create_baseline
+from zest.benchmark.cycle import RecordingModelPort, run_bounded_cycle
+from zest.benchmark.evaluate import evaluate_scenario
+from zest.benchmark.leakage import leakage_hits, model_visible_blob
+from zest.benchmark.scenarios import context_from_visible, load_scenario, load_scenarios
+from zest.research.cycle import context_model_payload
+from zest.research.model_port import ModelCallRequest, ModelRole
 
 REPO = Path(__file__).resolve().parents[3]
 SCENARIO_DIR = REPO / "benchmarks" / "research" / "scenarios"

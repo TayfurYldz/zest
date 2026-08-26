@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.select_research_runtime import (
+from zest.application.select_research_runtime import (
     RoleRoutedModelPort,
     SelectResearchRuntime,
     SelectResearchRuntimeCommand,
 )
-from research_os.research.model_port import ModelCallRequest, ModelRole
-from research_os.research.model_runtime import RuntimeOutcome, api_runtime_identity
-from research_os.research.routing import (
+from zest.research.model_port import ModelCallRequest, ModelRole
+from zest.research.model_runtime import RuntimeOutcome, api_runtime_identity
+from zest.research.routing import (
     CandidateLocality,
     RoutingBudget,
     RoutingOutcome,

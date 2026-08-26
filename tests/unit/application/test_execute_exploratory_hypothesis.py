@@ -7,27 +7,27 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.execute_exploratory_hypothesis import (
+from zest.application.errors import ApplicationError
+from zest.application.execute_exploratory_hypothesis import (
     ExecuteExploratoryHypothesis,
     ExecuteExploratoryHypothesisCommand,
 )
-from research_os.application.promote_exploratory_family import (
+from zest.application.promote_exploratory_family import (
     PromoteExploratoryFamily,
     PromoteExploratoryFamilyCommand,
 )
-from research_os.core.enums import ActorType, ApprovalDecision, ExecutionDecisionKind, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import HunterFamilyRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.core.enums import ActorType, ApprovalDecision, ExecutionDecisionKind, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import HunterFamilyRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.assessment import AssessmentOutcome
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
     RecordingWorkerPort,
@@ -41,14 +41,14 @@ NOW = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
 EXECUTE_SOURCE = (
     Path(__file__).resolve().parents[3]
     / "src"
-    / "research_os"
+    / "zest"
     / "application"
     / "execute_exploratory_hypothesis.py"
 ).read_text(encoding="utf-8")
 PROMOTE_SOURCE = (
     Path(__file__).resolve().parents[3]
     / "src"
-    / "research_os"
+    / "zest"
     / "application"
     / "promote_exploratory_family.py"
 ).read_text(encoding="utf-8")
@@ -300,7 +300,7 @@ class ExecuteExploratoryHypothesisTests(unittest.TestCase):
     def test_non_exploratory_hypothesis_is_rejected(self) -> None:
         store = _Store()
         _seed(store)
-        from research_os.data.records import HypothesisRecord
+        from zest.data.records import HypothesisRecord
 
         store.hypotheses["hyp-known"] = HypothesisRecord(
             hypothesis_id="hyp-known",

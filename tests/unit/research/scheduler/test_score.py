@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.research.coverage.types import CoverageCell, CoverageState
-from research_os.research.scheduler.score import schedule, score_cell
-from research_os.research.scheduler.types import (
+from zest.research.coverage.types import CoverageCell, CoverageState
+from zest.research.scheduler.score import schedule, score_cell
+from zest.research.scheduler.types import (
     BudgetView,
     FamilyStats,
     HunterScoreInput,

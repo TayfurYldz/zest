@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.invariant import (
+from zest.research.invariant import (
     InvariantAdmissionOutcome,
     InvariantCounterexample,
     InvariantKind,
@@ -14,7 +14,7 @@ from research_os.research.invariant import (
     apply_invariant_counterexample,
     propose_diagnostic_echo_invariant,
 )
-from research_os.research.target_model import TargetObservationView
+from zest.research.target_model import TargetObservationView
 
 
 def _view(**overrides) -> TargetObservationView:

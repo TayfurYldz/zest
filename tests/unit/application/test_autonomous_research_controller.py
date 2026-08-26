@@ -5,18 +5,18 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
-from research_os.application.execute_planned_experiment import ResearchLoopStatus
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import ExecutionAttemptRecord, IssuedBudgetRecord
-from research_os.research.model_port import ContentPolicyBlockedError, ModelRole, ProviderAuthError
-from research_os.research.model_runtime import api_runtime_identity
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
-from research_os.research.routing import (
+from zest.application.execute_planned_experiment import ResearchLoopStatus
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import ExecutionAttemptRecord, IssuedBudgetRecord
+from zest.research.model_port import ContentPolicyBlockedError, ModelRole, ProviderAuthError
+from zest.research.model_runtime import api_runtime_identity
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.research.routing import (
     CandidateLocality,
     RoutingBudget,
     RoutingRequest,
@@ -26,7 +26,7 @@ from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.spine import CREATED_AT, seed_authorization_run
-from research_os.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus
 
 
 class FixedClock:
@@ -360,7 +360,7 @@ class TerminalStateImmutabilityTests(unittest.TestCase):
     def test_repository_save_rejects_write_to_terminal_row(self) -> None:
         from dataclasses import replace
 
-        from research_os.data.errors import TerminalOrchestrationStateError
+        from zest.data.errors import TerminalOrchestrationStateError
 
         store = _Store()
         _seed_large_budget(store)

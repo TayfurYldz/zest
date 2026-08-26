@@ -1,6 +1,6 @@
 """GATE 09 — Exploration / Temporal Integrity on real PostgreSQL.
 
-Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+Skipped when ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Selection is not authorization. Change is not a vulnerability. GATE 04B may remain PENDING.
 """
 
@@ -22,77 +22,77 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.admit_diagnostic_invariant import (
+from zest.application.admit_diagnostic_invariant import (
     AdmitDiagnosticInvariant,
     AdmitDiagnosticInvariantCommand,
 )
-from research_os.application.capture_diagnostic_snapshot import (
+from zest.application.capture_diagnostic_snapshot import (
     CaptureDiagnosticSnapshot,
     CaptureDiagnosticSnapshotCommand,
 )
-from research_os.application.compare_diagnostic_differential import (
+from zest.application.compare_diagnostic_differential import (
     CompareDiagnosticDifferential,
     CompareDiagnosticDifferentialCommand,
 )
-from research_os.application.compare_diagnostic_snapshots import (
+from zest.application.compare_diagnostic_snapshots import (
     CompareDiagnosticSnapshots,
     CompareDiagnosticSnapshotsCommand,
 )
-from research_os.application.compose_diagnostic_chain import (
+from zest.application.compose_diagnostic_chain import (
     ComposeDiagnosticChain,
     ComposeDiagnosticChainCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.application.select_research_opportunities import (
+from zest.application.select_research_opportunities import (
     SelectResearchOpportunities,
     SelectResearchOpportunitiesCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.data.postgres.engine import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
 )
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.differential import (
+from zest.research.admission import AdmissionOutcome
+from zest.research.differential import (
     DifferentialCase,
     DifferentialDimension,
     DifferentialOutcome,
 )
-from research_os.research.epistemic import EpistemicClass
-from research_os.research.exploration import OpportunityMode, ResearchPolicyBudget
-from research_os.research.planning import DIAGNOSTIC_CLAIM, plan_diagnostic_echo
-from research_os.research.temporal import ChangeOutcome, SnapshotOutcome
+from zest.research.epistemic import EpistemicClass
+from zest.research.exploration import OpportunityMode, ResearchPolicyBudget
+from zest.research.planning import DIAGNOSTIC_CLAIM, plan_diagnostic_echo
+from zest.research.temporal import ChangeOutcome, SnapshotOutcome
 from support.fake_model import ScriptedModelPort
 from support.recording_worker import RecordingWorkerPort
 from integration.harness import (
@@ -106,7 +106,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 WORKERS_PYTHON = _REPO / "workers" / "python"

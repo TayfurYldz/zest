@@ -8,11 +8,11 @@ from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.research.oast.types import (
+from zest.research.oast.types import (
     OastCallbackDelivery,
     OastCorrelation,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 NOW = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)

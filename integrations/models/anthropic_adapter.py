@@ -1,3 +1,3 @@
-﻿"""Compatibility shim. Canonical implementation is research_os.integrations.models.anthropic_adapter."""
+﻿"""Compatibility shim. Canonical implementation is zest.integrations.models.anthropic_adapter."""
 
-from research_os.integrations.models.anthropic_adapter import *  # noqa: F403
+from zest.integrations.models.anthropic_adapter import *  # noqa: F403

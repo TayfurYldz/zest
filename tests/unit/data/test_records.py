@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ActorType, AuthorizationSourceState
-from research_os.data.errors import PersistenceInputError
-from research_os.data.records import (
+from zest.core.enums import ActorType, AuthorizationSourceState
+from zest.data.errors import PersistenceInputError
+from zest.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     ExperimentRecord,
@@ -154,7 +154,7 @@ class RecordValidationTests(unittest.TestCase):
         self.assertFalse(hasattr(record, "severity"))
 
     def test_execution_attempt_rejects_unknown_state_and_is_not_evidence(self) -> None:
-        from research_os.data.records import ExecutionAttemptRecord
+        from zest.data.records import ExecutionAttemptRecord
 
         record = ExecutionAttemptRecord(
             attempt_id="ea:req-1",
@@ -206,7 +206,7 @@ class RecordValidationTests(unittest.TestCase):
 
 class TargetModelRecordTests(unittest.TestCase):
     def test_inference_cannot_be_observed(self) -> None:
-        from research_os.data.records import TargetInferenceRecord
+        from zest.data.records import TargetInferenceRecord
 
         with self.assertRaises(PersistenceInputError):
             TargetInferenceRecord(
@@ -223,7 +223,7 @@ class TargetModelRecordTests(unittest.TestCase):
             )
 
     def test_session_token_is_rejected(self) -> None:
-        from research_os.data.records import TargetInferenceRecord
+        from zest.data.records import TargetInferenceRecord
 
         with self.assertRaises(PersistenceInputError):
             TargetInferenceRecord(

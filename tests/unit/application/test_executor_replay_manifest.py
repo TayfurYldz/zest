@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.executor_replay_manifest import (
+from zest.application.executor_replay_manifest import (
     BuildExecutorReplayManifest,
     BuildExecutorReplayManifestCommand,
 )
-from research_os.data.records import (
+from zest.data.records import (
     ExecutionAttemptRecord,
     ExperimentRecord,
     ObservationRecord,

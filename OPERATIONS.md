@@ -1,4 +1,4 @@
-# Research OS Operations Notes
+# Zest Operations Notes
 
 ## SD-G8 — Coverage Debt
 
@@ -7,7 +7,7 @@
 SD-G8 builds a deterministic, LLM-free coverage-debt matrix that tells the
 operator where the hunt is incomplete:
 
-- **Coverage Debt Core** (`research_os.research.coverage`): `CoverageCell`,
+- **Coverage Debt Core** (`zest.research.coverage`): `CoverageCell`,
   `CoverageMatrix`, and `compute_coverage_debt(graph, registry, hypotheses_view)`.
   The matrix is indexed by `(node_canonical_key, identity_id, family_id)`.
 - **Identity-agnostic boundary**: `HypothesisRecord` does not carry identity, so
@@ -46,7 +46,7 @@ operator where the hunt is incomplete:
 
 ### Operator Visibility
 
-- CLI: `research-os coverage --research-run-id <id>` prints total debt,
+- CLI: `zest coverage --research-run-id <id>` prints total debt,
   per-family debt, per-state counts, top-10 nodes, and the matrix hash.
 - Optional persistence: `CoverageDebtView.execute(..., persist=True)` writes a
   `coverage_debt_snapshot` record and returns the generated `snapshot_id`.
@@ -72,7 +72,7 @@ priority queue so the operator can see what the system would hunt next:
   `MAX_IDENTITIES_PER_NODE = 8` to prevent combinatorial noise. When the cap is
   hit, an `IDENTITY_EXPANSION_CAPPED` audit event is written and the remaining
   identities stay `UNTESTED` for future cycles.
-- **HunterScore core** (`research_os.research.scheduler`): deterministic score
+- **HunterScore core** (`zest.research.scheduler`): deterministic score
   for every debt cell. Score components:
   - `state_weight`: `UNTESTED > HYPOTHESIZED > V1_PASSED > V2_PASSED > V3_QUEUED > COVERED`.
   - `family_success_bonus`: a bounded historical prior from supported/falsified
@@ -409,7 +409,7 @@ Current P2 slice:
 
 - SD-G15 status is `PASS`.
 - P1/P2 focused evidence (2026-08-20): `10 passed` including PostgreSQL vertical
-  slice when `RESEARCH_OS_TEST_DATABASE_URL` is configured.
+  slice when `ZEST_TEST_DATABASE_URL` is configured.
 - Discovery regression evidence (2026-08-20): `37 passed`.
 - Affected evidence (2026-08-20): `44 passed`.
 - Seal evidence (2026-08-20): `1534 passed, 9 skipped, 53 subtests passed`.
@@ -423,7 +423,7 @@ human-reviewable family idea when sourced anomaly signals do not map to enabled
 `HunterFamily` rows, but it cannot admit that family into the registry and it
 cannot promote the idea into Evidence, Candidate, Finding, or ImpactGraph state.
 
-- **Exploratory domain** (`research_os.research.exploratory`):
+- **Exploratory domain** (`zest.research.exploratory`):
   `ExploratorySignal`, `ExploratoryHypothesisDraft`, and
   `draft_registry_external_hypothesis`.
 - **Application use case** (`DraftExploratoryHypothesis`): loads the enabled
@@ -463,7 +463,7 @@ cannot promote the idea into Evidence, Candidate, Finding, or ImpactGraph state.
 SD-G7 makes every impact claim in a FindingProposal traceable to a chain of
 proof artifacts from the ledger. A chain without proofs cannot be admitted.
 
-- **ImpactChain core** (`research_os.research.impact`): `ImpactNode`,
+- **ImpactChain core** (`zest.research.impact`): `ImpactNode`,
   `ImpactEdge`, and `ImpactChain` with structural validation and a
   demonstrated-capability scope rule.
 - **Admission integration**: `SubmitFindingProposal` rejects proposals whose
@@ -528,9 +528,9 @@ Unknown capabilities contribute nothing (fail-closed empty set).
 SD-G6 adds the attacker's planning teeth while keeping every tooth inside the
 scope muzzle:
 
-- **Mutation Engine** (`research_os.research.mutation`): deterministic
+- **Mutation Engine** (`zest.research.mutation`): deterministic
   variation generation from observed `HTTP_OPERATION` / `EXACT_PATH` nodes.
-- **OAST Core** (`research_os.research.oast`): out-of-band callback token
+- **OAST Core** (`zest.research.oast`): out-of-band callback token
   lifecycle for blind-vulnerability proof-of-concepts.
 - **Rate-limit enforcement**: `program_policy.rate_limit_profile` is enforced by
   `ExecutePlannedExperiment` before any Core execution decision.

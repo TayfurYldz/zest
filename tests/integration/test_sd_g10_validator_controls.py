@@ -1,7 +1,7 @@
 """SD-G10 validator, severity, and circuit-breaker integration tests.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent.
+ZEST_TEST_DATABASE_URL is absent.
 """
 
 from __future__ import annotations
@@ -27,26 +27,26 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.evaluate_family_circuit_breaker import (
+from zest.application.evaluate_family_circuit_breaker import (
     EvaluateFamilyCircuitBreaker,
     EvaluateFamilyCircuitBreakerCommand,
 )
-from research_os.application.impact.proof_resolver import UnitOfWorkProofResolver
-from research_os.application.impact.register_impact_chain import (
+from zest.application.impact.proof_resolver import UnitOfWorkProofResolver
+from zest.application.impact.register_impact_chain import (
     RegisterImpactChain,
     RegisterImpactChainCommand,
 )
-from research_os.application.score_finding_severity import (
+from zest.application.score_finding_severity import (
     ScoreFindingSeverity,
     ScoreFindingSeverityCommand,
 )
-from research_os.application.submit_finding_proposal import (
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
@@ -58,17 +58,17 @@ from research_os.data.records import (
     VerificationRecord,
     WorkerResultRecord,
 )
-from research_os.research.finding_proposal import (
+from zest.research.finding_proposal import (
     FindingProposalDraft,
     FindingProposalState,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE,
     ImpactClaim,
 )
-from research_os.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
-from research_os.research.impact.types import ImpactKind
-from research_os.research.validation.circuit_breaker import CircuitBreakerAction
-from research_os.research.validation.severity import InternalSeverity
+from zest.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
+from zest.research.impact.types import ImpactKind
+from zest.research.validation.circuit_breaker import CircuitBreakerAction
+from zest.research.validation.severity import InternalSeverity
 
 TEST_URL = configured_test_url()
 
@@ -304,7 +304,7 @@ def _submit_proposal(uow_factory: PostgresUnitOfWorkFactory) -> str:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG10ValidatorControlsIntegrationTests(unittest.TestCase):
     engine = None

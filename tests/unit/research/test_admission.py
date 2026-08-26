@@ -4,15 +4,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.admission import AdmissionOutcome, admit_hypothesis
-from research_os.research.context import ObservationSource, ResearchContextBuilder
-from research_os.research.proposals import (
+from zest.research.admission import AdmissionOutcome, admit_hypothesis
+from zest.research.context import ObservationSource, ResearchContextBuilder
+from zest.research.proposals import (
     NoveltyBasis,
     ProposalAuthorityError,
     parse_hypothesis_challenge,
     parse_hypothesis_proposal,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _proposal(**overrides):

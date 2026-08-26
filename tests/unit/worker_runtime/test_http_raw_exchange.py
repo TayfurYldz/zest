@@ -8,8 +8,8 @@ from urllib.parse import urlsplit
 import pathsetup  # noqa: F401
 
 from e2e.lab.http_transaction_lab import EXTERNAL_REDIRECT, Gate19HttpLab
-from research_os.tools.registry import load_capability_registry
-from research_os.worker_runtime.python.http_raw_exchange import execute_http_raw_exchange
+from zest.tools.registry import load_capability_registry
+from zest.worker_runtime.python.http_raw_exchange import execute_http_raw_exchange
 
 
 def _envelope(origin: str, path: str = "/ok") -> dict:

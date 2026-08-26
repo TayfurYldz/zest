@@ -5,15 +5,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.integrations.models.cli_session import (
+from zest.integrations.models.cli_session import (
     CodexCliSessionAdapter,
     CodexDiagnosticEchoAdapter,
     probe_codex_cli,
 )
-from research_os.integrations.models.errors import classify_provider_exception
-from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
-from research_os.platform.readiness import ReadinessStage
-from research_os.research.model_port import (
+from zest.integrations.models.errors import classify_provider_exception
+from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
+from zest.platform.readiness import ReadinessStage
+from zest.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelPortError,
@@ -22,7 +22,7 @@ from research_os.research.model_port import (
     ProviderRateLimitError,
     ProviderRuntimeError,
 )
-from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
 def _generator_transport() -> dict[str, object]:

@@ -11,73 +11,73 @@ from datetime import timedelta
 
 from e2e.lab.http_research_lab import ResearchSelectionLab
 from integration.harness import NOW
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.complete_candidate_verification import (
+from zest.application.complete_candidate_verification import (
     CompleteCandidateVerification,
     CompleteCandidateVerificationCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
-from research_os.application.identity import new_opaque_id
-from research_os.application.prepare_planned_experiment import (
+from zest.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from zest.application.identity import new_opaque_id
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_candidate import (
+from zest.application.propose_candidate import (
     ProposeCandidateFromEvidence,
     ProposeCandidateFromEvidenceCommand,
 )
-from research_os.application.record_human_review import (
+from zest.application.record_human_review import (
     RecordHumanReview,
     RecordHumanReviewCommand,
 )
-from research_os.application.run_research_selection import (
+from zest.application.run_research_selection import (
     RunResearchSelection,
     StartResearchSelectionCommand,
 )
-from research_os.application.start_candidate_verification import (
+from zest.application.start_candidate_verification import (
     StartCandidateVerification,
     StartCandidateVerificationCommand,
 )
-from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
-from research_os.application.submit_finding_proposal import (
+from zest.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.core.enums import ActorType, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import (
+from zest.core.enums import ActorType, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import (
     AuthorizationSourceRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.research.candidate import CandidateState
-from research_os.research.finding_proposal import HumanReviewDecision
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState
-from research_os.research.planning import (
+from zest.research.candidate import CandidateState
+from zest.research.finding_proposal import HumanReviewDecision
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState
+from zest.research.planning import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     HTTP_STATE_TRANSITION_CLAIM,
     plan_authorization_differential,
     plan_state_transition,
 )
-from research_os.research.selection import (
+from zest.research.selection import (
     HypothesisFamily,
     ObjectProbeContext,
     WorkflowProbeContext,
@@ -85,18 +85,18 @@ from research_os.research.selection import (
     origin_binds_object_context,
     origin_binds_workflow_context,
 )
-from research_os.security_benchmark.scenarios import SecurityGroundTruthScenario
-from research_os.security_benchmark.scorecard import ObservedScenarioResult
+from zest.security_benchmark.scenarios import SecurityGroundTruthScenario
+from zest.security_benchmark.scorecard import ObservedScenarioResult
 from support.recording_worker import RecordingWorkerPort
 from support.sd_g10_validator import seed_validator_pass
 
 GATE17_HUMAN = "gate17-human-reviewer"
 MODEL_MODULE_MARKERS = (
-    "research_os.integrations.models.cli_session",
+    "zest.integrations.models.cli_session",
     "openai",
     "anthropic",
 )
-STRIX_MODULE_MARKERS = ("research_os.integrations.strix.adapter",)
+STRIX_MODULE_MARKERS = ("zest.integrations.strix.adapter",)
 
 
 def prefix_for(scenario_id: str) -> str:
@@ -572,7 +572,7 @@ def _snapshot(
         for item in ordered:
             latest[item.hypothesis_id] = item.assessment_outcome
         lifecycles = []
-        from research_os.research.selection import (
+        from zest.research.selection import (
             HypothesisFamily,
             ObjectProbeContext,
             ObservedResearchFact,

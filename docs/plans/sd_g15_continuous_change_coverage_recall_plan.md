@@ -24,21 +24,21 @@ averages or false-positive dilution.
 
 Files:
 
-- `src/research_os/research/coverage/live.py`
-- `src/research_os/application/coverage/live_debt.py`
-- `src/research_os/data/ports.py`
-- `src/research_os/data/unit_of_work.py`
+- `src/zest/research/coverage/live.py`
+- `src/zest/application/coverage/live_debt.py`
+- `src/zest/data/ports.py`
+- `src/zest/data/unit_of_work.py`
 - `tests/support/fake_unit_of_work.py`
 - `tests/unit/research/coverage/test_sd_g15_live_coverage.py`
 - `tests/unit/application/test_sd_g15_live_coverage_debt.py`
 - `tests/integration/test_sd_g15_live_coverage.py`
-- `src/research_os/worker_runtime/python/browser_engine.py`
-- `src/research_os/worker_runtime/python/playwright_chromium_engine.py`
-- `workers/python/research_os_worker/browser_engine.py`
-- `workers/python/research_os_worker/playwright_chromium_engine.py`
-- `src/research_os/application/transition_a/browser_page.py`
-- `src/research_os/application/discovery/project.py`
-- `src/research_os/research/discovery/projection.py`
+- `src/zest/worker_runtime/python/browser_engine.py`
+- `src/zest/worker_runtime/python/playwright_chromium_engine.py`
+- `workers/python/zest_worker/browser_engine.py`
+- `workers/python/zest_worker/playwright_chromium_engine.py`
+- `src/zest/application/transition_a/browser_page.py`
+- `src/zest/application/discovery/project.py`
+- `src/zest/research/discovery/projection.py`
 
 Behavior:
 
@@ -59,13 +59,13 @@ Evidence:
 - Focused checks (2026-08-20): `10 passed`.
 - Discovery regression checks (2026-08-20): `37 passed`.
 - PostgreSQL vertical slice (2026-08-20): included in focused checks with real
-  PostgreSQL when `RESEARCH_OS_TEST_DATABASE_URL` is configured.
+  PostgreSQL when `ZEST_TEST_DATABASE_URL` is configured.
 
 ## P2 — Recall Consolidation Report
 
 Files:
 
-- `src/research_os/security_benchmark/recall.py`
+- `src/zest/security_benchmark/recall.py`
 - `tests/unit/security_benchmark/test_sd_g15_recall.py`
 
 Behavior:

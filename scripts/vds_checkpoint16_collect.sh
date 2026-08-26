@@ -23,29 +23,29 @@ safe timedatectl show -p NTPSynchronized -p Timezone --value || true
 safe bash -c 'systemctl --version | head -n 1' || true
 
 note "layout-permissions"
-safe namei -l /opt/research-os/current || true
-safe ls -ld /opt/research-os /opt/research-os/releases /opt/research-os/current \
-  /etc/research-os /etc/research-os/research-os.env \
-  /var/lib/research-os /var/log/research-os || true
-safe ls -l /opt/research-os/current/.venv/bin/research-osd || true
-safe ls -l /etc/systemd/system/research-osd.service \
-  /etc/systemd/system/research-os-dashboard.service || true
+safe namei -l /opt/zest/current || true
+safe ls -ld /opt/zest /opt/zest/releases /opt/zest/current \
+  /etc/zest /etc/zest/zest.env \
+  /var/lib/zest /var/log/zest || true
+safe ls -l /opt/zest/current/.venv/bin/zestd || true
+safe ls -l /etc/systemd/system/zestd.service \
+  /etc/systemd/system/zest-dashboard.service || true
 
 note "python-release"
-safe /opt/research-os/current/.venv/bin/python -c 'import sys; print(sys.version)' || true
-safe /opt/research-os/current/.venv/bin/python -c 'import research_os; print(research_os.__file__)' || true
-safe /opt/research-os/current/.venv/bin/python -c \
-  'from research_os.qualification.staging_spine import seed_authorized_spine, truncate_spine; print("qualification=ok")' || true
-safe bash -c '/opt/research-os/current/.venv/bin/research-osd --help | head -n 5' || true
-safe /opt/research-os/current/.venv/bin/python \
-  /opt/research-os/current/scripts/vds_checkpoint16_fixture.py --help || true
-safe readlink -f /opt/research-os/current || true
+safe /opt/zest/current/.venv/bin/python -c 'import sys; print(sys.version)' || true
+safe /opt/zest/current/.venv/bin/python -c 'import zest; print(zest.__file__)' || true
+safe /opt/zest/current/.venv/bin/python -c \
+  'from zest.qualification.staging_spine import seed_authorized_spine, truncate_spine; print("qualification=ok")' || true
+safe bash -c '/opt/zest/current/.venv/bin/zestd --help | head -n 5' || true
+safe /opt/zest/current/.venv/bin/python \
+  /opt/zest/current/scripts/vds_checkpoint16_fixture.py --help || true
+safe readlink -f /opt/zest/current || true
 
 note "alembic"
-safe sudo -u research-os /opt/research-os/current/.venv/bin/python \
-  /opt/research-os/current/scripts/verify_research_os_release.py \
-  --release-root /opt/research-os/current \
-  --env-file /etc/research-os/research-os.env \
+safe sudo -u zest /opt/zest/current/.venv/bin/python \
+  /opt/zest/current/scripts/verify_zest_release.py \
+  --release-root /opt/zest/current \
+  --env-file /etc/zest/zest.env \
   --check-alembic-heads --check-db || true
 
 note "listen"
@@ -53,11 +53,11 @@ safe bash -c "ss -ltnp | sed -n '1p;/8766\\|8765\\|5432/p'" || true
 safe bash -c "ss -ltn | sed -n '1p;/0.0.0.0:8766\\|:::8766\\|0.0.0.0:5432/p'" || true
 
 note "systemd"
-safe systemctl is-enabled research-osd.service || true
-safe systemctl is-active research-osd.service || true
-safe systemctl show research-osd.service -p User -p Group -p EnvironmentFile \
+safe systemctl is-enabled zestd.service || true
+safe systemctl is-active zestd.service || true
+safe systemctl show zestd.service -p User -p Group -p EnvironmentFile \
   -p WorkingDirectory -p ExecStart -p FragmentPath -p MainPID || true
-safe bash -c 'systemd-cgls --unit=research-osd.service | head -n 40' || true
+safe bash -c 'systemd-cgls --unit=zestd.service | head -n 40' || true
 
 note "health-sanitized"
 if command -v curl >/dev/null; then
@@ -68,8 +68,8 @@ if command -v curl >/dev/null; then
 fi
 
 note "journal-sanitized"
-safe journalctl -u research-osd.service -n 80 --no-pager || true
-if journalctl -u research-osd.service -n 200 --no-pager 2>/dev/null | \
+safe journalctl -u zestd.service -n 80 --no-pager || true
+if journalctl -u zestd.service -n 200 --no-pager 2>/dev/null | \
   grep -Ei 'password|api[_-]?key|authorization:|cookie=|token=' >>"$OUT" 2>&1; then
   echo "secret_scan=WARNING_MATCHES_FOUND" | tee -a "$OUT"
 else
@@ -77,25 +77,25 @@ else
 fi
 
 note "permissions-as-service-user"
-if sudo -u research-os test -w /etc/research-os >>"$OUT" 2>&1; then
+if sudo -u zest test -w /etc/zest >>"$OUT" 2>&1; then
   echo "etc_writable=FAIL" | tee -a "$OUT"
 else
   echo "etc_writable=denied" | tee -a "$OUT"
 fi
 
-if sudo -u research-os test -w /opt/research-os/current >>"$OUT" 2>&1; then
+if sudo -u zest test -w /opt/zest/current >>"$OUT" 2>&1; then
   echo "release_writable=FAIL" | tee -a "$OUT"
 else
   echo "release_writable=denied" | tee -a "$OUT"
 fi
 
-if sudo -u research-os test -w /var/lib/research-os >>"$OUT" 2>&1; then
+if sudo -u zest test -w /var/lib/zest >>"$OUT" 2>&1; then
   echo "state_writable=ok" | tee -a "$OUT"
 else
   echo "state_writable=FAIL" | tee -a "$OUT"
 fi
 
-if sudo -u research-os test -w /var/log/research-os >>"$OUT" 2>&1; then
+if sudo -u zest test -w /var/log/zest >>"$OUT" 2>&1; then
   echo "log_writable=ok" | tee -a "$OUT"
 else
   echo "log_writable=FAIL" | tee -a "$OUT"

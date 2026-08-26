@@ -4,11 +4,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.assessment import AssessmentOutcome, EvaluatorKind
-from research_os.research.evaluators.diagnostic_echo import DiagnosticEchoEvaluator
-from research_os.research.feedback import ExperimentFeedback, ObservedFact
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.types import ResearchInputError
+from zest.research.assessment import AssessmentOutcome, EvaluatorKind
+from zest.research.evaluators.diagnostic_echo import DiagnosticEchoEvaluator
+from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.types import ResearchInputError
 
 
 def _plan(message: str = "ping"):

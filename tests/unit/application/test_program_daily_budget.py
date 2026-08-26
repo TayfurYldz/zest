@@ -6,14 +6,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.program_daily_budget import (
+from zest.application.program_daily_budget import (
     AllocateProgramDailyBudget,
     AllocateProgramDailyBudgetCommand,
     CheckProgramDailyBudget,
     ProgramDailyBudgetUsage,
     program_daily_budget_id,
 )
-from research_os.data.records import (
+from zest.data.records import (
     BudgetConsumptionRecord,
     IssuedBudgetRecord,
     ProgramPolicyRecord,

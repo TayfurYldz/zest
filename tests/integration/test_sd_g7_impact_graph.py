@@ -1,7 +1,7 @@
 """SD-G7 ImpactGraph integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent.
+ZEST_TEST_DATABASE_URL is absent.
 """
 
 from __future__ import annotations
@@ -27,20 +27,20 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.errors import ApplicationError
-from research_os.application.impact.proof_resolver import UnitOfWorkProofResolver
+from zest.application.errors import ApplicationError
+from zest.application.impact.proof_resolver import UnitOfWorkProofResolver
 from sqlalchemy import text
-from research_os.application.impact.register_impact_chain import (
+from zest.application.impact.register_impact_chain import (
     RegisterImpactChain,
     RegisterImpactChainCommand,
 )
-from research_os.application.submit_finding_proposal import (
+from zest.application.submit_finding_proposal import (
     SubmitFindingProposal,
     SubmitFindingProposalCommand,
 )
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
@@ -51,14 +51,14 @@ from research_os.data.records import (
     VerificationRecord,
     WorkerResultRecord,
 )
-from research_os.research.finding_proposal import (
+from zest.research.finding_proposal import (
     FindingProposalDraft,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE,
     ImpactClaim,
 )
-from research_os.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
-from research_os.research.impact.types import ImpactKind
+from zest.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
+from zest.research.impact.types import ImpactKind
 
 TEST_URL = configured_test_url()
 
@@ -263,7 +263,7 @@ def _draft_with_chain(research_run_id: str = "run-1") -> FindingProposalDraft:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
     engine = None

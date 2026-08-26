@@ -20,23 +20,23 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.application.operator_errors import OperatorErrorCode
-from research_os.application.orchestration_lease import LeaseConfig
-from research_os.application.preflight import (
+from zest.application.operator_errors import OperatorErrorCode
+from zest.application.orchestration_lease import LeaseConfig
+from zest.application.preflight import (
     ModelReadinessInput,
     SchemaHealthInput,
     WorkerReadinessInput,
 )
-from research_os.application.research_osd import ResearchOsdRuntime
-from research_os.core.enums import ScopeRuleEffect
-from research_os.data.postgres.engine import (
+from zest.application.zestd import ZestdRuntime
+from zest.core.enums import ScopeRuleEffect
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuthorizationSourceRecord,
     BudgetConsumptionRecord,
     IssuedBudgetRecord,
@@ -45,11 +45,11 @@ from research_os.data.records import (
     ResearchRunRecord,
     ScopeRuleV2Record,
 )
-from research_os.interface.dashboard import collect_dashboard_payload
-from research_os.interface.operator_api import OperatorApiServer
-from research_os.platform.health import ComponentHealth, HealthCheck
-from research_os.research.model_runtime import api_runtime_identity
-from research_os.research.routing import CandidateLocality, RuntimeCandidate
+from zest.interface.dashboard import collect_dashboard_payload
+from zest.interface.operator_api import OperatorApiServer
+from zest.platform.health import ComponentHealth, HealthCheck
+from zest.research.model_runtime import api_runtime_identity
+from zest.research.routing import CandidateLocality, RuntimeCandidate
 from integration.harness import alembic_upgrade, truncate_spine
 from support.fake_model import ScriptedModelPort
 from support.recording_worker import RecordingWorkerPort
@@ -58,7 +58,7 @@ from sqlalchemy import text
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 TARGET = "https://example.com/"
@@ -85,9 +85,9 @@ def _healthy_model() -> ModelReadinessInput:
     )
 
 
-def _runtime(engine, *, probe_worker=None, probe_model=None) -> ResearchOsdRuntime:
+def _runtime(engine, *, probe_worker=None, probe_model=None) -> ZestdRuntime:
     factory = PostgresUnitOfWork(engine)
-    return ResearchOsdRuntime(
+    return ZestdRuntime(
         factory,
         RecordingWorkerPort(),
         ScriptedModelPort(),
@@ -178,7 +178,7 @@ def _seed_startable_run(uow: PostgresUnitOfWork) -> None:
     )
 
 
-def _serve(runtime: ResearchOsdRuntime) -> tuple[OperatorApiServer, threading.Thread, str]:
+def _serve(runtime: ZestdRuntime) -> tuple[OperatorApiServer, threading.Thread, str]:
     server = OperatorApiServer(runtime, host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -242,7 +242,7 @@ class OperatorStagingPostgresTests(unittest.TestCase):
         with PostgresUnitOfWork(self.engine) as uow:
             _seed_startable_run(uow)
             uow.commit()
-        self._runtimes: list[ResearchOsdRuntime] = []
+        self._runtimes: list[ZestdRuntime] = []
         self._servers: list[tuple[OperatorApiServer, threading.Thread]] = []
 
     def tearDown(self) -> None:
@@ -251,7 +251,7 @@ class OperatorStagingPostgresTests(unittest.TestCase):
         for runtime in self._runtimes:
             runtime.drain(join_timeout=1)
 
-    def _start_runtime(self, **kwargs) -> tuple[ResearchOsdRuntime, str]:
+    def _start_runtime(self, **kwargs) -> tuple[ZestdRuntime, str]:
         runtime = _runtime(self.engine, **kwargs)
         self._runtimes.append(runtime)
         runtime.start_process()
@@ -543,18 +543,18 @@ class OperatorStagingPostgresTests(unittest.TestCase):
         self.assertTrue(runtime.is_supervising("run-1"))
         first = collect_dashboard_payload(
             env={
-                "RESEARCH_OSD_URL": base,
+                "ZEST_URL": base,
                 TEST_DATABASE_URL_ENV: TEST_URL or "",
-                "RESEARCH_OS_DATABASE_URL": TEST_URL or "",
+                "ZEST_DATABASE_URL": TEST_URL or "",
             }
         )
         self.assertTrue(first["client_only"])
-        self.assertEqual(first["database"]["operator_source"], "research-osd")
+        self.assertEqual(first["database"]["operator_source"], "zestd")
         self.assertTrue(runtime.is_supervising("run-1"))
         second = collect_dashboard_payload(
             env={
-                "RESEARCH_OSD_URL": base,
-                "RESEARCH_OS_DATABASE_URL": TEST_URL or "",
+                "ZEST_URL": base,
+                "ZEST_DATABASE_URL": TEST_URL or "",
             }
         )
         first_state = first["database"]["runs"][0]["state"]

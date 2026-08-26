@@ -10,15 +10,15 @@ try:
 except ImportError:  # pragma: no cover - environment-dependent
     sync_playwright = None
 
-from research_os.application.autonomous_research_controller import (
+from zest.application.autonomous_research_controller import (
     OrchestrationTickResult,
     StartAutonomousResearchCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.interface import dashboard
-from research_os.interface.dashboard import DashboardHandler, DashboardRunControlRuntime
-from research_os.research.orchestration import OrchestrationBounds
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.interface import dashboard
+from zest.interface.dashboard import DashboardHandler, DashboardRunControlRuntime
+from zest.research.orchestration import OrchestrationBounds
 
 
 def _command(run_id: str) -> StartAutonomousResearchCommand:

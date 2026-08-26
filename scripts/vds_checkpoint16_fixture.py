@@ -4,7 +4,7 @@ Uses existing Application recovery classification and PostgreSQL SoR rows.
 Does not change research authority. Does not auto-retry DISPATCHING or
 UNKNOWN_OUTCOME. Does not print secrets.
 
-seed --truncate requires RESEARCH_OSD_ALLOW_SPINE_TRUNCATE=YES and wipes the
+seed --truncate requires ZEST_ALLOW_SPINE_TRUNCATE=YES and wipes the
 connected database spine. Use only on a dedicated empty staging database.
 """
 
@@ -18,32 +18,32 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from research_os.application.classify_runtime_recovery import ClassifyRuntimeRecovery
-from research_os.application.orchestration_config import fingerprint_for_start
-from research_os.application.osd_settings import LINUX_ENV_FILE, load_osd_settings
-from research_os.core.enums import ActorType
-from research_os.data.postgres.engine import create_sync_engine, redacted_database_url
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.application.classify_runtime_recovery import ClassifyRuntimeRecovery
+from zest.application.orchestration_config import fingerprint_for_start
+from zest.application.osd_settings import LINUX_ENV_FILE, load_osd_settings
+from zest.core.enums import ActorType
+from zest.data.postgres.engine import create_sync_engine, redacted_database_url
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     ExecutionAttemptRecord,
     ResearchOrchestrationRecord,
 )
-from research_os.qualification.staging_spine import (
+from zest.qualification.staging_spine import (
     TRUNCATE_GUARD,
     StagingTruncateDenied,
     require_explicit_spine_truncate,
     seed_authorized_spine,
     truncate_spine,
 )
-from research_os.qualification.j11_fencing import (
+from zest.qualification.j11_fencing import (
     J11QualificationError,
     cleanup_j11_owner,
     prepare_j11_run,
     run_stale_epoch_proof,
     run_two_process_owner_race,
 )
-from research_os.research.orchestration import (
+from zest.research.orchestration import (
     ORCHESTRATION_POLICY_VERSION,
     OrchestrationBounds,
     OrchestrationPhase,

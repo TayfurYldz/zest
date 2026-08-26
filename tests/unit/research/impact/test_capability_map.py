@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.impact.capability_map import (
+from zest.research.impact.capability_map import (
     DEMONSTRATED_CAPABILITY_TO_IMPACT_KIND,
     validate_chain_impact_scope,
     validate_impact_scope,
 )
-from research_os.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
-from research_os.research.impact.types import ImpactKind, ProofRecord, ProofResolver
+from zest.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
+from zest.research.impact.types import ImpactKind, ProofRecord, ProofResolver
 
 
 class _CapabilityResolver(ProofResolver):

@@ -6,7 +6,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core.pricing import (
+from zest.core.pricing import (
     MODEL_PRICE_TABLE,
     UnknownModelPriceError,
     estimate_cost,

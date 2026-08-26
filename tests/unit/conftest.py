@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 
 _INTEGRATION_MODULES = (
-    "research_os.integrations.models.cli_session",
-    "research_os.integrations.strix.adapter",
+    "zest.integrations.models.cli_session",
+    "zest.integrations.strix.adapter",
 )
 
 

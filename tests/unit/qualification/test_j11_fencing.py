@@ -7,8 +7,8 @@ from pathlib import Path
 import pathsetup  # noqa: F401
 
 REPO = Path(__file__).resolve().parents[3]
-J11 = REPO / "src/research_os/qualification/j11_fencing.py"
-OSD = REPO / "src/research_os/interface/research_osd.py"
+J11 = REPO / "src/zest/qualification/j11_fencing.py"
+OSD = REPO / "src/zest/interface/zestd.py"
 
 
 class J11FencingQualificationSourceTests(unittest.TestCase):
@@ -27,10 +27,10 @@ class J11FencingQualificationSourceTests(unittest.TestCase):
         self.assertFalse(any(item == "tests" or item.startswith("tests.") for item in imports))
         self.assertFalse(any(item == "integration" or item.startswith("integration.") for item in imports))
 
-    def test_production_research_osd_does_not_import_j11_qualification(self) -> None:
+    def test_production_zestd_does_not_import_j11_qualification(self) -> None:
         source = OSD.read_text(encoding="utf-8")
         self.assertNotIn("j11_fencing", source)
-        self.assertNotIn("research_os.qualification", source)
+        self.assertNotIn("zest.qualification", source)
 
     def test_j11_uses_existing_fencing_primitives_and_bounded_diagnostic_worker(self) -> None:
         source = J11.read_text(encoding="utf-8")

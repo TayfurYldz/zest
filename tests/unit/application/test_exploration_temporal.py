@@ -7,62 +7,62 @@ from datetime import timedelta
 import pathsetup  # noqa: F401
 
 from fixtures import base_request
-from research_os.application.admit_diagnostic_invariant import (
+from zest.application.admit_diagnostic_invariant import (
     AdmitDiagnosticInvariant,
     AdmitDiagnosticInvariantCommand,
 )
-from research_os.application.capture_diagnostic_snapshot import (
+from zest.application.capture_diagnostic_snapshot import (
     CaptureDiagnosticSnapshot,
     CaptureDiagnosticSnapshotCommand,
 )
-from research_os.application.compare_diagnostic_differential import (
+from zest.application.compare_diagnostic_differential import (
     CompareDiagnosticDifferential,
     CompareDiagnosticDifferentialCommand,
 )
-from research_os.application.compare_diagnostic_snapshots import (
+from zest.application.compare_diagnostic_snapshots import (
     CompareDiagnosticSnapshots,
     CompareDiagnosticSnapshotsCommand,
 )
-from research_os.application.compose_diagnostic_chain import (
+from zest.application.compose_diagnostic_chain import (
     ComposeDiagnosticChain,
     ComposeDiagnosticChainCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.application.select_research_opportunities import (
+from zest.application.select_research_opportunities import (
     SelectResearchOpportunities,
     SelectResearchOpportunitiesCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect, SideEffectLevel
-from research_os.core.execution import evaluate_execution
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.data.records import HypothesisAssessmentRecord
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.differential import (
+from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect, SideEffectLevel
+from zest.core.execution import evaluate_execution
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.data.records import HypothesisAssessmentRecord
+from zest.research.admission import AdmissionOutcome
+from zest.research.differential import (
     DifferentialCase,
     DifferentialDimension,
     DifferentialOutcome,
 )
-from research_os.research.epistemic import EpistemicClass
-from research_os.research.exploration import OpportunityMode, ResearchPolicyBudget, SelectionOutcome
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.temporal import ChangeOutcome, SnapshotOutcome
-from research_os.research.types import ResearchInputError
+from zest.research.epistemic import EpistemicClass
+from zest.research.exploration import OpportunityMode, ResearchPolicyBudget, SelectionOutcome
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.temporal import ChangeOutcome, SnapshotOutcome
+from zest.research.types import ResearchInputError
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort

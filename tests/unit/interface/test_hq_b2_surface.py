@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.hq import read_index, read_static_asset
-from research_os.interface.dashboard import HTML
+from zest.hq import read_index, read_static_asset
+from zest.interface.dashboard import HTML
 
 
 class HqB2SurfaceTests(unittest.TestCase):

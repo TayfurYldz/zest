@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.executor_fabric_assessment import (
+from zest.application.executor_fabric_assessment import (
     AssessExecutorFabricExperiment,
     AssessExecutorFabricExperimentCommand,
 )
-from research_os.data.records import (
+from zest.data.records import (
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,

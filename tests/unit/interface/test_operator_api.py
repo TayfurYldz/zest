@@ -10,11 +10,11 @@ from unittest import mock
 
 import pathsetup  # noqa: F401
 
-from research_os.application.operator_command_payload import reject_authority_overrides
-from research_os.application.operator_errors import OperatorError, OperatorErrorCode
-from research_os.application.osd_settings import LINUX_CONFIG_DIR, load_osd_settings
-from research_os.interface.dashboard import DashboardHandler, collect_dashboard_payload
-from research_os.interface.operator_api import OperatorApiServer
+from zest.application.operator_command_payload import reject_authority_overrides
+from zest.application.operator_errors import OperatorError, OperatorErrorCode
+from zest.application.osd_settings import LINUX_CONFIG_DIR, load_osd_settings
+from zest.interface.dashboard import DashboardHandler, collect_dashboard_payload
+from zest.interface.operator_api import OperatorApiServer
 
 
 class OperatorCommandPayloadTests(unittest.TestCase):
@@ -72,7 +72,7 @@ class OperatorApiShutdownTests(unittest.TestCase):
                 pass
 
     def test_entrypoint_sigterm_handler_does_not_call_httpserver_shutdown(self) -> None:
-        source_path = Path(__file__).resolve().parents[3] / "src/research_os/interface/research_osd.py"
+        source_path = Path(__file__).resolve().parents[3] / "src/zest/interface/zestd.py"
         tree = ast.parse(source_path.read_text(encoding="utf-8"))
         main = next(
             node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"
@@ -91,8 +91,8 @@ class OsdSettingsTests(unittest.TestCase):
     def test_linux_paths_and_no_home_assumption(self) -> None:
         settings = load_osd_settings(
             {
-                "RESEARCH_OS_DATABASE_URL": "postgresql+psycopg://research_os@127.0.0.1/research_os",
-                "RESEARCH_OSD_LOG_PATH": "/var/log/research-os/research-osd.log",
+                "ZEST_DATABASE_URL": "postgresql+psycopg://zest@127.0.0.1/zest",
+                "ZEST_LOG_PATH": "/var/log/zest/zestd.log",
             }
         )
         public = settings.public_mapping()
@@ -100,13 +100,13 @@ class OsdSettingsTests(unittest.TestCase):
         self.assertNotIn("password", rendered)
         self.assertNotIn("/home/tayfur", rendered)
         self.assertEqual(public["linux_paths"]["config"], LINUX_CONFIG_DIR)
-        self.assertEqual(public["linux_paths"]["env_file"], "/etc/research-os/research-os.env")
+        self.assertEqual(public["linux_paths"]["env_file"], "/etc/zest/zest.env")
         self.assertEqual(settings.bind_host, "127.0.0.1")
 
 
 class DashboardClientOnlyTests(unittest.TestCase):
     def test_collect_payload_marks_client_only(self) -> None:
-        payload = collect_dashboard_payload(env={"RESEARCH_OS_DATABASE_URL": ""})
+        payload = collect_dashboard_payload(env={"ZEST_DATABASE_URL": ""})
         self.assertTrue(payload["client_only"])
         self.assertNotIn("LocalRunSupervisorRegistry", json.dumps(payload))
 
@@ -204,7 +204,7 @@ class OperatorApiPostgresOutageHandlerTests(unittest.TestCase):
         runtime.run_analysis.assert_called_once_with("run-1")
 
     def test_health_returns_json_when_runtime_health_raises_unavailable(self) -> None:
-        from research_os.data.errors import DatabaseUnavailableError
+        from zest.data.errors import DatabaseUnavailableError
 
         runtime = mock.Mock()
         runtime.health.side_effect = DatabaseUnavailableError("postgresql unavailable")
@@ -224,7 +224,7 @@ class OperatorApiPostgresOutageHandlerTests(unittest.TestCase):
         self.assertNotIn(b"password", raw.lower())
 
     def test_start_fails_closed_with_structured_http_when_db_unavailable(self) -> None:
-        from research_os.data.errors import DatabaseUnavailableError
+        from zest.data.errors import DatabaseUnavailableError
 
         runtime = mock.Mock()
         runtime.start_run.side_effect = DatabaseUnavailableError("postgresql unavailable")

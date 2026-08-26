@@ -22,22 +22,22 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.authorize_strix_execution import (
+from zest.application.authorize_strix_execution import (
     AuthorizeStrixExecution,
     AuthorizeStrixExecutionCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.postgres.engine import (
+from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.platform.strix import StrixExecutionOutcome, StrixRuntimeStatus
-from research_os.research.model_port import ModelCallRequest, ModelRole
-from research_os.research.model_runtime import RuntimeKind, api_runtime_identity, cli_session_runtime_identity
-from research_os.tools.capabilities import (
+from zest.platform.strix import StrixExecutionOutcome, StrixRuntimeStatus
+from zest.research.model_port import ModelCallRequest, ModelRole
+from zest.research.model_runtime import RuntimeKind, api_runtime_identity, cli_session_runtime_identity
+from zest.tools.capabilities import (
     CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
     STRIX_DIAGNOSTIC_PING_CAPABILITY,
 )
@@ -52,7 +52,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 

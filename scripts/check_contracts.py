@@ -14,14 +14,14 @@ import sys
 from pathlib import Path
 
 CANONICAL_SCHEMA = "https://json-schema.org/draft/2020-12/schema"
-CONTRACT_ID_PREFIX = "urn:research-os:contracts:v1:"
+CONTRACT_ID_PREFIX = "urn:zest:contracts:v1:"
 REQUIRED_IDS = {
-    "urn:research-os:contracts:v1:correlation-context",
-    "urn:research-os:contracts:v1:execution-budget",
-    "urn:research-os:contracts:v1:secret-reference",
-    "urn:research-os:contracts:v1:worker-request",
-    "urn:research-os:contracts:v1:worker-result",
-    "urn:research-os:contracts:v1:reauthorization-request",
+    "urn:zest:contracts:v1:correlation-context",
+    "urn:zest:contracts:v1:execution-budget",
+    "urn:zest:contracts:v1:secret-reference",
+    "urn:zest:contracts:v1:worker-request",
+    "urn:zest:contracts:v1:worker-result",
+    "urn:zest:contracts:v1:reauthorization-request",
 }
 SECRET_VALUE_KEYS = {
     "token",
@@ -130,7 +130,7 @@ def check_file(path: Path) -> tuple[dict, list[str]]:
     if not isinstance(contract_id, str) or not contract_id.startswith(
         CONTRACT_ID_PREFIX
     ):
-        errors.append(f"{path}: $id must be a v1 research-os URN")
+        errors.append(f"{path}: $id must be a v1 zest URN")
 
     if data.get("type") != "object":
         errors.append(f"{path}: top-level type must be object")

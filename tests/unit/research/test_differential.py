@@ -4,14 +4,14 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.differential import (
+from zest.research.differential import (
     DifferentialCase,
     DifferentialDimension,
     DifferentialInterpretation,
     DifferentialOutcome,
     compare_diagnostic_differential,
 )
-from research_os.research.target_model import TargetObservationView
+from zest.research.target_model import TargetObservationView
 
 
 def _view(**overrides) -> TargetObservationView:
@@ -145,7 +145,7 @@ class DiagnosticDifferentialTests(unittest.TestCase):
     def test_time_dimension_requires_material_snapshot_backed_change(self) -> None:
         from datetime import datetime, timezone
 
-        from research_os.research.temporal import ResearchSnapshot
+        from zest.research.temporal import ResearchSnapshot
 
         t1 = datetime(2026, 8, 17, 1, 0, tzinfo=timezone.utc)
         t2 = datetime(2026, 8, 17, 2, 0, tzinfo=timezone.utc)
@@ -194,7 +194,7 @@ class DiagnosticDifferentialTests(unittest.TestCase):
     def test_timestamp_only_time_is_not_temporal(self) -> None:
         from datetime import datetime, timezone
 
-        from research_os.research.temporal import ResearchSnapshot
+        from zest.research.temporal import ResearchSnapshot
 
         t1 = datetime(2026, 8, 17, 1, 0, tzinfo=timezone.utc)
         t2 = datetime(2026, 8, 17, 2, 0, tzinfo=timezone.utc)

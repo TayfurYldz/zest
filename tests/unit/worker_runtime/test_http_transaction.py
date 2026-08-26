@@ -6,9 +6,9 @@ import pathsetup  # noqa: F401
 
 from e2e.lab.https_transaction_lab import HttpsTransactionLab
 from e2e.lab.http_transaction_lab import EXTERNAL_REDIRECT, Gate19HttpLab
-from research_os.tools.registry import load_capability_registry
-from research_os.worker_runtime.python.capabilities import execute
-from research_os.worker_runtime.python.http_transaction import execute_http_transaction
+from zest.tools.registry import load_capability_registry
+from zest.worker_runtime.python.capabilities import execute
+from zest.worker_runtime.python.http_transaction import execute_http_transaction
 from support.worker_requests import valid_worker_request
 
 

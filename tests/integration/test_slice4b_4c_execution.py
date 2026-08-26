@@ -24,22 +24,22 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.dispatch_approved_v3_queue import (
+from zest.application.dispatch_approved_v3_queue import (
     DispatchApprovedV3Queue,
     DispatchApprovedV3QueueCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import HuntV3QueueRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.mutation.matrix import build_mutation_matrix
-from research_os.research.protocol.parser_plan import build_protocol_parser_plan
-from research_os.research.selection import HunterFamilyView
-from research_os.worker_runtime.python.runtime import build_result, utc_now_rfc3339
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import HuntV3QueueRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.mutation.matrix import build_mutation_matrix
+from zest.research.protocol.parser_plan import build_protocol_parser_plan
+from zest.research.selection import HunterFamilyView
+from zest.worker_runtime.python.runtime import build_result, utc_now_rfc3339
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()
@@ -93,7 +93,7 @@ def _compiled_scope(origin: str):
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class Slice4B4CExecutionIntegrationTests(unittest.TestCase):
     engine = None

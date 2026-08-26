@@ -21,17 +21,17 @@ if str(_REPO / "tests") not in sys.path:
 from alembic import command
 from alembic.config import Config
 
-from research_os.application.capability_binding import CapabilityBindingError, capability_view_for_plan
-from research_os.application.plan_records import experiment_plan_from_record, experiment_plan_record_for
-from research_os.core.authorization import AuthorizationSourceView
-from research_os.core.budget import BudgetUsage, IssuedBudget
-from research_os.core.enums import AuthorizationSourceState, ExecutionDecisionKind, ReasonCode, ScopeRuleEffect
-from research_os.core.execution import ExecutionRequest, evaluate_execution
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.tools.registry import load_capability_registry
+from zest.application.capability_binding import CapabilityBindingError, capability_view_for_plan
+from zest.application.plan_records import experiment_plan_from_record, experiment_plan_record_for
+from zest.core.authorization import AuthorizationSourceView
+from zest.core.budget import BudgetUsage, IssuedBudget
+from zest.core.enums import AuthorizationSourceState, ExecutionDecisionKind, ReasonCode, ScopeRuleEffect
+from zest.core.execution import ExecutionRequest, evaluate_execution
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.research.planning import plan_diagnostic_echo
+from zest.tools.registry import load_capability_registry
 from integration.harness import alembic_upgrade, configured_test_url, seed_authorized_spine, truncate_spine
 
 TEST_URL = configured_test_url()

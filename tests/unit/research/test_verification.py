@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.candidate import CandidateState
-from research_os.research.evidence import (
+from zest.research.candidate import CandidateState
+from zest.research.evidence import (
     DIAGNOSTIC_ECHO_MATCHED_CLAIM,
     DIAGNOSTIC_ECHO_MISMATCHED_CLAIM,
 )
-from research_os.research.types import ResearchInputError
-from research_os.research.verification import (
+from zest.research.types import ResearchInputError
+from zest.research.verification import (
     DIAGNOSTIC_NEGATIVE_CONTROL_TOKEN,
     VerificationContext,
     VerificationEvidenceRef,

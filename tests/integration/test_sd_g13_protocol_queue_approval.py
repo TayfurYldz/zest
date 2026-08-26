@@ -1,7 +1,7 @@
 """SD-G13 Protocol/parser queue approval integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
+ZEST_TEST_DATABASE_URL is absent (PENDING, not PASS).
 """
 
 from __future__ import annotations
@@ -28,15 +28,15 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.hunt_v3_queue_approval import (
+from zest.application.hunt_v3_queue_approval import (
     ApproveHuntV3Queue,
     ApproveHuntV3QueueCommand,
     approval_subject_for_queue,
 )
-from research_os.core.enums import ActorType, ApprovalDecision
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.core.enums import ActorType, ApprovalDecision
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     ApprovalRecord,
     CandidateRecord,
     EvidenceRecord,
@@ -215,7 +215,7 @@ def _seed_reviewable_approval_spine(uow: PostgresUnitOfWork) -> None:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG13ProtocolQueueApprovalIntegrationTests(unittest.TestCase):
     engine = None

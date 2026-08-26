@@ -33,37 +33,37 @@ from integration.harness import (
     configured_test_url,
     truncate_spine,
 )
-from research_os.application.executor_fabric_assessment import (
+from zest.application.executor_fabric_assessment import (
     AssessExecutorFabricExperiment,
     AssessExecutorFabricExperimentCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
-from research_os.data.records import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_engine
+from zest.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ProgramRecord,
     ResearchRunRecord,
 )
-from research_os.platform.local_process_worker import (
+from zest.platform.local_process_worker import (
     LocalProcessWorkerAdapter,
     LocalProcessWorkerConfig,
     PACKAGED_WORKER_MODULE,
 )
-from research_os.research.http_transaction import plan_http_transaction_read
-from research_os.research.planning import HTTP_STATE_TRANSITION_CLAIM, plan_state_transition
+from zest.research.http_transaction import plan_http_transaction_read
+from zest.research.planning import HTTP_STATE_TRANSITION_CLAIM, plan_state_transition
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()

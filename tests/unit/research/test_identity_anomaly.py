@@ -4,10 +4,10 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.differential import DifferentialInterpretation
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.identity_anomaly import (
+from zest.research.differential import DifferentialInterpretation
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.identity_anomaly import (
     IDENTITY_ANOMALY_ALTERNATIVE,
     IDENTITY_ANOMALY_CLAIM,
     IdentityAnomalyClass,
@@ -20,14 +20,14 @@ from research_os.research.identity_anomaly import (
     identity_anomaly_proposal_and_challenge,
     owning_identity_families,
 )
-from research_os.research.planning import (
+from zest.research.planning import (
     HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
     HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
 )
-from research_os.tools.capabilities import HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY
-from research_os.research.selection import HunterFamilyView
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.core.enums import ScopeClassification
+from zest.tools.capabilities import HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY
+from zest.research.selection import HunterFamilyView
+from zest.research.target_model import TargetEpistemicStatus
+from zest.core.enums import ScopeClassification
 
 
 def _family(**overrides) -> HunterFamilyView:

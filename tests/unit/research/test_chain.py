@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.chain import (
+from zest.research.chain import (
     ChainEdgeKind,
     ChainHypothesis,
     ChainNodeKind,
@@ -16,7 +16,7 @@ from research_os.research.chain import (
     compose_diagnostic_echo_chains,
     experiment_plan_for_chain_step,
 )
-from research_os.research.target_model import TargetEpistemicStatus, TargetObservationView
+from zest.research.target_model import TargetEpistemicStatus, TargetObservationView
 
 
 def _view(**overrides) -> TargetObservationView:

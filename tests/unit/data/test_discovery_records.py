@@ -5,8 +5,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.data.errors import PersistenceConflictError, PersistenceInputError
-from research_os.data.records import (
+from zest.data.errors import PersistenceConflictError, PersistenceInputError
+from zest.data.records import (
     DiscoveryFactRecord,
     DiscoveryProjectionReceiptRecord,
     FrontierEventRecord,

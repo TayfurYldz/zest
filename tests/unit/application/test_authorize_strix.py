@@ -4,24 +4,24 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.authorize_strix_execution import (
+from zest.application.authorize_strix_execution import (
     AuthorizeStrixExecution,
     AuthorizeStrixExecutionCommand,
 )
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.platform.strix import (
+from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.platform.strix import (
     StrixExecutionOutcome,
     StrixExecutionRequest,
     StrixRuntimeStatus,
 )
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.model_port import ContentPolicyBlockedError
-from research_os.tools.capabilities import STRIX_DIAGNOSTIC_PING_CAPABILITY
+from zest.research.admission import AdmissionOutcome
+from zest.research.model_port import ContentPolicyBlockedError
+from zest.tools.capabilities import STRIX_DIAGNOSTIC_PING_CAPABILITY
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run, seed_spine

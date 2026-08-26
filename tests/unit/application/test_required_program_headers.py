@@ -5,11 +5,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     _build_worker_request,
 )
-from research_os.interface.dashboard import _bootstrap_payload
-from research_os.worker_runtime.python.browser_page import (
+from zest.interface.dashboard import _bootstrap_payload
+from zest.worker_runtime.python.browser_page import (
     _binding_from_request,
 )
 

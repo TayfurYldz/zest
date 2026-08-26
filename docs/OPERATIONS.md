@@ -1,23 +1,23 @@
 # Operations
 
-Diagnostic operational helpers. This is not a DBA product and not a claim that Research OS is production-ready for autonomous security research.
+Diagnostic operational helpers. This is not a DBA product and not a claim that Zest is production-ready for autonomous security research.
 
 ## PostgreSQL
 
 Application database (operator status HEALTHY comes from this URL only):
 
-- `RESEARCH_OS_DATABASE_URL`
+- `ZEST_DATABASE_URL`
 
 Isolated test database (reported separately as `TEST_POSTGRESQL`; never preferred over the application URL):
 
-- `RESEARCH_OS_TEST_DATABASE_URL` (must contain `test`; SQLite is not a substitute)
+- `ZEST_TEST_DATABASE_URL` (must contain `test`; SQLite is not a substitute)
 
 Commands:
 
 ```
-python scripts/research_os_db.py ping --test
-python scripts/research_os_db.py version --test
-python scripts/research_os_db.py migrate --test
+python scripts/zest_db.py ping --test
+python scripts/zest_db.py version --test
+python scripts/zest_db.py migrate --test
 ```
 
 Backup/restore remain operator procedures against PostgreSQL. Do not silently delete evidence-linked artifacts or SoR rows.
@@ -27,18 +27,18 @@ Connection health is `SELECT 1` only. Credentials and userinfo passwords are not
 ## Operator status
 
 ```
-python scripts/research_os_status.py status
+python scripts/zest_status.py status
 ```
 
 or, after install, from any working directory:
 
 ```
-research-os status
+zest status
 ```
 
 Output includes POSTGRESQL (application DB), TEST_POSTGRESQL (if configured), Worker, Model Runtimes, Strix, Auth, Orchestrator, Budget ledger, Reconciliation, Observability, GATE 04B, and maturity flags. It must not print secrets.
 
-Worker HEALTHY requires a real diagnostic protocol probe (spawn → valid request → schema + correlation → clean exit). Codex `--version` is INSTALLED/VERSION_KNOWN only. `SUBSCRIPTION_OAUTH` is `NOT_IMPLEMENTED`. GATE 04B is PASS after authoritative qualification with two independent `BENCHMARK_COMPATIBLE` live ModelRuntime configurations executing the comparable full benchmark. Scripted baselines and Strix still do not count. Ordinary `research-os status` remains passive and does not re-run or consume model quota.
+Worker HEALTHY requires a real diagnostic protocol probe (spawn → valid request → schema + correlation → clean exit). Codex `--version` is INSTALLED/VERSION_KNOWN only. `SUBSCRIPTION_OAUTH` is `NOT_IMPLEMENTED`. GATE 04B is PASS after authoritative qualification with two independent `BENCHMARK_COMPATIBLE` live ModelRuntime configurations executing the comparable full benchmark. Scripted baselines and Strix still do not count. Ordinary `zest status` remains passive and does not re-run or consume model quota.
 
 ## Codex readiness ladder
 
@@ -48,20 +48,20 @@ Multiple Codex CLI ModelRuntime configurations share one authenticated executabl
 Models are operational configuration, not architecture.
 
 ```
-RESEARCH_OS_CODEX_MODELS=codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5
+ZEST_CODEX_MODELS=codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5
 ```
 
 or a model list that derives stable IDs:
 
 ```
-RESEARCH_OS_CODEX_MODELS=gpt-5.6-terra,gpt-5.5
+ZEST_CODEX_MODELS=gpt-5.6-terra,gpt-5.5
 ```
 
-Optional executable override: `RESEARCH_OS_CODEX_EXECUTABLE`. Duplicate or empty entries fail closed.
+Optional executable override: `ZEST_CODEX_EXECUTABLE`. Duplicate or empty entries fail closed.
 
 Current diagnostic defaults (overrideable): `codex-cli-terra` → `gpt-5.6-terra`, `codex-cli-gpt55` → `gpt-5.5`.
 
-`research-os status` and ordinary `--discover` are **PASSIVE**. They may run `codex --version` and `codex login status` only. They must not run `codex exec` and must not consume model quota. Passive AUTH_READY is not `BENCHMARK_COMPATIBLE` and does not populate `available_model_configurations`.
+`zest status` and ordinary `--discover` are **PASSIVE**. They may run `codex --version` and `codex login status` only. They must not run `codex exec` and must not consume model quota. Passive AUTH_READY is not `BENCHMARK_COMPATIBLE` and does not populate `available_model_configurations`.
 
 Explicit live probe (consumes model quota; independent per configured model):
 
@@ -81,13 +81,13 @@ Compatibility is not inferred across Codex configurations. Passive discovery and
 
 ## Strix readiness
 
-Executable/version is not HEALTHY. Sandbox/docker dependency must be ready. Harmless diagnostic ping only. No auto-install. Strix is not a Research OS ModelRuntime.
+Executable/version is not HEALTHY. Sandbox/docker dependency must be ready. Harmless diagnostic ping only. No auto-install. Strix is not a Zest ModelRuntime.
 
 ## Source export
 
 ```
-python scripts/export_source.py --output dist/research-os-source.tar.gz
-research-os export-source --output dist/research-os-source.tar.gz
+python scripts/export_source.py --output dist/zest-source.tar.gz
+zest export-source --output dist/zest-source.tar.gz
 ```
 
 Excludes `.git`, `.venv`, caches, coverage, runtime artifacts, and known credential/session files. Optional `--include-untracked-source` adds explicitly selected untracked source files only. Emits a SHA-256 manifest. Does not delete the developer's `.git` or `.venv`.
@@ -100,7 +100,7 @@ Mandatory for final GATE 13 PASS:
 python scripts/clean_install_smoke.py
 ```
 
-Builds a wheel (`python -m build` or `uv build`), installs it into an empty venv, changes CWD to an unrelated temp directory, then runs `research-os status`, `ContractValidator()`, local diagnostic Worker probe, development benchmark fixture load, and runtime discovery with no repository root on `sys.path`. If neither build backend is available, the script exits `VALIDATION_PENDING` (code 3) instead of fabricating PASS.
+Builds a wheel (`python -m build` or `uv build`), installs it into an empty venv, changes CWD to an unrelated temp directory, then runs `zest status`, `ContractValidator()`, local diagnostic Worker probe, development benchmark fixture load, and runtime discovery with no repository root on `sys.path`. If neither build backend is available, the script exits `VALIDATION_PENDING` (code 3) instead of fabricating PASS.
 
 ## Gate validation commands
 
@@ -124,7 +124,7 @@ Validation environment:
 
 - Kali Linux
 - real PostgreSQL
-- dedicated `RESEARCH_OS_TEST_DATABASE_URL`
+- dedicated `ZEST_TEST_DATABASE_URL`
 - Alembic head `a18_001_http_auth_class`
 - `python -m unittest tests.e2e.test_gate14_security_lab`
 - 19 E2E tests OK
@@ -140,7 +140,7 @@ Does **not** prove autonomous vulnerability discovery quality, real-world bug bo
 python -m unittest tests.e2e.test_gate14_security_lab
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## GATE 15 — security ground-truth / false-positive benchmark
 
@@ -150,7 +150,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - Alembic head `a18_001_http_auth_class`
 - GATE 14 regression: 19 OK, 0 skipped
 - GATE 15 ground-truth benchmark: 21 OK, 0 skipped
@@ -181,7 +181,7 @@ Does **not** prove autonomous vulnerability discovery quality, real-world bug bo
 python -m unittest tests.e2e.test_gate15_security_ground_truth
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## GATE 16 — workflow / state-transition authorization
 
@@ -191,7 +191,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - Alembic head `a19_001_http_state_class`
 - GATE 14 regression: 19 OK, 0 skipped
 - GATE 15 regression: 21 OK, 0 skipped
@@ -216,7 +216,7 @@ Does **not** prove autonomous vulnerability discovery quality, real-world bug bo
 python -m unittest tests.e2e.test_gate16_state_transition_security
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## GATE 17 — autonomous multi-hypothesis research selection
 
@@ -226,7 +226,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - authoritative tested commit `48d807d`
 - GATE 14 regression: 19 OK, 0 skipped
 - GATE 15 regression: 21 OK, 0 skipped
@@ -256,7 +256,7 @@ It does **not** prove general autonomous vulnerability discovery, real-world bug
 python -m unittest tests.e2e.test_gate17_autonomous_research_selection
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## GATE 18 — offensive substrate foundation
 
@@ -266,7 +266,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - authoritative tested commit `241e901fb2c6730ee293cca71942de45d3796282`
 - Alembic head `a20_001_capability_plan_binding`
 - migration round-trip: a19 → a20, a20 → a19, a19 → a20
@@ -290,11 +290,11 @@ GATE 04B = live model comparison.
 
 These gates do not imply one another.
 
-GATE 18 PASS means Research OS can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
+GATE 18 PASS means Zest can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
 
 It does **not** prove autonomous vulnerability discovery, broad security-research capability, real-world bug bounty performance, live model quality, production readiness, crawler/browser/recon capability, or XBOW/Edra parity. Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING.
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 19 — authorized HTTP substrate
 
@@ -308,7 +308,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - no SQLite substitution
 - no skipped tests treated as PASS
 - Alembic head `a21_001_session_context`
@@ -324,7 +324,7 @@ Authoritative environment:
 - GATE 17 regression: 57 OK, 0 skipped
 - only Alembic `path_separator` DeprecationWarning remains; no production-behavior failure
 
-GATE 19 PASS means Research OS can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
+GATE 19 PASS means Zest can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
 
 GATE 19 does **not** prove:
 
@@ -347,7 +347,7 @@ Current limitations:
 
 Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 20 remains PENDING at this closure.
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 20 — identity authentication session
 
@@ -361,7 +361,7 @@ Authoritative environment:
 
 - Kali Linux
 - dedicated real PostgreSQL test database
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- `ZEST_TEST_DATABASE_URL`
 - no SQLite substitution
 - no skipped tests treated as PASS
 - Alembic head `a21_001_session_context`
@@ -378,7 +378,7 @@ Authoritative environment:
 - GATE 17 regression: 57 OK, 0 skipped
 - only Alembic `path_separator` DeprecationWarning remains; no production-behavior failure
 
-GATE 20 PASS means Research OS can establish and isolate authenticated sessions for explicitly configured identities and execute authorized HTTP experiments under the correct identity/session context without storing raw credential or session material in the authoritative research state.
+GATE 20 PASS means Zest can establish and isolate authenticated sessions for explicitly configured identities and execute authorized HTTP experiments under the correct identity/session context without storing raw credential or session material in the authoritative research state.
 
 GATE 20 does **not** prove:
 
@@ -402,7 +402,7 @@ Current limitations:
 
 Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 19 remains PASS.
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 21 — browser / application state
 
@@ -417,7 +417,7 @@ pip install -e ".[browser]"
 playwright install chromium
 ```
 
-Playwright browser installation is setup-time only. Research OS runtime must not silently download Chromium.
+Playwright browser installation is setup-time only. Zest runtime must not silently download Chromium.
 
 Local validation:
 
@@ -471,17 +471,17 @@ that is missing, or wider than the Worker's declared limits, is rejected.
 
 Linux requires a delegated, writable cgroup v2 subtree with the `memory` and
 `pids` controllers. When the current subtree already owns processes and has no
-delegation, start Research OS under a delegated scope:
+delegation, start Zest under a delegated scope:
 
 ```
 systemd-run --user --scope -p Delegate=yes -- python -m unittest tests.e2e.test_gate21_linux_cgroup
 ```
 
-`RESEARCH_OS_BROWSER_CGROUP_ROOT` may instead point at an already delegated
+`ZEST_BROWSER_CGROUP_ROOT` may instead point at an already delegated
 subtree inside `/sys/fs/cgroup`. It is host configuration; a WorkerRequest can
 never influence the cgroup path.
 
-On the authoritative validation host set `RESEARCH_OS_REQUIRE_CGROUP_TESTS=1` so
+On the authoritative validation host set `ZEST_REQUIRE_CGROUP_TESTS=1` so
 an unavailable cgroup environment fails the suite instead of skipping it. A
 skipped containment suite is never a pass.
 
@@ -512,8 +512,8 @@ A later status-only commit may record this closure; it is not a second implement
 Authoritative environment:
 
 - Kali Linux
-- isolated PostgreSQL `research_os_test`
-- `RESEARCH_OS_TEST_DATABASE_URL`
+- isolated PostgreSQL `zest_test`
+- `ZEST_TEST_DATABASE_URL`
 - no SQLite substitution
 - Alembic head `a22_001_discovery_surface`
 - `a22` → `a21` → `a22` round trip PASS
@@ -537,7 +537,7 @@ Authoritative environment:
 
 Formal claim:
 
-Research OS can autonomously build and maintain a bounded, provenance-rich, identity/state-aware attack-surface model of an authorized local target using real Browser/HTTP observations.
+Zest can autonomously build and maintain a bounded, provenance-rich, identity/state-aware attack-surface model of an authorized local target using real Browser/HTTP observations.
 
 GATE 22 does **not** claim autonomous vulnerability discovery, bug-bounty capability, production readiness, generalized internet reconnaissance, or GATE 23.
 
@@ -560,7 +560,7 @@ Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION
 
 `tests.e2e.test_gate21_linux_cgroup` remains a closed G21 host concern unless G22 broke it. Do not run Codex, live-model, or GATE 04B probes.
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 01 — Attack Period (Scope Compiler v2 + ProgramResearchContext)
 
@@ -574,8 +574,8 @@ Implementation scope:
 - `application/program_research_context.py`: `ProgramResearchContext`, `ProgramPolicyView`, `load_program_research_context`, `derive_loopback_only`.
 - `application/http_transaction_authorization.py`: `loopback_only` is no longer hardcoded to `True`; it is derived from `CompiledScope` + `ProgramPolicyView` (`loopback_fixture=True` or empty scope → `True`; real IN_SCOPE target → `False`).
 - `application/execute_planned_experiment.py`: `ExecutePlannedExperimentCommand` carries an optional `program_policy`; passed to `authorize_http_transaction_plan`.
-- `application/operator_status.py` + `interface/cli.py`: `GATE 01`, `GATE 21`, `GATE 22` are now surfaced in `research-os status`.
-- Worker runtime (`src/research_os/worker_runtime/python/` and `workers/python/research_os_worker/`): `ALLOWED_HOSTS` removed; dispatch is enforced against the envelope (scheme + host + port + path prefix). Missing or mismatched envelope → `EXECUTION_FAILED`.
+- `application/operator_status.py` + `interface/cli.py`: `GATE 01`, `GATE 21`, `GATE 22` are now surfaced in `zest status`.
+- Worker runtime (`src/zest/worker_runtime/python/` and `workers/python/zest_worker/`): `ALLOWED_HOSTS` removed; dispatch is enforced against the envelope (scheme + host + port + path prefix). Missing or mismatched envelope → `EXECUTION_FAILED`.
 - `tools/registry.py` + `research/compiler.py`: `SUPPORTED_REQUIREMENTS` extended with `"scope_derived"`; existing six contracts remain backward-compatible.
 - Capability ceiling configurability: per-program `max_response_bytes` and `timeout_ms` with absolute caps (1 MB / 10 s). Budget authority remains in `core/budget.py`.
 
@@ -585,9 +585,9 @@ Current local validation (before authoritative Kali run):
 - unit + contract: 947 OK / 4 skipped (Windows Job Object kernel tests skip on Linux/Kali)
 - integration: 123 OK / 0 skipped
 - e2e: 155 OK / 5 skipped
-- `research-os status` reports POSTGRESQL HEALTHY, TEST_POSTGRESQL HEALTHY, Worker HEALTHY
+- `zest status` reports POSTGRESQL HEALTHY, TEST_POSTGRESQL HEALTHY, Worker HEALTHY
 
-GATE 01 proves only: Research OS can compile authorized program scope and policy into a fail-closed dispatch envelope that differentiates loopback fixtures from real IN_SCOPE targets, while keeping UNKNOWN targets observable-but-not-probed.
+GATE 01 proves only: Zest can compile authorized program scope and policy into a fail-closed dispatch envelope that differentiates loopback fixtures from real IN_SCOPE targets, while keeping UNKNOWN targets observable-but-not-probed.
 
 GATE 01 does **not** prove:
 
@@ -619,7 +619,7 @@ python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-l
 python scripts/clean_install_smoke.py
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 02 — Attack Period (Sensor/Acquisition Plane)
 
@@ -633,21 +633,21 @@ Implementation scope:
 
 - Alembic `a24_001_sensor_plane`: `sensor_observation` table for raw,
   UNTRUSTED_EXTERNAL sensor records. This is not `discovery_fact`.
-- `research_os.research.sensor.types`: `SensorObservation`,
+- `zest.research.sensor.types`: `SensorObservation`,
   `SensorCollectionResult`, `SensorPort`, `ScopeCensusView`. Sensors produce
   observations; they never write domain truth or generate authoritative IDs.
-- `research_os.research.sensor.{dns,ctlog,archive,cert,techfp}`: five
+- `zest.research.sensor.{dns,ctlog,archive,cert,techfp}`: five
   passive/semi-passive sensors using fixture-based or already-collected data.
   No active probing, no banner grab, no live external calls in tests.
-- `research_os.application.sensor.runner`: `SensorAcquisitionRunner`
+- `zest.application.sensor.runner`: `SensorAcquisitionRunner`
   coordinates sensors for one target under Core scope control and persists
   `SensorObservationRecord`s only.
-- `research_os.application.sensor.admit`: deterministic admission
+- `zest.application.sensor.admit`: deterministic admission
   (`AdmitSensorObservations`) turns one observation into one `DiscoveryFact`,
   capped at `OBSERVED`, source marked `UNTRUSTED_EXTERNAL`, with an admission
   receipt in `discovery_fact_source`. Forbidden discovery keys are rejected;
   rejected observations produce no fact.
-- `research_os.interface.cli`: `research-os census --research-run-id <id>
+- `zest.interface.cli`: `zest census --research-run-id <id>
   --target <host> [--fixture-dir <dir>]` operator trigger; scope control is
   enforced by Core, CLI cannot bypass it.
 - `core/enums.py`: `ScopeClassification.UNKNOWN` allows census; explicit
@@ -658,7 +658,7 @@ Implementation scope:
 
 Formal claim (upon PASS):
 
-Research OS can execute a Core-controlled, passive/semi-passive external census
+Zest can execute a Core-controlled, passive/semi-passive external census
 of an authorized target using multiple sensors, persist raw observations as
 UNTRUSTED_EXTERNAL, and deterministically admit them into the discovery ledger
 as OBSERVED facts with provenance receipts, while keeping sensors unable to
@@ -694,7 +694,7 @@ python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-l
 python scripts/clean_install_smoke.py
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 03 — Attack Period (SurfaceGraph v2)
 
@@ -707,20 +707,20 @@ separate eras and must never be confused.
 
 Implementation scope:
 
-- `research_os.research.discovery.types`: `AttackSurfaceNodeKind` extended with
+- `zest.research.discovery.types`: `AttackSurfaceNodeKind` extended with
   `DOMAIN`, `HOSTNAME`, `CERT`, `SERVICE`, `TECH`, `JS_BUNDLE`, `API_SPEC`;
   `AttackSurfaceEdgeKind` extended with `RESOLVES_TO`, `HOSTED_ON`, `SECURED_BY`,
   `RUNS`.
-- `research_os.research.discovery.graph`: `FACT_NODE_KIND` maps all seven
+- `zest.research.discovery.graph`: `FACT_NODE_KIND` maps all seven
   SD-G2 sensor fact kinds; unmapped kinds raise `ResearchInputError` instead of
   being silently dropped. Sensor-sourced nodes preserve
   `TargetEpistemicStatus.UNTRUSTED_EXTERNAL` and carry `ScopeClassification`.
   Sensor-derived edges (HOSTNAME→ORIGIN, CERT→HOSTNAME, TECH→ORIGIN,
   JS_BUNDLE/API_SPEC→EXACT_PATH) are produced with provenance.
-- `research_os.application.sensor.admit`: `scope_classification` is a required
+- `zest.application.sensor.admit`: `scope_classification` is a required
   keyword argument; no default UNKNOWN. It is stored in the admitted fact's
   attributes for graph projection.
-- `research_os.application.discovery.snapshot_views`: deterministic
+- `zest.application.discovery.snapshot_views`: deterministic
   `summarize_attack_surface()` rebuilds the graph from the ledger and produces
   `AttackSurfaceSummary` with kind counts, identity coverage, scope
   classification counts, and `graph_hash`.
@@ -732,7 +732,7 @@ Implementation scope:
 
 Formal claim (upon PASS):
 
-Research OS can rebuild a deterministic, scope-classified attack surface graph
+Zest can rebuild a deterministic, scope-classified attack surface graph
 from the discovery ledger including sensor-derived external census facts, persist
 a hash/count snapshot, and query the graph by kind, identity, and scope
 classification without granting scope, session, budget, or capability.
@@ -767,7 +767,7 @@ python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-l
 python scripts/clean_install_smoke.py
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 04 — Attack Period (Token Economy Policy)
 
@@ -778,33 +778,33 @@ Compatible policy); those are separate eras and must never be confused.
 
 Implementation scope:
 
-- `research_os.core.pricing`: `MODEL_PRICE_TABLE` maps `model_id` to input/output
+- `zest.core.pricing`: `MODEL_PRICE_TABLE` maps `model_id` to input/output
   microdollars per 1M tokens. `estimate_cost(model_id, tokens_in, tokens_out)`
   returns an `int` in microdollars. Unknown `model_id` raises
   `UnknownModelPriceError` (fail-closed: no money is spent on unpriced models).
-- `research_os.research.model_port.ModelCallResult`: carries
+- `zest.research.model_port.ModelCallResult`: carries
   `prompt_tokens`/`completion_tokens` (None if the provider does not report).
-- `research_os.data.records`: `BudgetConsumptionRecord` gains `resource_metadata`
+- `zest.data.records`: `BudgetConsumptionRecord` gains `resource_metadata`
   JSONB; `ALLOWED_BUDGET_RESOURCE_TYPES` gains `MODEL_TOKENS_IN`,
   `MODEL_TOKENS_OUT`, `MODEL_ESCALATION_DECISION`.
-- `research_os.application.budget_enforced_model`: reserves `MODEL_CALL` on the
+- `zest.application.budget_enforced_model`: reserves `MODEL_CALL` on the
   research-run budget **before** invocation (existing K1 pattern), then records
   `MODEL_TOKENS_IN`/`MODEL_TOKENS_OUT` on the program-daily budget after the
   call. Replay with the same `request_id` is idempotent.
 - `program_policy.daily_llm_budget_microdollars`: nullable integer in
   microdollars. `NULL` does **not** mean unlimited; it means the operator has
   not set a daily limit and live model calls are denied (fail-closed).
-- `research_os.application.program_daily_budget`:
+- `zest.application.program_daily_budget`:
   `AllocateProgramDailyBudget` creates the daily envelope;
   `ProgramDailyBudgetUsage` reads the append-only ledger and sums costs via
   `estimate_cost`; `CheckProgramDailyBudget` denies calls when the limit is
   reached or unset.
-- `research_os.research.routing`: `ModelPriceClass` (`cheap`/`expensive`);
+- `zest.research.routing`: `ModelPriceClass` (`cheap`/`expensive`);
   `TASK_PRICE_CLASS_POLICY`; default route is `cheap`; `expensive` is allowed
   only when the task class policy marks it or the previous cheap call returned
   `ESCALATION_NEEDED`. `monitoring` task class maps to `none` and produces zero
   model calls.
-- `research-os budget --program-id <id> [--date <iso>]`: read-only operator view
+- `zest budget --program-id <id> [--date <iso>]`: read-only operator view
   of limit, spent, remaining, token counts, and recent call class distribution.
 - Alembic `a28_001_token_economy`: adds
   `program_policy.daily_llm_budget_microdollars` and
@@ -818,7 +818,7 @@ Core arithmetic integer-only and deterministic.
 
 Formal claim (upon PASS):
 
-Research OS can enforce a per-program daily LLM cost ceiling, default to cheap
+Zest can enforce a per-program daily LLM cost ceiling, default to cheap
 models, escalate to expensive models only on proven evidence, guarantee zero LLM
 calls in monitoring tasks, and expose a read-only operator budget view sourced
 entirely from the append-only consumption ledger.
@@ -855,7 +855,7 @@ python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-l
 python scripts/clean_install_smoke.py
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## GATE 05 — Attack Period (HunterFamily Registry + First Hunt Cycle)
 
@@ -874,31 +874,31 @@ Implementation scope:
   (PENDING/APPROVED/RUN/BLOCKED active-experiment queue). Five seed families:
   `OBJECT_AUTHORIZATION`, `WORKFLOW_STATE_TRANSITION`, `EXPOSED_API_SPEC`,
   `UNPROTECTED_HOSTNAME`, `TECH_KNOWN_CVE_SURFACE`.
-- `research_os.research.selection`: `HypothesisFamily` enum extended with
+- `zest.research.selection`: `HypothesisFamily` enum extended with
   SD-G5 families; `HunterFamilyView` read-only registry view;
   `families_for_node(node, graph, registry)` matches node kind, scope
   classification, and edge preconditions without UNKNOWN spam;
   `claim_from_template(node, family)` produces deterministic claim text.
-- `research_os.application.generate_hunt_hypotheses`:
+- `zest.application.generate_hunt_hypotheses`:
   `GenerateHuntHypotheses` use case walks the graph, applies registry families,
   and persists `HypothesisRecord`s plus `HUNT_HYPOTHESIS_GENERATED` audit events.
   Default path is LLM-free.
-- `research_os.application.hunt_validation`: `ValidateHuntTiers` runs V1
+- `zest.application.hunt_validation`: `ValidateHuntTiers` runs V1
   (static preconditions), V2 (passive evidence requirements), and V3
   (active-experiment enqueue). V3 is never reached unless V1 and V2 pass.
   Tier decisions are durable in `audit_event`; V3 items are inserted into
   `hunt_v3_queue` with state PENDING.
-- `research_os.application.run_hunt_cycle`: `RunHuntCycle` orchestrates one
+- `zest.application.run_hunt_cycle`: `RunHuntCycle` orchestrates one
   hunt cycle: generate → V1 → V2 → V3 queue. All state is in the append-only
   ledger; the cycle is stateless across invocations.
-- `research_os.application.sensor.admit`: TECH facts now carry a `technology`
+- `zest.application.sensor.admit`: TECH facts now carry a `technology`
   attribute from the sensor payload so the `TECH_KNOWN_CVE_SURFACE` claim
   template can render deterministically.
 - `maturity.py`: `GATE_05_STATUS = "PASS"` sealed by architect audit.
 
 Formal claim (upon PASS):
 
-Research OS can read the attack-surface graph, match nodes against a
+Zest can read the attack-surface graph, match nodes against a
 versioned data-driven family registry, generate deterministic hypotheses,
 run static + passive validation tiers, and enqueue approved active experiments
 for V3 execution, all without LLM calls in the default path.
@@ -932,7 +932,7 @@ python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-l
 python scripts/clean_install_smoke.py
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+If `ZEST_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## Maturity
 
@@ -954,5 +954,5 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 19: PASS (2026-08-17, implementation 95c88bc, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 20: PASS (2026-08-17, implementation e574306, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 21: PASS (2026-08-26, implementation baseline 014b1c0d88eeacdcf0e5a26330d9fe2de888f4fe; real Chromium 20/20, delegated Linux cgroup containment 7/7, restart/session semantics 3/3, current PostgreSQL integration regression 270/270)
-- GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL research_os_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
+- GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL zest_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
 - GATE 01: PASS (Scope Compiler v2 + ProgramResearchContext + program-policy-derived loopback fixture; Kali + isolated PostgreSQL, full suite 1225 passed / 9 skipped)

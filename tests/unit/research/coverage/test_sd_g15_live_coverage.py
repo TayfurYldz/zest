@@ -5,12 +5,12 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.coverage.live import (
+from zest.research.coverage.live import (
     CoverageChangeEventView,
     CoverageDebtSnapshotView,
     assess_live_coverage_debt,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 NOW = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
 

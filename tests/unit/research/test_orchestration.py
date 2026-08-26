@@ -4,7 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.orchestration import (
+from zest.research.orchestration import (
     NextCycleAction,
     OrchestrationBounds,
     OrchestrationUsage,
@@ -12,7 +12,7 @@ from research_os.research.orchestration import (
     check_orchestration_bounds,
     next_cycle_action,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _bounds(**overrides) -> OrchestrationBounds:
@@ -88,7 +88,7 @@ class OrchestrationPolicyTests(unittest.TestCase):
         self.assertEqual(reason, StopReason.COMPLETED_NO_MORE_OPPORTUNITIES)
 
     def test_finding_is_not_an_orchestration_state(self) -> None:
-        from research_os.research.orchestration import OrchestrationState
+        from zest.research.orchestration import OrchestrationState
 
         names = {item.value for item in OrchestrationState}
         self.assertNotIn("VULNERABILITY_FOUND", names)

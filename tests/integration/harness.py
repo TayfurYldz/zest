@@ -1,6 +1,6 @@
 """Shared PostgreSQL integration harness. SQLite is not a substitute.
 
-Requires an explicit RESEARCH_OS_TEST_DATABASE_URL. Tests TRUNCATE this database.
+Requires an explicit ZEST_TEST_DATABASE_URL. Tests TRUNCATE this database.
 """
 
 from __future__ import annotations
@@ -21,15 +21,15 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     DATABASE_URL_ENV,
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.qualification.staging_spine import (
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.qualification.staging_spine import (
     seed_authorized_spine,
     truncate_spine,
 )
@@ -75,4 +75,4 @@ def warn_destructive(url: str) -> None:
 
 
 # truncate_spine and seed_authorized_spine are imported from
-# research_os.qualification.staging_spine so VDS fixtures do not need tests/.
+# zest.qualification.staging_spine so VDS fixtures do not need tests/.

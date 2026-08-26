@@ -8,20 +8,20 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
-from research_os.research.discovery.graph import (
+from zest.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
+from zest.research.discovery.graph import (
     AttackSurfaceEdgeKind,
     AttackSurfaceGraph,
     AttackSurfaceNodeKind,
     graph_hash,
     rebuild_attack_surface_graph,
 )
-from research_os.research.discovery.types import (
+from zest.research.discovery.types import (
     DiscoveryFactKind,
     DiscoverySourcePlane,
 )
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.research.types import ResearchInputError
+from zest.research.target_model import TargetEpistemicStatus
+from zest.research.types import ResearchInputError
 
 
 NOW = datetime.now(timezone.utc)
@@ -110,7 +110,7 @@ class SensorNodeMappingTests(unittest.TestCase):
             sources=(_source(observation_id="obs-1"),),
         )
         # Directly mutate the mapping to simulate a future unmapped kind.
-        from research_os.research.discovery import graph as graph_module
+        from zest.research.discovery import graph as graph_module
 
         original = dict(graph_module.FACT_NODE_KIND)
         graph_module.FACT_NODE_KIND = {}
@@ -176,7 +176,7 @@ class SensorNodeMappingTests(unittest.TestCase):
         node = graph.node_by_canonical(fact.canonical_key)
         self.assertIsNotNone(node)
         assert node is not None
-        from research_os.core.enums import ScopeClassification
+        from zest.core.enums import ScopeClassification
         self.assertEqual(node.scope_classification, ScopeClassification.OUT_OF_SCOPE)
 
     def test_unknown_scope_classification_default(self) -> None:
@@ -194,7 +194,7 @@ class SensorNodeMappingTests(unittest.TestCase):
         node = graph.node_by_canonical(fact.canonical_key)
         self.assertIsNotNone(node)
         assert node is not None
-        from research_os.core.enums import ScopeClassification
+        from zest.core.enums import ScopeClassification
         self.assertEqual(node.scope_classification, ScopeClassification.UNKNOWN)
 
 

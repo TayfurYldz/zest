@@ -4,13 +4,13 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.report_package import (
+from zest.research.report_package import (
     ExternalDuplicateSignal,
     FindingReportInput,
     build_finding_report_package,
     internal_duplicate_fingerprint,
 )
-from research_os.research.types import ResearchInputError
+from zest.research.types import ResearchInputError
 
 
 def _input(*, claim: str = "Actor can read another actor account") -> FindingReportInput:

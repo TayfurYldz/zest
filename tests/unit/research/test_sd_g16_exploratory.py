@@ -5,15 +5,15 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.data.records import HunterFamilyRecord
-from research_os.research.exploratory import (
+from zest.data.records import HunterFamilyRecord
+from zest.research.exploratory import (
     ExploratorySignal,
     ExploratorySignalKind,
     VALIDATION_GATES,
     draft_registry_external_hypothesis,
 )
-from research_os.research.selection import HunterFamilyView
-from research_os.research.types import ResearchInputError
+from zest.research.selection import HunterFamilyView
+from zest.research.types import ResearchInputError
 
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)

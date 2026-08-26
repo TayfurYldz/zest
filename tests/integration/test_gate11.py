@@ -23,19 +23,19 @@ if str(_REPO / "tests") not in sys.path:
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from research_os.application.select_research_runtime import (
+from zest.application.select_research_runtime import (
     SelectResearchRuntime,
     SelectResearchRuntimeCommand,
 )
-from research_os.data.postgres.engine import (
+from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
     redacted_database_url,
     validate_test_database_url,
 )
-from research_os.research.model_port import ModelRole
-from research_os.research.model_runtime import api_runtime_identity, cli_session_runtime_identity
-from research_os.research.routing import (
+from zest.research.model_port import ModelRole
+from zest.research.model_runtime import api_runtime_identity, cli_session_runtime_identity
+from zest.research.routing import (
     CandidateLocality,
     RoutingBudget,
     RoutingOutcome,
@@ -55,7 +55,7 @@ from integration.harness import (
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
     TEST_URL = validate_test_database_url(
-        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+        TEST_URL, application_url=os.environ.get("ZEST_DATABASE_URL")
     )
 
 

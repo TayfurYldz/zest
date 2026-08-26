@@ -12,16 +12,16 @@ from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
-from research_os.application.hunter_coverage_opportunity_source import (
+from zest.application.hunter_coverage_opportunity_source import (
     _candidate_from_scored_cell,
 )
-from research_os.application.select_research_opportunities import (
+from zest.application.select_research_opportunities import (
     SelectResearchOpportunities,
     SelectResearchOpportunitiesCommand,
 )
-from research_os.research.coverage.types import CoverageCell, CoverageState
-from research_os.research.exploration import OpportunityKind, ResearchPolicyBudget
-from research_os.research.scheduler.types import HunterScore, ScoredCell
+from zest.research.coverage.types import CoverageCell, CoverageState
+from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
+from zest.research.scheduler.types import HunterScore, ScoredCell
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 
@@ -115,7 +115,7 @@ class OpportunityCandidateBridgeTests(unittest.TestCase):
     def test_duplicate_candidate_against_existing_canonical_opportunity_is_not_admitted(
         self,
     ) -> None:
-        from research_os.data.records import ResearchOpportunityRecord
+        from zest.data.records import ResearchOpportunityRecord
 
         store = self._store()
         candidate = _candidate("cand-1")
@@ -207,7 +207,7 @@ class OpportunityCandidateBridgeTests(unittest.TestCase):
     def test_candidate_from_a_different_research_run_is_not_loaded(self) -> None:
         store = self._store()
         seed_authorization_run(store)  # idempotent for run-1; add a second run below
-        from research_os.data.records import ResearchRunRecord
+        from zest.data.records import ResearchRunRecord
 
         store.research_runs["run-2"] = ResearchRunRecord(
             research_run_id="run-2",

@@ -5,51 +5,51 @@ from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
-from research_os.application.admit_diagnostic_evidence import (
+from zest.application.admit_diagnostic_evidence import (
     AdmitDiagnosticEvidence,
     AdmitDiagnosticEvidenceCommand,
 )
-from research_os.application.admit_target_inference import (
+from zest.application.admit_target_inference import (
     AdmitTargetInference,
     AdmitTargetInferenceCommand,
 )
-from research_os.application.compare_diagnostic_differential import (
+from zest.application.compare_diagnostic_differential import (
     CompareDiagnosticDifferential,
     CompareDiagnosticDifferentialCommand,
 )
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.application.project_diagnostic_target_model import (
+from zest.application.project_diagnostic_target_model import (
     ProjectDiagnosticTargetModel,
     ProjectDiagnosticTargetModelCommand,
 )
-from research_os.application.propose_research_hypothesis import (
+from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.errors import PersistenceError
-from research_os.research.admission import AdmissionOutcome
-from research_os.research.differential import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.errors import PersistenceError
+from zest.research.admission import AdmissionOutcome
+from zest.research.differential import (
     DifferentialCase,
     DifferentialDimension,
     DifferentialInterpretation,
     DifferentialOutcome,
 )
-from research_os.research.epistemic import EpistemicClass
-from research_os.research.planning import plan_diagnostic_echo
-from research_os.research.target_model import (
+from zest.research.epistemic import EpistemicClass
+from zest.research.planning import plan_diagnostic_echo
+from zest.research.target_model import (
     TargetElementKind,
     TargetEpistemicStatus,
     TargetInferenceDraft,

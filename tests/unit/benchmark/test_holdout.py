@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.errors import BenchmarkError
-from research_os.benchmark.holdout import load_sealed_holdout
-from research_os.benchmark.scenarios import load_scenarios, parse_scenario
+from zest.benchmark.errors import BenchmarkError
+from zest.benchmark.holdout import load_sealed_holdout
+from zest.benchmark.scenarios import load_scenarios, parse_scenario
 
 
 def _min_visible():

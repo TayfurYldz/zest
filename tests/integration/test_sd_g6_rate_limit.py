@@ -1,7 +1,7 @@
 """SD-G6 rate-limit enforcement integration.
 
 PostgreSQL required. SQLite is not a substitute. Skipped when
-RESEARCH_OS_TEST_DATABASE_URL is absent.
+ZEST_TEST_DATABASE_URL is absent.
 """
 
 from __future__ import annotations
@@ -26,24 +26,24 @@ from integration.harness import (
     seed_authorized_spine,
     truncate_spine,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.program_research_context import ProgramPolicyView
-from research_os.core.enums import ReasonCode, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.application.program_research_context import ProgramPolicyView
+from zest.core.enums import ReasonCode, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     AuditEventRecord,
     ExecutionAttemptRecord,
     ExperimentRecord,
     ProgramPolicyRecord,
     RateLimitProfileRecord,
 )
-from research_os.research.planning import plan_diagnostic_echo
+from zest.research.planning import plan_diagnostic_echo
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = configured_test_url()
@@ -63,7 +63,7 @@ def _allow_scope() -> ScopeEvaluationInput:
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG6RateLimitIntegrationTests(unittest.TestCase):
     engine = None

@@ -7,30 +7,30 @@ from dataclasses import replace
 
 import pathsetup  # noqa: F401
 
-from research_os.application.dispatch_approved_v3_queue import (
+from zest.application.dispatch_approved_v3_queue import (
     DispatchApprovedV3Queue,
     DispatchApprovedV3QueueCommand,
     HuntV3DispatchError,
 )
-from research_os.application.hunt_v3_queue_approval import (
+from zest.application.hunt_v3_queue_approval import (
     ApproveHuntV3Queue,
     ApproveHuntV3QueueCommand,
     approval_subject_for_queue,
 )
-from research_os.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import ApprovalRecord, HuntV3QueueRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.compiler_registry import (
+from zest.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import ApprovalRecord, HuntV3QueueRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.compiler_registry import (
     COMPILER_AUTHORIZATION_DIFFERENTIAL,
     COMPILER_MUTATION_MATRIX_CELL,
     COMPILER_PROTOCOL_STEP,
 )
-from research_os.research.mutation.matrix import build_mutation_matrix
-from research_os.research.protocol.parser_plan import build_protocol_parser_plan
-from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
-from research_os.research.selection import HunterFamilyView
+from zest.research.mutation.matrix import build_mutation_matrix
+from zest.research.protocol.parser_plan import build_protocol_parser_plan
+from zest.data.postgres.hunter_family_seed import SEED_FAMILIES
+from zest.research.selection import HunterFamilyView
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort, STARTED_AT, COMPLETED_AT
 from support.spine import CREATED_AT, seed_spine

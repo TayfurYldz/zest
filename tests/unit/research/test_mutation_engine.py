@@ -6,11 +6,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.core.enums import ScopeClassification
-from research_os.research.compiler import compile_experiment_intent
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.mutation import (
+from zest.core.enums import ScopeClassification
+from zest.research.compiler import compile_experiment_intent
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.mutation import (
     AuthHeaderVariationFamily,
     BoundaryValueFamily,
     ContentTypeConfusionFamily,
@@ -22,9 +22,9 @@ from research_os.research.mutation import (
     mutate_for_node,
     mutation_variant_to_intent,
 )
-from research_os.research.mutation.types import MutationVariant
-from research_os.research.target_model import TargetEpistemicStatus
-from research_os.research.types import ResearchInputError
+from zest.research.mutation.types import MutationVariant
+from zest.research.target_model import TargetEpistemicStatus
+from zest.research.types import ResearchInputError
 
 
 def _node(

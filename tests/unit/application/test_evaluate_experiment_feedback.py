@@ -4,30 +4,30 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.evaluate_experiment_feedback import (
+from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
-from research_os.application.execute_planned_experiment import (
+from zest.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
-from research_os.application.prepare_planned_experiment import (
+from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
-from research_os.core.enums import ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.data.records import (
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.data.records import (
     ExecutionAttemptRecord,
     ExecutionAttemptState,
     ExperimentExecutionState,
     WorkerResultRecord,
 )
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.planning import plan_diagnostic_echo
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.assessment import AssessmentOutcome
+from zest.research.planning import plan_diagnostic_echo
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
     RecordingWorkerPort,

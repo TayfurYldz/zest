@@ -4,11 +4,11 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.benchmark.source_provenance import (
+from zest.benchmark.source_provenance import (
     source_provenance_from_snapshots,
 )
-from research_os.integrations.models.discovery import gate_04b_status
-from research_os.safe_data import SecretMaterialError
+from zest.integrations.models.discovery import gate_04b_status
+from zest.safe_data import SecretMaterialError
 
 
 class SourceProvenanceTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class SourceProvenanceTests(unittest.TestCase):
         clean = source_provenance_from_snapshots(commit_hash="abc123")
         dirty = source_provenance_from_snapshots(
             commit_hash="abc123",
-            untracked_paths=["src/research_os/new_module.py"],
+            untracked_paths=["src/zest/new_module.py"],
         )
         self.assertNotEqual(clean.source_fingerprint, dirty.source_fingerprint)
         self.assertTrue(dirty.git_dirty)

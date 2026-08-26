@@ -5,17 +5,17 @@ from datetime import datetime, timezone
 
 import pathsetup  # noqa: F401
 
-from research_os.application.transition_a.diagnostic_echo import (
+from zest.application.transition_a.diagnostic_echo import (
     DIAGNOSTIC_ECHO_NORMALIZER_VERSION,
     DiagnosticEchoNormalizer,
 )
-from research_os.application.transition_a.drafts import ObservationDraft
-from research_os.application.transition_a.errors import (
+from zest.application.transition_a.drafts import ObservationDraft
+from zest.application.transition_a.errors import (
     MalformedNormalizedPayloadError,
     UnsupportedNormalizerError,
 )
-from research_os.application.transition_a.registry import NormalizerRegistry
-from research_os.data.errors import PersistenceInputError
+from zest.application.transition_a.registry import NormalizerRegistry
+from zest.data.errors import PersistenceInputError
 from support.worker_requests import valid_worker_request
 
 

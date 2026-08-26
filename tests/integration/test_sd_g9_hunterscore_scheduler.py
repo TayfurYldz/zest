@@ -1,6 +1,6 @@
 """SD-G9 HunterScore scheduler + identity binding integration.
 
-PostgreSQL required. Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent.
+PostgreSQL required. Skipped when ZEST_TEST_DATABASE_URL is absent.
 """
 
 from __future__ import annotations
@@ -28,31 +28,31 @@ from integration.harness import (
     truncate_spine,
     warn_destructive,
 )
-from research_os.application.run_hunt_cycle import RunHuntCycle, RunHuntCycleCommand
-from research_os.application.run_hunt_scheduler import (
+from zest.application.run_hunt_cycle import RunHuntCycle, RunHuntCycleCommand
+from zest.application.run_hunt_scheduler import (
     HUNT_SCHEDULE_RECOMMENDED,
     RunHuntScheduler,
     RunHuntSchedulerCommand,
 )
-from research_os.core.enums import ScopeClassification
-from research_os.data.postgres.engine import create_sync_engine
-from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
-from research_os.data.records import (
+from zest.core.enums import ScopeClassification
+from zest.data.postgres.engine import create_sync_engine
+from zest.data.postgres.unit_of_work import PostgresUnitOfWork
+from zest.data.records import (
     HunterFamilyRecord,
     ProgramPolicyRecord,
 )
-from research_os.research.coverage.types import CoverageCell, CoverageState
-from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
-from research_os.research.discovery.types import AttackSurfaceNodeKind
-from research_os.research.scheduler.types import HunterScore, ScoredCell
-from research_os.research.target_model import TargetEpistemicStatus
+from zest.research.coverage.types import CoverageCell, CoverageState
+from zest.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
+from zest.research.discovery.types import AttackSurfaceNodeKind
+from zest.research.scheduler.types import HunterScore, ScoredCell
+from zest.research.target_model import TargetEpistemicStatus
 
 TEST_URL = configured_test_url()
 
 
 @unittest.skipUnless(
     TEST_URL,
-    "RESEARCH_OS_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
+    "ZEST_TEST_DATABASE_URL is not configured; PostgreSQL integration tests skipped",
 )
 class SDG9SchedulerIntegrationTests(unittest.TestCase):
     engine = None
@@ -101,7 +101,7 @@ class SDG9SchedulerIntegrationTests(unittest.TestCase):
         )
 
     def _family_view(self) -> "HunterFamilyView":
-        from research_os.research.selection import HunterFamilyView
+        from zest.research.selection import HunterFamilyView
 
         record = self._family()
         return HunterFamilyView(

@@ -1,6 +1,6 @@
-# Research OS — Domain Model
+# Zest — Domain Model
 
-This document defines the conceptual domain of Research OS.
+This document defines the conceptual domain of Zest.
 
 It is not a database schema, ORM map, API design, or technology choice.
 

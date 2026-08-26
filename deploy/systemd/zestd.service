@@ -1,0 +1,53 @@
+# zestd — process supervisor only.
+# Does not own research authority, scope, budget, authorization, Evidence,
+# Candidate, Verification, Finding, or Worker dispatch policy.
+# PostgreSQL remains the sole authoritative SoR.
+
+[Unit]
+Description=Zest persistent runtime (zestd)
+Documentation=file:///opt/zest/current/docs/deploy/NATIVE_UBUNTU_SYSTEMD.md
+After=network-online.target postgresql.service postgresql@14-main.service
+Wants=network-online.target
+# After PostgreSQL, do not Require it: J7 must observe DATABASE_UNAVAILABLE
+# from a running daemon rather than a systemd start refusal.
+
+[Service]
+Type=simple
+User=zest
+Group=zest
+WorkingDirectory=/opt/zest/current
+EnvironmentFile=/etc/zest/zest.env
+Environment=HOME=/var/lib/zest
+Environment=XDG_CACHE_HOME=/var/lib/zest/.cache
+ExecStart=/opt/zest/current/.venv/bin/zestd
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+# SIGTERM sets a stop event on the main thread, which then calls
+# OperatorApiServer.shutdown() (never from the serve_forever thread)
+# and ZestdRuntime.drain(). Do not send secrets on the command line.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zestd
+
+# Conservative hardening compatible with PersistentBrowserWorkerAdapter
+# (cgroup v2 child, Chromium, authorized network, subprocess ownership).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/zest /var/log/zest
+UMask=0027
+Delegate=yes
+
+# Evaluated and omitted (would break Worker / browser / cgroup):
+#   ProtectControlGroups     — blocks /sys/fs/cgroup child creation
+#   ProtectKernelTunables    — can make /sys read-only
+#   PrivateDevices           — hides /dev/shm needed by Chromium
+#   MemoryDenyWriteExecute   — breaks Chromium JIT
+#   RestrictAddressFamilies  — may block required AF_NETLINK / Worker net
+
+[Install]
+WantedBy=multi-user.target

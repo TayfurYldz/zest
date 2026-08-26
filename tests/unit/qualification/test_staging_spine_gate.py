@@ -5,7 +5,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.qualification.staging_spine import (
+from zest.qualification.staging_spine import (
     TRUNCATE_GUARD,
     StagingTruncateDenied,
     require_explicit_spine_truncate,
@@ -56,7 +56,7 @@ class StagingTruncateGateTests(unittest.TestCase):
 
 class StagingSpineTablePreservationTests(unittest.TestCase):
     def test_metadata_tables_filter_excludes_runtime_instance_by_default(self) -> None:
-        from research_os.data.postgres.tables import metadata
+        from zest.data.postgres.tables import metadata
 
         tables = [
             table
@@ -70,7 +70,7 @@ class StagingSpineTablePreservationTests(unittest.TestCase):
         self.assertIn("preflight_report", table_names)
 
     def test_metadata_tables_filter_includes_runtime_instance_when_preserve_false(self) -> None:
-        from research_os.data.postgres.tables import metadata
+        from zest.data.postgres.tables import metadata
 
         tables = [
             table

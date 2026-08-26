@@ -1,3 +1,3 @@
-﻿"""Compatibility shim. Canonical implementation is research_os.integrations.strix.adapter."""
+﻿"""Compatibility shim. Canonical implementation is zest.integrations.strix.adapter."""
 
-from research_os.integrations.strix.adapter import *  # noqa: F403
+from zest.integrations.strix.adapter import *  # noqa: F403

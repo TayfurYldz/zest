@@ -6,23 +6,23 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.application.draft_exploratory_hypothesis import (
+from zest.application.draft_exploratory_hypothesis import (
     DraftExploratoryHypothesis,
     DraftExploratoryHypothesisCommand,
     ExploratorySignalInput,
 )
-from research_os.application.execute_exploratory_research import (
+from zest.application.execute_exploratory_research import (
     ExecuteExploratoryResearch,
     ExecuteExploratoryResearchCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect
-from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
-from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import HunterFamilyRecord, IssuedBudgetRecord
-from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from research_os.research.assessment import AssessmentOutcome
-from research_os.research.exploratory import ExploratorySignalKind
-from research_os.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect
+from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
+from zest.data.records import HunterFamilyRecord, IssuedBudgetRecord
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
+from zest.research.assessment import AssessmentOutcome
+from zest.research.exploratory import ExploratorySignalKind
+from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_authorization_run

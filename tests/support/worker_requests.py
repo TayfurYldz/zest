@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlsplit
 
-from research_os.tools.registry import load_capability_registry
+from zest.tools.registry import load_capability_registry
 
 
 _HTTP_ENVELOPE_CAPABILITIES = frozenset({

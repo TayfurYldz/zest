@@ -26,7 +26,7 @@ ideas into Evidence, Candidate, Finding, or ImpactGraph edges.
 
 Files:
 
-- `src/research_os/research/exploratory.py`
+- `src/zest/research/exploratory.py`
 - `tests/unit/research/test_sd_g16_exploratory.py`
 
 Behavior:
@@ -45,7 +45,7 @@ Behavior:
 
 Files:
 
-- `src/research_os/application/draft_exploratory_hypothesis.py`
+- `src/zest/application/draft_exploratory_hypothesis.py`
 - `tests/unit/application/test_sd_g16_exploratory_hypothesis.py`
 
 Behavior:
