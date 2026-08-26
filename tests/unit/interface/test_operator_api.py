@@ -171,6 +171,38 @@ class OperatorApiPostgresOutageHandlerTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_run_analysis_route_is_read_only_json(self) -> None:
+        runtime = mock.Mock()
+        runtime.run_analysis.return_value = {
+            "schema": "hq.run.analysis.v1",
+            "research_run_id": "run-1",
+            "projection_only": True,
+            "authority": {
+                "creates_state": False,
+                "authorizes_execution": False,
+                "dispatches_worker": False,
+                "calls_model": False,
+            },
+        }
+        server, host, port = self._serve(runtime)
+        try:
+            status, payload, raw = self._request(
+                host,
+                port,
+                "GET",
+                "/api/runs/run-1/analysis",
+            )
+        finally:
+            server.shutdown()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["result"]["schema"], "hq.run.analysis.v1")
+        self.assertTrue(payload["result"]["projection_only"])
+        self.assertFalse(payload["result"]["authority"]["creates_state"])
+        self.assertNotIn(b"Traceback", raw)
+        runtime.run_analysis.assert_called_once_with("run-1")
+
     def test_health_returns_json_when_runtime_health_raises_unavailable(self) -> None:
         from research_os.data.errors import DatabaseUnavailableError
 

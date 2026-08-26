@@ -125,6 +125,16 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
                 len(parts) == 4
                 and parts[0] == "api"
                 and parts[1] == "runs"
+                and parts[2]
+                and parts[3] == "analysis"
+            ):
+                payload = self.runtime.run_analysis(unquote(parts[2]))
+                self._send(*_json_bytes({"ok": True, "result": payload}))
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "api"
+                and parts[1] == "runs"
                 and parts[3] == "preflight"
                 and parts[2]
             ):

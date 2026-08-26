@@ -42,6 +42,7 @@ from research_os.application.operator_run_read_model import (
     build_run_detail,
     build_run_list,
 )
+from research_os.application.operator_hq_read_model import build_hq_run_analysis
 from research_os.application.orchestration_lease import LeaseConfig
 from research_os.application.persist_preflight import (
     configuration_fingerprint_for_command,
@@ -388,6 +389,10 @@ class ResearchOsdRuntime:
             runtime_instance_id=None if self._instance is None else self.runtime_instance_id,
             locally_supervised=self.is_supervising(research_run_id),
         )
+
+    def run_analysis(self, research_run_id: str) -> dict[str, object]:
+        self._require_pg()
+        return build_hq_run_analysis(self._uow_factory, research_run_id)
 
     def list_runs(self) -> list[dict[str, object]]:
         self._require_pg()

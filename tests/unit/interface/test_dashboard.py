@@ -13,6 +13,7 @@ from research_os.interface.dashboard import (
     HTML,
     _bootstrap_payload,
     _operator_run_action,
+    _operator_run_analysis,
     _scope_records,
     bootstrap_program,
     configure_dashboard_run_control,
@@ -122,6 +123,27 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(_operator_run_action("resume", "run-1", {})["state"], "READY")
         self.assertEqual(_operator_run_action("cancel", "run-1", {})["state"], "COMPLETED")
         self.assertEqual([item[0] for item in calls], ["start", "pause", "resume", "cancel"])
+
+    def test_hq_analysis_delegates_to_operator_client(self) -> None:
+        class FakeControl:
+            def get_run_analysis(self, research_run_id):
+                return {
+                    "schema": "hq.run.analysis.v1",
+                    "research_run_id": research_run_id,
+                    "projection_only": True,
+                }
+
+        configure_dashboard_run_control(
+            DashboardRunControlRuntime(
+                FakeControl(),
+                lambda run_id, payload: None,
+            )
+        )
+
+        result = _operator_run_analysis("run-1")
+        self.assertEqual(result["schema"], "hq.run.analysis.v1")
+        self.assertEqual(result["research_run_id"], "run-1")
+        self.assertTrue(result["projection_only"])
 
     def test_bootstrap_payload_requires_scope(self) -> None:
         with self.assertRaisesRegex(ValueError, "in_scope"):

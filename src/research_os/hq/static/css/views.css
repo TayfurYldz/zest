@@ -1,0 +1,14 @@
+.view-root { display: grid; gap: 16px; }
+.view-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.view-header p { margin-top: 5px; }
+.view-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.hero-readout { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+.hero-readout .panel { min-height: 150px; }
+.large-state { font-size: 22px; font-weight: 750; margin-top: 12px; }
+.control-status { color: var(--muted); font-size: 12px; }
+.badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.record-summary { display: grid; gap: 3px; }
+.record-summary strong { font-size: 13px; }
+.record-summary span { color: var(--muted); font-size: 12px; }
+.setup-note { margin-top: 12px; color: var(--subtle); font-size: 12px; }
+@media (max-width: 760px) { .hero-readout { grid-template-columns: 1fr; } }

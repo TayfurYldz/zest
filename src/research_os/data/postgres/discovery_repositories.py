@@ -10,7 +10,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from research_os.data.errors import PersistenceConflictError, PersistenceError
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
-from research_os.data.postgres.repositories import _execute_write, _fetch_one
+from research_os.data.postgres.repositories import (
+    _apply_read_limit,
+    _execute_write,
+    _fetch_one,
+)
 from research_os.data.records import (
     AttackSurfaceSnapshotRecord,
     ControlEventRecord,
@@ -28,11 +32,26 @@ from research_os.data.records import (
 )
 
 
-def _list_by_run(connection: Connection, table, run_id: str, builder, order_column):
+def _list_by_run(
+    connection: Connection,
+    table,
+    run_id: str,
+    builder,
+    order_column,
+    *,
+    limit: int | None = None,
+):
     require_opaque_id(run_id, "research_run_id")
     try:
         rows = (
-            connection.execute(select(table).where(table.c.research_run_id == run_id).order_by(order_column))
+            connection.execute(
+                _apply_read_limit(
+                    select(table).where(
+                        table.c.research_run_id == run_id
+                    ).order_by(order_column),
+                    limit,
+                )
+            )
             .mappings()
             .all()
         )
@@ -95,13 +114,14 @@ class PostgresControlEventRepository:
             raise PersistenceError("persistence read failed") from exc
         return map_row.control_event_from_row(row) if row else None
 
-    def list_for_research_run(self, research_run_id: str) -> list[ControlEventRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[ControlEventRecord]:
         return _list_by_run(
             self._connection,
             tables.control_event,
             research_run_id,
             map_row.control_event_from_row,
             tables.control_event.c.control_event_id,
+            limit=limit,
         )
 
 
@@ -140,13 +160,14 @@ class PostgresDiscoveryFactRepository:
             raise PersistenceError("persistence read failed") from exc
         return map_row.discovery_fact_from_row(row) if row else None
 
-    def list_for_research_run(self, research_run_id: str) -> list[DiscoveryFactRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[DiscoveryFactRecord]:
         return _list_by_run(
             self._connection,
             tables.discovery_fact,
             research_run_id,
             map_row.discovery_fact_from_row,
             tables.discovery_fact.c.canonical_key,
+            limit=limit,
         )
 
 
@@ -195,13 +216,14 @@ class PostgresDiscoveryInferenceRepository:
             map_row.discovery_inference_from_row,
         )
 
-    def list_for_research_run(self, research_run_id: str) -> list[DiscoveryInferenceRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[DiscoveryInferenceRecord]:
         return _list_by_run(
             self._connection,
             tables.discovery_inference,
             research_run_id,
             map_row.discovery_inference_from_row,
             tables.discovery_inference.c.canonical_key,
+            limit=limit,
         )
 
 
@@ -249,13 +271,14 @@ class PostgresFrontierItemRepository:
             raise PersistenceError("persistence read failed") from exc
         return map_row.frontier_item_from_row(row) if row else None
 
-    def list_for_research_run(self, research_run_id: str) -> list[FrontierItemRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[FrontierItemRecord]:
         return _list_by_run(
             self._connection,
             tables.frontier_item,
             research_run_id,
             map_row.frontier_item_from_row,
             tables.frontier_item.c.dedupe_identity,
+            limit=limit,
         )
 
     def set_cache_state(
@@ -302,13 +325,14 @@ class PostgresFrontierEventRepository:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.frontier_event_from_row(row) for row in rows]
 
-    def list_for_research_run(self, research_run_id: str) -> list[FrontierEventRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[FrontierEventRecord]:
         return _list_by_run(
             self._connection,
             tables.frontier_event,
             research_run_id,
             map_row.frontier_event_from_row,
             tables.frontier_event.c.sequence,
+            limit=limit,
         )
 
 
@@ -371,13 +395,14 @@ class PostgresAttackSurfaceSnapshotRepository:
             map_row.attack_surface_snapshot_from_row,
         )
 
-    def list_for_research_run(self, research_run_id: str) -> list[AttackSurfaceSnapshotRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[AttackSurfaceSnapshotRecord]:
         return _list_by_run(
             self._connection,
             tables.attack_surface_snapshot,
             research_run_id,
             map_row.attack_surface_snapshot_from_row,
             tables.attack_surface_snapshot.c.created_at,
+            limit=limit,
         )
 
 
@@ -401,11 +426,12 @@ class PostgresCoverageDebtSnapshotRepository:
             map_row.coverage_debt_snapshot_from_row,
         )
 
-    def list_for_research_run(self, research_run_id: str) -> list[CoverageDebtSnapshotRecord]:
+    def list_for_research_run(self, research_run_id: str, *, limit: int | None = None) -> list[CoverageDebtSnapshotRecord]:
         return _list_by_run(
             self._connection,
             tables.coverage_debt_snapshot,
             research_run_id,
             map_row.coverage_debt_snapshot_from_row,
             tables.coverage_debt_snapshot.c.created_at,
+            limit=limit,
         )

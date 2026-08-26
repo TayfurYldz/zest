@@ -150,14 +150,14 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
             page = browser.new_page()
             try:
                 page.goto(self.url, wait_until="domcontentloaded")
-                page.get_by_role("button", name="Setup").click()
+                page.get_by_role("button", name="Program Setup", exact=True).click()
                 page.locator("#programName").fill("Local Program")
                 page.locator("#targetReference").fill("http://127.0.0.1:1")
                 page.locator("#authorizationReference").fill("local-auth")
                 page.locator("#inScope").fill("http://127.0.0.1:1")
                 page.get_by_role("button", name="Create Ready Run").click()
                 page.locator("#formStatus").wait_for(state="visible")
-                page.get_by_role("button", name="Operations").click()
+                page.get_by_role("button", name="Experiment Control", exact=True).click()
 
                 start = page.locator('#runs button[data-run-action="start"]')
                 start.wait_for(state="visible")

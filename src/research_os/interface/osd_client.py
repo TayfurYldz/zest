@@ -86,6 +86,13 @@ class OperatorApiRunControl:
             raise ApplicationError("operator API returned an invalid run result")
         return result
 
+    def get_run_analysis(self, research_run_id: str) -> dict[str, Any]:
+        payload = self._request("GET", f"/api/runs/{research_run_id}/analysis", {})
+        result = payload.get("result") if isinstance(payload, dict) else None
+        if not isinstance(result, dict):
+            raise ApplicationError("operator API returned an invalid run analysis")
+        return result
+
     def console_snapshot(self) -> dict[str, Any]:
         payload = self._request("GET", "/api/console", {})
         result = payload.get("result") if isinstance(payload, dict) else None
