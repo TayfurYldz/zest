@@ -3,6 +3,25 @@ import { escapeHtml, section } from "../components.js";
 import { viewHeader } from "./common.js";
 
 let pendingPayload = null;
+let formDraft = null;
+
+function captureDraft(form) {
+  formDraft = Object.fromEntries(new FormData(form).entries());
+}
+
+function restoreDraft(form) {
+  if (!formDraft) return;
+
+  for (const [name, value] of Object.entries(formDraft)) {
+    const field = form.elements.namedItem(name);
+    if (!field || typeof field.value === "undefined") continue;
+    field.value = value;
+  }
+}
+
+function clearDraft() {
+  formDraft = null;
+}
 
 function uniqueLines(value) {
   const seen = new Set();
@@ -283,13 +302,36 @@ export function bind(context) {
   const confirm = form.querySelector("#confirmBootstrap");
   const edit = form.querySelector("#editBootstrap");
 
-  form.addEventListener("input", () => {
+  restoreDraft(form);
+
+  if (pendingPayload) {
+    const inScope = uniqueLines(pendingPayload.in_scope);
+    const outOfScope = uniqueLines(pendingPayload.out_of_scope);
+    const forbiddenActions = uniqueLines(pendingPayload.forbidden_actions);
+
+    reviewBody.innerHTML = reviewMarkup(
+      pendingPayload,
+      inScope,
+      outOfScope,
+      forbiddenActions
+    );
+
+    review.hidden = false;
+    status.textContent = "review required before persistence";
+  }
+
+  const handleDraftMutation = () => {
+    captureDraft(form);
+
     if (!review.hidden) {
       pendingPayload = null;
       review.hidden = true;
       status.textContent = "configuration changed — review again";
     }
-  });
+  };
+
+  form.addEventListener("input", handleDraftMutation);
+  form.addEventListener("change", handleDraftMutation);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -299,6 +341,7 @@ export function bind(context) {
 
     try {
       const normalized = normalizedPayload(form);
+      captureDraft(form);
       pendingPayload = normalized.payload;
       reviewBody.innerHTML = reviewMarkup(
         normalized.payload,
@@ -339,6 +382,7 @@ export function bind(context) {
       // Persistence succeeded at this point. Do not allow a later projection
       // refresh failure to misreport the durable bootstrap as failed.
       pendingPayload = null;
+      clearDraft();
       review.hidden = true;
       form.reset();
       status.textContent = readyMessage;

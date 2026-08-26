@@ -153,6 +153,20 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 page.get_by_role("button", name="Program Setup", exact=True).click()
                 page.locator("#programName").fill("Local Program")
                 page.locator("#targetReference").fill("http://127.0.0.1:1")
+
+                # Dashboard projection refresh must not destroy an
+                # operator's in-progress Program Setup draft.
+                page.locator("#refreshButton").click()
+                page.locator("#programName").wait_for(state="visible")
+                self.assertEqual(
+                    page.locator("#programName").input_value(),
+                    "Local Program",
+                )
+                self.assertEqual(
+                    page.locator("#targetReference").input_value(),
+                    "http://127.0.0.1:1",
+                )
+
                 page.locator("#authorizationReference").fill("local-auth")
                 page.locator("#inScope").fill(
                     "http://127.0.0.1:1\\n"
@@ -165,6 +179,21 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 page.get_by_role("button", name="Review bounded run").click()
                 page.locator("#bootstrapReview").wait_for(state="visible")
                 page.get_by_text("IN SCOPE · 1").wait_for(state="visible")
+
+                # Review state is also operator state and must survive
+                # projection refresh before explicit confirmation.
+                page.locator("#refreshButton").click()
+                page.locator("#bootstrapReview").wait_for(state="visible")
+                page.get_by_text("IN SCOPE · 1").wait_for(state="visible")
+
+                self.assertEqual(
+                    page.locator("#programName").input_value(),
+                    "Local Program",
+                )
+                self.assertEqual(
+                    page.locator("#maxRequests").input_value(),
+                    "25",
+                )
 
                 page.get_by_role(
                     "button",
