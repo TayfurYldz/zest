@@ -120,13 +120,13 @@ class ObservabilityAndHealthTests(unittest.TestCase):
         self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertIn("GATE 16:", text)
         self.assertEqual(GATE_16_STATUS, "PASS")
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PASS")
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
         self.assertIn(f"SECURITY_RESEARCH_VALIDATED: {SECURITY_RESEARCH_VALIDATED}", text)
         self.assertNotIn("sk-", text)
         self.assertFalse(PRODUCTION_READY)
-        self.assertFalse(LIVE_MODEL_VALIDATED)
+        self.assertTrue(LIVE_MODEL_VALIDATED)
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         with self.assertRaises(ValueError):
             OperatorStatusSnapshot(

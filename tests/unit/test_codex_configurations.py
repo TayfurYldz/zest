@@ -772,7 +772,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
             development_suite=True,
         )
         self.assertEqual(pending["status"], "PENDING")
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PASS")
 
 
 def _is_codex_exec(argv) -> bool:
@@ -836,7 +836,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
             development_suite=True,
         )
         self.assertEqual(pending["status"], "PENDING")
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PASS")
 
     def test_operator_status_executes_zero_codex_exec(self) -> None:
         calls: list[tuple[str, ...]] = []
@@ -854,7 +854,7 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
             argv_runner=runner,
         )
         self.assertFalse(any(_is_codex_exec(argv) for argv in calls))
-        self.assertEqual(snapshot.gate_04b, "PENDING")
+        self.assertEqual(snapshot.gate_04b, "PASS")
 
     def test_live_probe_executes_model_specific_diagnostic_and_can_become_compatible(self) -> None:
         calls: list[tuple[str, ...]] = []

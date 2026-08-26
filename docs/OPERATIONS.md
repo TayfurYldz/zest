@@ -38,7 +38,7 @@ research-os status
 
 Output includes POSTGRESQL (application DB), TEST_POSTGRESQL (if configured), Worker, Model Runtimes, Strix, Auth, Orchestrator, Budget ledger, Reconciliation, Observability, GATE 04B, and maturity flags. It must not print secrets.
 
-Worker HEALTHY requires a real diagnostic protocol probe (spawn → valid request → schema + correlation → clean exit). Codex `--version` is INSTALLED/VERSION_KNOWN only. `SUBSCRIPTION_OAUTH` is `NOT_IMPLEMENTED`. GATE 04B remains PENDING until ≥2 `BENCHMARK_COMPATIBLE` live ModelRuntime configurations actually execute a comparable run. Scripted baselines and Strix do not count.
+Worker HEALTHY requires a real diagnostic protocol probe (spawn → valid request → schema + correlation → clean exit). Codex `--version` is INSTALLED/VERSION_KNOWN only. `SUBSCRIPTION_OAUTH` is `NOT_IMPLEMENTED`. GATE 04B is PASS after authoritative qualification with two independent `BENCHMARK_COMPATIBLE` live ModelRuntime configurations executing the comparable full benchmark. Scripted baselines and Strix still do not count. Ordinary `research-os status` remains passive and does not re-run or consume model quota.
 
 ## Codex readiness ladder
 
@@ -406,7 +406,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 
 ## GATE 21 — browser / application state
 
-**GATE 21 status: PENDING.** Formal PASS requires later Kali + real PostgreSQL + real Chromium validation. This section documents local implementation and setup only.
+**GATE 21 status: PASS** (2026-08-26). Formal qualification is backed by real Chromium behavioral validation, authoritative delegated Linux cgroup v2 containment, restart/session fail-closed validation, and current PostgreSQL regression. The ordinary non-delegated E2E invocation may skip the cgroup enforcement cases; those skips were not used to award PASS.
 
 Capability: `browser.page` actions `observe` (SE0), `navigate` (SE0), `interact` (SE1). Loopback HTTP only.
 
@@ -493,7 +493,7 @@ GATE 21 does **not** claim:
 - browser-based vulnerability discovery
 - general internet browsing
 - production readiness
-- GATE 21 PASS
+- real-world security-research effectiveness
 
 Alembic head after GATE 21 remained `a21_001_session_context`. GATE 22 appended `a22_001_discovery_surface`. GATE 21 added no migration.
 
@@ -938,7 +938,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
-- LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
+- LIVE_MODEL_VALIDATED: yes; GATE 04B authoritative paired live-runtime qualification passed on implementation baseline 014b1c0d88eeacdcf0e5a26330d9fe2de888f4fe
 - SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 PASS is not security-research validation.
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 01: PASS (2026-08-19, Kali, isolated PostgreSQL, full suite 1225 passed / 9 skipped)
@@ -953,6 +953,6 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 18: PASS (2026-08-17, commit 241e901fb2c6730ee293cca71942de45d3796282, Kali, dedicated PostgreSQL, Alembic head a20_001_capability_plan_binding, unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 19: PASS (2026-08-17, implementation 95c88bc, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 20: PASS (2026-08-17, implementation e574306, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
-- GATE 21: PENDING (implementation exists locally; formal PASS requires Kali + real PostgreSQL + real Chromium validation)
+- GATE 21: PASS (2026-08-26, implementation baseline 014b1c0d88eeacdcf0e5a26330d9fe2de888f4fe; real Chromium 20/20, delegated Linux cgroup containment 7/7, restart/session semantics 3/3, current PostgreSQL integration regression 270/270)
 - GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL research_os_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
 - GATE 01: PASS (Scope Compiler v2 + ProgramResearchContext + program-policy-derived loopback fixture; Kali + isolated PostgreSQL, full suite 1225 passed / 9 skipped)

@@ -432,7 +432,7 @@ class OperatorStagingPostgresTests(unittest.TestCase):
         self.assertFalse(payload["model"]["available_now"])
         self.assertEqual(payload["model"]["health"], "AUTH_REQUIRED")
         self.assertTrue(payload["model"]["gate_04b_is_not_availability"])
-        self.assertNotEqual(payload["model"]["gate_04b"], "PASS")
+        self.assertEqual(payload["model"]["gate_04b"], "PASS")
 
     def test_local_bind_default_and_no_traceback(self) -> None:
         _, base = self._start_runtime()

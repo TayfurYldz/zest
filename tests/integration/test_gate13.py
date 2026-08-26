@@ -241,7 +241,7 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
         self.assertIn("GATE 04B:", text_status)
         self.assertIn("PENDING", text_status)
         self.assertFalse(PRODUCTION_READY)
-        self.assertFalse(LIVE_MODEL_VALIDATED)
+        self.assertTrue(LIVE_MODEL_VALIDATED)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             tables = {
@@ -250,7 +250,7 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a42_001_preflight_report")
+        self.assertEqual(version, "a44_001_oast_correlation")
         self.assertIn("research_orchestration", tables)
         self.assertIn("budget_consumption", tables)
         self.assertIn("research_cycle", tables)
@@ -391,7 +391,7 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
             command.upgrade(cfg, "head")
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a42_001_preflight_report")
+        self.assertEqual(version, "a44_001_oast_correlation")
 
     def test_nested_secrets_rejected_in_telemetry_and_exceptions(self) -> None:
         with self.assertRaises(ValueError) as ctx:
@@ -432,9 +432,9 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
         self.assertFalse(strix["available"])
         self.assertFalse(strix["installed"])
         self.assertEqual(SUBSCRIPTION_OAUTH_STATUS, "NOT_IMPLEMENTED")
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PASS")
         self.assertFalse(PRODUCTION_READY)
-        self.assertFalse(LIVE_MODEL_VALIDATED)
+        self.assertTrue(LIVE_MODEL_VALIDATED)
 
     def test_model_call_and_worker_request_are_separate(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)

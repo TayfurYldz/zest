@@ -183,7 +183,7 @@ class ResearchOsdPostgresTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a42_001_preflight_report")
+        self.assertEqual(version, "a44_001_oast_correlation")
         self.assertIn("runtime_instance", tables)
         self.assertIn("preflight_report", tables)
 

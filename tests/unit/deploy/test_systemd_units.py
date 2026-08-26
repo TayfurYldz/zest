@@ -229,7 +229,7 @@ class MaturityUnchangedTests(unittest.TestCase):
         text = MATURITY.read_text(encoding="utf-8")
         self.assertNotIn("SYSTEMD_STAGING_READY", text)
         self.assertNotIn("MACHINE_REBOOT_QUALIFIED", text)
-        self.assertIn('GATE_04B_STATUS = "PENDING"', text)
+        self.assertIn("SECURITY_RESEARCH_VALIDATED = False", text)
         self.assertIn("PRODUCTION_READY = False", text)
 
 

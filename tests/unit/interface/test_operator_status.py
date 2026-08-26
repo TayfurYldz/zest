@@ -80,7 +80,7 @@ class StatusQuotaSafetyTests(unittest.TestCase):
         )
         self.assertFalse(any(len(argv) >= 2 and argv[1] == "exec" for argv in calls))
         self.assertTrue(any(argv[-1] == "--version" for argv in calls))
-        self.assertEqual(snapshot.gate_04b, "PENDING")
+        self.assertEqual(snapshot.gate_04b, "PASS")
         self.assertEqual(snapshot.gate_14, "PASS")
         self.assertEqual(snapshot.gate_15, "PASS")
 

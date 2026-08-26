@@ -71,9 +71,9 @@ mechanisms, durable session-secret recovery after restart, autonomous
 vulnerability discovery, real-world bug bounty performance, or production
 readiness.
 
-GATE 21 PENDING means the browser/application-state capability implementation
-exists locally but formal PASS requires later Kali + real PostgreSQL + real
-Chromium validation. It does not prove autonomous discovery, crawler behavior,
+GATE 21 PASS means the browser/application-state capability has been formally
+qualified on the authoritative Linux host with real Chromium and kernel-enforced
+containment. It does not prove autonomous discovery, crawler behavior,
 bug-bounty performance, browser-based vulnerability discovery, general internet
 browsing, or production readiness.
 
@@ -228,7 +228,7 @@ from __future__ import annotations
 
 ARCHITECTURE_VALIDATED = True
 DIAGNOSTIC_E2E_VALIDATED = True
-LIVE_MODEL_VALIDATED = False
+LIVE_MODEL_VALIDATED = True
 SECURITY_RESEARCH_VALIDATED = False
 PRODUCTION_READY = False
 
@@ -251,9 +251,9 @@ GATE_17_STATUS = "PASS"
 GATE_18_STATUS = "PASS"
 GATE_19_STATUS = "PASS"
 GATE_20_STATUS = "PASS"
-GATE_21_STATUS = "PENDING"
+GATE_21_STATUS = "PASS"
 GATE_22_STATUS = "PASS"
-GATE_04B_STATUS = "PENDING"
+GATE_04B_STATUS = "PASS"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
 

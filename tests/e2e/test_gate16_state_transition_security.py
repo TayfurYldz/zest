@@ -365,8 +365,8 @@ class Gate16StateTransitionSecurityTests(unittest.TestCase):
 
     def test_33_gate14_regression_status_unchanged(self) -> None:
         self.assertEqual(GATE_14_STATUS, "PASS")
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
-        self.assertFalse(LIVE_MODEL_VALIDATED)
+        self.assertEqual(GATE_04B_STATUS, "PASS")
+        self.assertTrue(LIVE_MODEL_VALIDATED)
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
 
@@ -381,7 +381,7 @@ class Gate16StateTransitionSecurityTests(unittest.TestCase):
         self.assertEqual(self.scorecard.skipped, 0)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a42_001_preflight_report")
+        self.assertEqual(version, "a44_001_oast_correlation")
 
 
 if __name__ == "__main__":

@@ -159,8 +159,8 @@ def _bounds() -> DiscoveryBounds:
 
 class Gate22MaturityTests(unittest.TestCase):
     def test_maturity_and_prior_strategy_identities(self) -> None:
-        self.assertEqual(GATE_04B_STATUS, "PENDING")
-        self.assertFalse(LIVE_MODEL_VALIDATED)
+        self.assertEqual(GATE_04B_STATUS, "PASS")
+        self.assertTrue(LIVE_MODEL_VALIDATED)
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertEqual(EXPLORATION_STRATEGY_VERSION, "exploration.diagnostic.echo.v1")
