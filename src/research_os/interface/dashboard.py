@@ -330,6 +330,7 @@ def bootstrap_program(
                         "forbidden_actions": cleaned["forbidden_actions"],
                         "dashboard_bootstrap": True,
                         "required_user_agent": cleaned["required_user_agent"],
+                        "required_headers": cleaned["required_headers"],
                         "run": {
                             "target_reference": cleaned["target_reference"],
                             "research_question": cleaned["research_question"],
@@ -469,6 +470,7 @@ def _bootstrap_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "out_of_scope": out_of_scope,
         "forbidden_actions": _lines(payload.get("forbidden_actions")),
         "required_user_agent": _optional_text(payload, "required_user_agent"),
+        "required_headers": _required_headers(payload.get("required_headers")),
         "max_response_bytes": _positive_int(payload, "max_response_bytes", 1_048_576),
         "timeout_ms": _positive_int(payload, "timeout_ms", 10_000),
         "max_requests_per_window": _positive_int(
@@ -553,6 +555,103 @@ def _scope_record(
         port=parsed.port,
         path_prefix=path_prefix,
     )
+
+
+_REQUIRED_HEADER_BLOCKLIST = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "upgrade",
+        "origin",
+        "referer",
+        "user-agent",
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+    }
+)
+
+_REQUIRED_HEADER_SENSITIVE_MARKERS = (
+    "api-key",
+    "apikey",
+    "password",
+    "secret",
+    "token",
+    "credential",
+)
+
+
+def _required_headers(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+
+    if isinstance(value, Mapping):
+        candidates = list(value.items())
+    else:
+        candidates = []
+        for line in _lines(value):
+            if ":" not in line:
+                raise ValueError(
+                    "required_headers entries must use 'Name: Value'"
+                )
+            name, header_value = line.split(":", 1)
+            candidates.append((name, header_value))
+
+    if len(candidates) > 8:
+        raise ValueError("required_headers permits at most 8 headers")
+
+    result: dict[str, str] = {}
+    seen: set[str] = set()
+
+    for raw_name, raw_value in candidates:
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            raise ValueError("required_headers names and values must be strings")
+
+        name = raw_name.strip()
+        header_value = raw_value.strip()
+        lower = name.lower()
+
+        if (
+            not name
+            or len(name) > 64
+            or any(not (char.isalnum() or char == "-") for char in name)
+        ):
+            raise ValueError("required_headers contains an invalid header name")
+
+        if (
+            lower in _REQUIRED_HEADER_BLOCKLIST
+            or any(marker in lower for marker in _REQUIRED_HEADER_SENSITIVE_MARKERS)
+        ):
+            raise ValueError(
+                f"required_headers header is not permitted: {name}"
+            )
+
+        if lower in seen:
+            raise ValueError(
+                f"required_headers contains a duplicate header: {name}"
+            )
+
+        if (
+            not header_value
+            or len(header_value) > 256
+            or any(marker in header_value for marker in ("\r", "\n", "\x00"))
+        ):
+            raise ValueError(
+                f"required_headers contains an invalid value for: {name}"
+            )
+
+        seen.add(lower)
+        result[name] = header_value
+
+    return result
 
 
 def _lines(value: Any) -> list[str]:

@@ -428,7 +428,14 @@ class ExecutePlannedExperiment:
                     )
                     else None
                 ),
-                required_user_agent=_required_user_agent(uow, experiment.research_run_id),
+                required_user_agent=_required_user_agent(
+                    uow,
+                    experiment.research_run_id,
+                ),
+                required_headers=_required_program_headers(
+                    uow,
+                    experiment.research_run_id,
+                ),
             )
             self._validator.validate_worker_request(worker_request)
             if (
@@ -1000,13 +1007,35 @@ def _build_worker_request(
     network_envelope: AuthorizedNetworkEnvelope | None = None,
     identity_id: str | None = None,
     required_user_agent: str | None = None,
+    required_headers: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     arguments = dict(plan.arguments)
     if identity_id is not None:
         arguments["identity_id"] = identity_id
+
+    existing_headers = arguments.get("headers") or {}
+    if not isinstance(existing_headers, Mapping):
+        raise ValueError("worker request headers must be an object")
+    headers = dict(existing_headers)
+
+    def set_authoritative_header(name: str, value: str) -> None:
+        for existing in list(headers):
+            if (
+                isinstance(existing, str)
+                and existing.lower() == name.lower()
+            ):
+                del headers[existing]
+        headers[name] = value
+
     if required_user_agent is not None:
-        headers = dict(arguments.get("headers") or {})
-        headers["User-Agent"] = required_user_agent
+        set_authoritative_header("User-Agent", required_user_agent)
+
+    for name, value in _validate_required_program_headers(
+        required_headers
+    ).items():
+        set_authoritative_header(name, value)
+
+    if required_user_agent is not None or required_headers:
         arguments["headers"] = headers
     payload: dict[str, Any] = {
         "contract_version": WORKER_CONTRACT_VERSION,
@@ -1056,6 +1085,98 @@ def _required_user_agent(uow, research_run_id: str) -> str | None:
     ):
         raise ValueError("required_user_agent policy is invalid")
     return value.strip()
+
+
+_PROGRAM_HEADER_BLOCKLIST = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "upgrade",
+        "origin",
+        "referer",
+        "user-agent",
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+    }
+)
+
+_PROGRAM_HEADER_SENSITIVE_MARKERS = (
+    "api-key",
+    "apikey",
+    "password",
+    "secret",
+    "token",
+    "credential",
+)
+
+
+def _validate_required_program_headers(
+    value: Mapping[str, str] | None,
+) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("required_headers policy is invalid")
+    if len(value) > 8:
+        raise ValueError("required_headers policy exceeds limit")
+
+    result: dict[str, str] = {}
+    seen: set[str] = set()
+
+    for raw_name, raw_value in value.items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            raise ValueError("required_headers policy is invalid")
+
+        name = raw_name.strip()
+        header_value = raw_value.strip()
+        lower = name.lower()
+
+        if (
+            not name
+            or len(name) > 64
+            or any(not (char.isalnum() or char == "-") for char in name)
+            or lower in _PROGRAM_HEADER_BLOCKLIST
+            or any(marker in lower for marker in _PROGRAM_HEADER_SENSITIVE_MARKERS)
+            or lower in seen
+            or not header_value
+            or len(header_value) > 256
+            or any(marker in header_value for marker in ("\r", "\n", "\x00"))
+        ):
+            raise ValueError("required_headers policy is invalid")
+
+        seen.add(lower)
+        result[name] = header_value
+
+    return result
+
+
+def _required_program_headers(
+    uow,
+    research_run_id: str,
+) -> dict[str, str]:
+    run = uow.research_runs.get(research_run_id)
+    if run is None:
+        raise ValueError(
+            "research run not found while resolving execution policy"
+        )
+
+    policy = uow.program_policies.get(run.program_id)
+
+    if policy is None or not policy.action_policy:
+        return {}
+
+    return _validate_required_program_headers(
+        policy.action_policy.get("required_headers")
+    )
 
 
 def _classify_invocation(

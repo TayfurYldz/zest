@@ -314,6 +314,11 @@ class PlaywrightChromiumEngine:
         required_user_agent = binding.get("required_user_agent")
         if isinstance(required_user_agent, str) and required_user_agent:
             context_options["user_agent"] = required_user_agent
+
+        required_headers = binding.get("required_headers")
+        if isinstance(required_headers, dict) and required_headers:
+            context_options["extra_http_headers"] = dict(required_headers)
+
         try:
             context = self._browser.new_context(**context_options)
         except TypeError:

@@ -53,6 +53,7 @@ function normalizedPayload(form) {
   const inScope = uniqueLines(payload.in_scope);
   const outOfScope = uniqueLines(payload.out_of_scope);
   const forbiddenActions = uniqueLines(payload.forbidden_actions);
+  const requiredHeaders = uniqueLines(payload.required_headers);
 
   if (!inScope.length) throw new Error("at least one in-scope entry is required");
 
@@ -65,11 +66,24 @@ function normalizedPayload(form) {
   payload.in_scope = inScope.join("\n");
   payload.out_of_scope = outOfScope.join("\n");
   payload.forbidden_actions = forbiddenActions.join("\n");
+  payload.required_headers = requiredHeaders.join("\n");
 
-  return { payload, inScope, outOfScope, forbiddenActions };
+  return {
+    payload,
+    inScope,
+    outOfScope,
+    forbiddenActions,
+    requiredHeaders,
+  };
 }
 
-function reviewMarkup(payload, inScope, outOfScope, forbiddenActions) {
+function reviewMarkup(
+  payload,
+  inScope,
+  outOfScope,
+  forbiddenActions,
+  requiredHeaders
+) {
   const bounds = [
     ["Requests", payload.max_requests],
     ["Rate", `${payload.max_requests_per_window}/${payload.window_seconds}s`],
@@ -110,9 +124,23 @@ function reviewMarkup(payload, inScope, outOfScope, forbiddenActions) {
         ${reviewLines(forbiddenActions)}
       </div>
       <div>
+        <h3>REQUIRED HTTP HEADERS · ${requiredHeaders.length}</h3>
+        ${reviewLines(requiredHeaders)}
+      </div>
+    </div>
+
+    <div class="setup-review-grid">
+      <div>
         <h3>BOUNDS</h3>
         <div class="kv-list">
           ${bounds.map(([key, value]) => `<div class="kv"><span class="kv-key">${escapeHtml(key)}</span><span class="kv-value mono">${escapeHtml(value)}</span></div>`).join("")}
+        </div>
+      </div>
+      <div>
+        <h3>POLICY NOTE</h3>
+        <div class="notice">
+          Required program headers are policy-owned and override
+          conflicting caller/model header values case-insensitively.
         </div>
       </div>
     </div>
@@ -197,6 +225,20 @@ export function render(context) {
         <div class="field field-full">
           <label for="requiredUserAgent">Required User-Agent</label>
           <input id="requiredUserAgent" name="required_user_agent" autocomplete="off">
+        </div>
+
+        <div class="field field-full">
+          <label for="requiredHeaders">Required HTTP headers · one Name: Value per line</label>
+          <textarea
+            id="requiredHeaders"
+            name="required_headers"
+            rows="3"
+            placeholder="X-Program-Researcher: researcher-id"
+          ></textarea>
+          <span class="field-hint">
+            Identification headers only. Authorization, Cookie, Host,
+            forwarding and secret-bearing headers are rejected.
+          </span>
         </div>
 
         <details class="field-full setup-advanced" open>
@@ -308,12 +350,14 @@ export function bind(context) {
     const inScope = uniqueLines(pendingPayload.in_scope);
     const outOfScope = uniqueLines(pendingPayload.out_of_scope);
     const forbiddenActions = uniqueLines(pendingPayload.forbidden_actions);
+    const requiredHeaders = uniqueLines(pendingPayload.required_headers);
 
     reviewBody.innerHTML = reviewMarkup(
       pendingPayload,
       inScope,
       outOfScope,
-      forbiddenActions
+      forbiddenActions,
+      requiredHeaders
     );
 
     review.hidden = false;
@@ -347,7 +391,8 @@ export function bind(context) {
         normalized.payload,
         normalized.inScope,
         normalized.outOfScope,
-        normalized.forbiddenActions
+        normalized.forbiddenActions,
+        normalized.requiredHeaders
       );
       review.hidden = false;
       status.textContent = "review required before persistence";

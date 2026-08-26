@@ -910,6 +910,11 @@ class AutonomousResearchController:
                 if policy is not None and policy.action_policy
                 else None
             )
+            required_headers = (
+                policy.action_policy.get("required_headers")
+                if policy is not None and policy.action_policy
+                else None
+            )
             uow.rollback()
         if experiment is None or plan_record is None or issued is None:
             return self._stop(current, StopReason.OPERATIONAL_FAILURE, "resume_missing")
@@ -934,6 +939,7 @@ class AutonomousResearchController:
                 correlation_id=attempt.correlation_id,
                     authorization_decision_reference=attempt.authorization_decision_reference,
                     required_user_agent=required_user_agent,
+                    required_headers=required_headers,
                 ),
             timeout_ms=issued.max_runtime_ms,
             core_decision=ExecutionDecisionKind.ALLOW,
