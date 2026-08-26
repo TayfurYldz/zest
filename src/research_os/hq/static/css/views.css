@@ -12,3 +12,50 @@
 .record-summary span { color: var(--muted); font-size: 12px; }
 .setup-note { margin-top: 12px; color: var(--subtle); font-size: 12px; }
 @media (max-width: 760px) { .hero-readout { grid-template-columns: 1fr; } }
+
+
+.setup-advanced {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.setup-advanced > summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.setup-advanced-grid { margin-top: 12px; }
+.field-hint { color: var(--subtle); font-size: 11px; }
+.setup-review { margin-top: 6px; }
+.setup-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.setup-review-grid h3 {
+  margin-bottom: 8px;
+  color: var(--subtle);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.review-scope {
+  min-height: 48px;
+  max-height: 240px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface-0);
+  color: var(--text);
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .setup-review-grid { grid-template-columns: 1fr; }
+}

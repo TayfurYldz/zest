@@ -154,9 +154,24 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 page.locator("#programName").fill("Local Program")
                 page.locator("#targetReference").fill("http://127.0.0.1:1")
                 page.locator("#authorizationReference").fill("local-auth")
-                page.locator("#inScope").fill("http://127.0.0.1:1")
-                page.get_by_role("button", name="Create Ready Run").click()
-                page.locator("#formStatus").wait_for(state="visible")
+                page.locator("#inScope").fill(
+                    "http://127.0.0.1:1\\n"
+                    "http://127.0.0.1:1"
+                )
+                page.locator("#outOfScope").fill("http://127.0.0.1:2/private/*")
+                page.locator("#maxRequests").fill("25")
+                page.locator("#sideEffectCeiling").select_option("0")
+
+                page.get_by_role("button", name="Review bounded run").click()
+                page.locator("#bootstrapReview").wait_for(state="visible")
+                page.get_by_text("IN SCOPE · 1").wait_for(state="visible")
+
+                page.get_by_role(
+                    "button",
+                    name="Confirm & Create Ready Run",
+                ).click()
+                page.get_by_text("ready: run/1").wait_for(state="visible")
+
                 page.get_by_role("button", name="Experiment Control", exact=True).click()
 
                 start = page.locator('#runs button[data-run-action="start"]')

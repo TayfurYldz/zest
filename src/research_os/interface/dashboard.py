@@ -441,6 +441,13 @@ def _bootstrap_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     in_scope = _lines(payload.get("in_scope"))
     if not in_scope:
         raise ValueError("in_scope requires at least one scope entry")
+    out_of_scope = _lines(payload.get("out_of_scope"))
+    overlap = [entry for entry in in_scope if entry in set(out_of_scope)]
+    if overlap:
+        raise ValueError(
+            "scope entry cannot be both in_scope and out_of_scope: "
+            + ", ".join(overlap)
+        )
     platform = _optional_text(payload, "platform") or "manual"
     if platform not in ALLOWED_PLATFORMS:
         raise ValueError("platform is not supported")
@@ -459,7 +466,7 @@ def _bootstrap_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             or "Which authorized surfaces require deeper manual review?"
         ),
         "in_scope": in_scope,
-        "out_of_scope": _lines(payload.get("out_of_scope")),
+        "out_of_scope": out_of_scope,
         "forbidden_actions": _lines(payload.get("forbidden_actions")),
         "required_user_agent": _optional_text(payload, "required_user_agent"),
         "max_response_bytes": _positive_int(payload, "max_response_bytes", 1_048_576),
@@ -532,6 +539,8 @@ def _scope_record(
         host_pattern = host
         exact_host = None
     path_prefix = parsed.path if parsed.path and parsed.path != "/" else None
+    if path_prefix and path_prefix.endswith("/*"):
+        path_prefix = path_prefix[:-1]
     return ScopeRuleV2Record(
         rule_id=new_opaque_id(),
         program_id=program_id,
@@ -556,11 +565,17 @@ def _lines(value: Any) -> list[str]:
     else:
         raise ValueError("line input must be a string or list")
     result: list[str] = []
+    seen: set[str] = set()
     for item in candidates:
         if not isinstance(item, str):
             raise ValueError("line input entries must be strings")
         text_value = item.strip()
-        if text_value and not text_value.startswith("#"):
+        if (
+            text_value
+            and not text_value.startswith("#")
+            and text_value not in seen
+        ):
+            seen.add(text_value)
             result.append(text_value)
     return result
 

@@ -156,6 +156,44 @@ class DashboardTests(unittest.TestCase):
                 }
             )
 
+    def test_bootstrap_payload_deduplicates_scope_entries(self) -> None:
+        payload = _bootstrap_payload(
+            {
+                "program_name": "Authorized Test",
+                "target_reference": "https://www.example.test",
+                "authorization_reference": "auth-reference",
+                "in_scope": (
+                    "https://www.example.test\n"
+                    "https://www.example.test\n"
+                    "https://*.example.test\n"
+                    "https://*.example.test\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            payload["in_scope"],
+            [
+                "https://www.example.test",
+                "https://*.example.test",
+            ],
+        )
+
+    def test_bootstrap_payload_rejects_exact_scope_overlap(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "both in_scope and out_of_scope",
+        ):
+            _bootstrap_payload(
+                {
+                    "program_name": "Authorized Test",
+                    "target_reference": "https://www.example.test",
+                    "authorization_reference": "auth-reference",
+                    "in_scope": "https://www.example.test",
+                    "out_of_scope": "https://www.example.test",
+                }
+            )
+
     def test_bootstrap_payload_accepts_yeswehack_platform(self) -> None:
         payload = _bootstrap_payload(
             {
@@ -197,6 +235,21 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(records[0].path_prefix, "/api")
         self.assertEqual(records[1].host_pattern, "*.example.test")
         self.assertEqual(records[2].effect, "OUT_OF_SCOPE")
+
+    def test_scope_records_normalize_terminal_path_wildcard_to_prefix(self) -> None:
+        now = datetime.now(timezone.utc)
+        records = _scope_records(
+            {
+                "in_scope": ["https://api.example.test/broker/api/*"],
+                "out_of_scope": ["https://api.example.test/private/*"],
+            },
+            program_id=new_opaque_id(),
+            now=now,
+        )
+
+        self.assertEqual(records[0].path_prefix, "/broker/api/")
+        self.assertEqual(records[1].path_prefix, "/private/")
+        self.assertEqual(records[1].effect, ScopeRuleEffect.OUT_OF_SCOPE.value)
 
     def test_bootstrap_program_requires_database_url(self) -> None:
         with self.assertRaisesRegex(ValueError, "RESEARCH_OS_DATABASE_URL"):
