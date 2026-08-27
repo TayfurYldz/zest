@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import http.client
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
+from unittest import mock
 
 import pathsetup  # noqa: F401
 
@@ -9,6 +13,7 @@ from datetime import datetime, timezone
 
 from zest.application.identity import new_opaque_id
 from zest.interface.dashboard import (
+    DashboardHandler,
     DashboardRunControlRuntime,
     HTML,
     _bootstrap_payload,
@@ -26,9 +31,99 @@ from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.research.orchestration import OrchestrationBounds
 
 
+class _OpenSseUpstream:
+    def __init__(self, frame: bytes) -> None:
+        self._lines = frame.splitlines(keepends=True)
+        self._index = 0
+        self.allow_eof = threading.Event()
+        self.closed = threading.Event()
+        self.read_called = threading.Event()
+        self.readline_called = threading.Event()
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_called.set()
+        self.allow_eof.wait(timeout=5)
+        return b""
+
+    def readline(self, size: int = -1) -> bytes:
+        self.readline_called.set()
+        if self._index < len(self._lines):
+            line = self._lines[self._index]
+            self._index += 1
+            return line[:size] if size >= 0 else line
+        self.allow_eof.wait(timeout=5)
+        return b""
+
+    def close(self) -> None:
+        self.closed.set()
+
+
 class DashboardTests(unittest.TestCase):
     def tearDown(self) -> None:
         configure_dashboard_run_control(None)
+
+    def test_sse_proxy_forwards_open_upstream_frame_before_eof(self) -> None:
+        frame = (
+            b'event: semantic_activity\n'
+            b'data: {"activity_id":"activity-1"}\n'
+            b'\n'
+        )
+        upstream = _OpenSseUpstream(frame)
+        forwarded: list[tuple[str, str]] = []
+
+        def open_events(research_run_id: str, *, last_event_id: str = ""):
+            forwarded.append((research_run_id, last_event_id))
+            return upstream
+
+        http_server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
+        thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection(*http_server.server_address, timeout=5)
+        received: list[bytes] = []
+        read_complete = threading.Event()
+
+        def read_frame(response: http.client.HTTPResponse) -> None:
+            received.append(response.read(len(frame)))
+            read_complete.set()
+
+        try:
+            with mock.patch(
+                "zest.interface.dashboard._operator_semantic_events",
+                side_effect=open_events,
+            ):
+                connection.request(
+                    "GET",
+                    "/api/runs/run%2F1/events",
+                    headers={"Last-Event-ID": "cursor-7"},
+                )
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    response.getheader("Content-Type"),
+                    "text/event-stream; charset=utf-8",
+                )
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                self.assertEqual(response.getheader("X-Accel-Buffering"), "no")
+                reader = threading.Thread(
+                    target=read_frame, args=(response,), daemon=True
+                )
+                reader.start()
+                self.assertTrue(read_complete.wait(timeout=2))
+                self.assertEqual(received, [frame])
+                self.assertEqual(forwarded, [("run/1", "cursor-7")])
+                self.assertTrue(upstream.readline_called.is_set())
+                self.assertFalse(upstream.read_called.is_set())
+                self.assertFalse(upstream.allow_eof.is_set())
+                self.assertFalse(upstream.closed.is_set())
+                upstream.allow_eof.set()
+                reader.join(timeout=2)
+        finally:
+            upstream.allow_eof.set()
+            connection.close()
+            http_server.shutdown()
+            http_server.server_close()
+            thread.join(timeout=2)
+        self.assertTrue(upstream.closed.wait(timeout=2))
 
     def test_collect_payload_degrades_without_database(self) -> None:
         payload = collect_dashboard_payload(

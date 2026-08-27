@@ -1087,7 +1087,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 headers_sent = True
                 while True:
-                    chunk = upstream.read(4096)
+                    chunk = upstream.readline(4096)
                     if not chunk:
                         break
                     self.wfile.write(chunk)
