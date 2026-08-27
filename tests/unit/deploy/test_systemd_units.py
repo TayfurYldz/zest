@@ -100,6 +100,8 @@ class PackagingAndEnvTests(unittest.TestCase):
         self.assertIn("set -euo pipefail", text)
         self.assertIn("Python >=", text)
         self.assertNotIn("curl |", text)
+        self.assertNotIn("fetch remote code", text)
+        self.assertIn("browser provisioning may download", text.lower())
         self.assertNotIn("/home/tayfur", text)
 
     def test_install_script_verifies_before_updating_current_symlink(self) -> None:
@@ -128,7 +130,7 @@ class PackagingAndEnvTests(unittest.TestCase):
         source_verify_pos = text.find('"$PYTHON" "$VERIFY_PY" --assets-root "$SOURCE" --env-file "$ENV_FILE"')
         mkdir_pos = text.find('mkdir -p "$RELEASE_DIR"')
         venv_pos = text.find('"$PYTHON" -m venv "${RELEASE_DIR}/.venv"')
-        install_pos = text.find('python -m pip install "${RELEASE_DIR}"')
+        install_pos = text.find('python -m pip install "${RELEASE_DIR}[browser]"')
         release_verify_pos = text.find('"${RELEASE_DIR}/.venv/bin/python" "${RELEASE_DIR}/scripts/verify_zest_release.py"')
         link_pos = text.find('ln -sfn "releases/${RELEASE_ID}" "$CURRENT_LINK"')
         for label, pos in {
@@ -150,6 +152,33 @@ class PackagingAndEnvTests(unittest.TestCase):
         self.assertNotIn("--check-entrypoint", pre_venv)
         self.assertNotIn("--check-alembic-heads", pre_venv)
         self.assertNotIn("--check-db", pre_venv)
+
+    def test_install_script_provisions_browser_runtime_before_publish(self) -> None:
+        text = INSTALL_SH.read_text(encoding="utf-8")
+
+        package_pos = text.find(
+            'python -m pip install "${RELEASE_DIR}[browser]"'
+        )
+        browser_pos = text.find(
+            '"${RELEASE_DIR}/.venv/bin/python" -m playwright install chromium'
+        )
+        link_pos = text.find(
+            'ln -sfn "releases/${RELEASE_ID}" "$CURRENT_LINK"'
+        )
+
+        self.assertNotEqual(package_pos, -1, "browser extra install not found")
+        self.assertNotEqual(browser_pos, -1, "Chromium provisioning not found")
+        self.assertNotEqual(link_pos, -1, "current publish step not found")
+
+        self.assertLess(package_pos, browser_pos)
+        self.assertLess(browser_pos, link_pos)
+
+        self.assertIn('runuser -u "$SERVICE_USER" --', text)
+        self.assertIn('HOME="$STATE_DIR"', text)
+        self.assertIn('XDG_CACHE_HOME="$BROWSER_CACHE_DIR"', text)
+        self.assertIn('env -u PLAYWRIGHT_BROWSERS_PATH', text)
+        self.assertIn('PLAYWRIGHT_CACHE="${BROWSER_CACHE_DIR}/ms-playwright"', text)
+        self.assertIn("-name 'chromium-*'", text)
 
     def test_verify_script_rejects_sqlite_and_public_bind(self) -> None:
         source = VERIFY_PY.read_text(encoding="utf-8")

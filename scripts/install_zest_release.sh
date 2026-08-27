@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Native Ubuntu source-release installer for Zest.
-# Fail-fast, non-interactive, release-pinned. Does not curl remote code.
+# Fail-fast, non-interactive, release-pinned. Application source is local-only.
+# Browser provisioning may download the Playwright-managed Chromium revision.
 # Does not print secrets. Does not open PostgreSQL or zestd publicly.
 
 set -euo pipefail
@@ -38,9 +39,13 @@ Optional:
   --install-units    Copy deploy/systemd units to /etc/systemd/system/
   --enable           systemctl enable --now zestd (implies --install-units)
 
+Source/network policy:
+  application source must be a local path; browser provisioning may download
+  the Playwright-managed Chromium revision required by browser.page.
+
 Does not:
-  fetch remote code, write secrets to git, use SQLite, bind publicly,
-  expose PostgreSQL, or treat systemd as research authority.
+  write secrets to git, use SQLite, bind publicly, expose PostgreSQL,
+  or treat systemd as research authority.
 EOF
 }
 
@@ -161,7 +166,10 @@ fi
 # shellcheck disable=SC1091
 source "${RELEASE_DIR}/.venv/bin/activate"
 python -m pip install --upgrade pip
-python -m pip install "${RELEASE_DIR}"
+# browser.page is a production Worker capability, so the immutable runtime
+# must include the browser extra rather than advertising a capability whose
+# implementation cannot be imported.
+python -m pip install "${RELEASE_DIR}[browser]"
 deactivate
 
 VERIFY_ARGS=(
@@ -184,6 +192,30 @@ if [[ -d "${RELEASE_DIR}/.venv/bin" ]]; then
   find "${RELEASE_DIR}/.venv/bin" -type f -exec chmod 0750 {} +
 fi
 chmod 0750 "${RELEASE_DIR}/scripts/"*.sh "${RELEASE_DIR}/scripts/"*.py 2>/dev/null || true
+
+# Provision the Playwright-managed Chromium revision for the actual service
+# identity.  zestd runs with HOME=/var/lib/zest, therefore this cache location
+# is also the runtime lookup location.  Do this before publishing `current`.
+BROWSER_CACHE_DIR="${STATE_DIR}/.cache"
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$BROWSER_CACHE_DIR"
+
+if ! command -v runuser >/dev/null 2>&1; then
+  echo "runuser is required to provision Chromium as ${SERVICE_USER}" >&2
+  exit 2
+fi
+
+runuser -u "$SERVICE_USER" --   env -u PLAYWRIGHT_BROWSERS_PATH     HOME="$STATE_DIR"     XDG_CACHE_HOME="$BROWSER_CACHE_DIR"     "${RELEASE_DIR}/.venv/bin/python" -m playwright install chromium
+
+PLAYWRIGHT_CACHE="${BROWSER_CACHE_DIR}/ms-playwright"
+if [[ ! -d "$PLAYWRIGHT_CACHE" ]]; then
+  echo "Playwright browser cache was not created: $PLAYWRIGHT_CACHE" >&2
+  exit 2
+fi
+
+if ! find "$PLAYWRIGHT_CACHE"     -mindepth 1 -maxdepth 1 -type d -name 'chromium-*'     -print -quit | grep -q .; then
+  echo "Playwright Chromium revision was not provisioned" >&2
+  exit 2
+fi
 
 ln -sfn "releases/${RELEASE_ID}" "$CURRENT_LINK"
 chown -h "root:${SERVICE_GROUP}" "$CURRENT_LINK"

@@ -68,8 +68,18 @@ sudo ./scripts/install_zest_release.sh \
   --install-units
 ```
 
-The installer is fail-fast, local-only, and does not `curl | bash`.
+The installer is fail-fast and does not `curl | bash`.
 It refuses SQLite, public bind tokens, and a missing EnvironmentFile.
+
+The release installer installs the `browser` package extra because
+`browser.page` is a production Worker capability. Before publishing the new
+`/opt/zest/current` symlink it also provisions the Playwright-managed Chromium
+revision as the `zest` service identity under
+`/var/lib/zest/.cache/ms-playwright`. A missing Python browser dependency or
+missing Chromium revision therefore fails the release installation instead of
+being discovered on the first field invocation. Chromium process startup and
+kernel containment are still qualified separately through the delegated
+browser Worker runtime.
 
 Foreground smoke before enable:
 
