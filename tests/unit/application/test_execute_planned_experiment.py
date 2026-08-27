@@ -407,6 +407,10 @@ class InvocationFailureTests(unittest.TestCase):
         self.assertEqual(outcome.attempt_state, "FAILED")
         self.assertEqual(outcome.experiment_execution_state, "EXECUTION_FAILED")
         self.assertEqual(store.hypotheses["hyp-1"].claim, DIAGNOSTIC_CLAIM)
+        self.assertEqual(len(store.run_faults), 1)
+        fault = next(iter(store.run_faults.values()))
+        self.assertEqual(fault.fault_code, "INVOCATION_START_FAILED")
+        self.assertEqual(fault.attempt_id, outcome.attempt_id)
 
     def test_timed_out_is_not_hypothesis_rejection(self) -> None:
         store = _Store()

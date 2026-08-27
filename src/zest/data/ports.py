@@ -74,6 +74,7 @@ from zest.data.records import (
     PreflightReportRecord,
     PromotionRunRecord,
     RuntimeInstanceRecord,
+    RunFaultRecord,
 )
 
 
@@ -160,6 +161,7 @@ class ExecutionAttemptRepository(Protocol):
         *,
         dispatch_started_at: datetime | None = None,
         completed_at: datetime | None = None,
+        target_contact_status: str | None = None,
     ) -> None: ...
 
 
@@ -465,6 +467,17 @@ class AuditEventRepository(Protocol):
     def list_for_subject(
         self, subject_type: str, subject_id: str, *, limit: int | None = None
     ) -> list[AuditEventRecord]: ...
+
+
+class RunFaultRepository(Protocol):
+    def insert(self, record: RunFaultRecord) -> None: ...
+    def get(self, fault_id: str) -> RunFaultRecord | None: ...
+    def list_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]: ...
+    def list_unresolved_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]: ...
 
 
 class SessionContextRepository(Protocol):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -96,6 +97,7 @@ from zest.data.records import (
     HuntV3QueueRecord,
     PreflightReportRecord,
     RuntimeInstanceRecord,
+    RunFaultRecord,
 )
 from zest.data.budget_ledger import assert_within_allowance
 
@@ -162,12 +164,33 @@ class _Store:
         self.frontier_sources: dict[str, FrontierSourceRecord] = {}
         self.frontier_events: dict[str, FrontierEventRecord] = {}
         self.discovery_projection_receipts: dict[str, DiscoveryProjectionReceiptRecord] = {}
+        self.attack_surface_snapshots: dict[str, Any] = {}
         self.hunter_families: dict[str, HunterFamilyRecord] = {}
         self.hunt_v3_queue: dict[str, HuntV3QueueRecord] = {}
+        self.impact_chains: dict[str, Any] = {}
         self.runtime_instances: dict[str, RuntimeInstanceRecord] = {}
         self.preflight_reports: dict[str, PreflightReportRecord] = {}
+        self.run_faults: dict[str, RunFaultRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
+        self._transaction_lock = threading.RLock()
+        self._transaction_depth_by_thread: dict[int, int] = {}
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state.pop("_transaction_lock", None)
+        state.pop("_transaction_depth_by_thread", None)
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._transaction_lock = threading.RLock()
+        self._transaction_depth_by_thread = {}
+
+    def transaction_open_on_current_thread(self) -> bool:
+        thread_id = threading.get_ident()
+        with self._transaction_lock:
+            return self._transaction_depth_by_thread.get(thread_id, 0) > 0
 
 
 class _Repo:
@@ -185,6 +208,15 @@ class _Repo:
 
     def get(self, record_id: str) -> Any | None:
         return self._store.get(record_id)
+
+
+class _RunScopedRepo(_Repo):
+    def list_for_research_run(self, research_run_id: str) -> list[Any]:
+        return [
+            record
+            for record in self._store.values()
+            if getattr(record, "research_run_id", None) == research_run_id
+        ]
 
 
 class _ProgramRepo(_Repo):
@@ -512,6 +544,8 @@ def _id_of(record: Any) -> str:
         return record.runtime_instance_id
     if isinstance(record, PreflightReportRecord):
         return record.preflight_report_id
+    if isinstance(record, RunFaultRecord):
+        return record.fault_id
     raise PersistenceError("unknown record identity")
 
 
@@ -617,6 +651,7 @@ class _ExecutionAttemptRepo(_Repo):
         *,
         dispatch_started_at: datetime | None = None,
         completed_at: datetime | None = None,
+        target_contact_status: str | None = None,
     ) -> None:
         if self._fail_on_set_state:
             self._root.set_state_calls += 1
@@ -648,6 +683,11 @@ class _ExecutionAttemptRepo(_Repo):
                 else current.dispatch_started_at
             ),
             completed_at=completed_at if completed_at is not None else current.completed_at,
+            target_contact_status=(
+                target_contact_status
+                if target_contact_status is not None
+                else current.target_contact_status
+            ),
         )
 
 
@@ -2022,6 +2062,35 @@ class _PreflightReportRepo(_Repo):
         )
 
 
+class _RunFaultRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.run_faults, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]:
+        records = sorted(
+            [
+                record
+                for record in self._root.run_faults.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: (record.occurred_at, record.fault_id),
+        )
+        return records if limit is None else records[:limit]
+
+    def list_unresolved_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]:
+        records = [
+            record
+            for record in self.list_for_research_run(research_run_id)
+            if record.resolved_at is None
+        ]
+        return records if limit is None else records[:limit]
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -2150,20 +2219,43 @@ class FakeUnitOfWork:
         self.frontier_sources = _Repo(self._store.frontier_sources)
         self.frontier_events = _FrontierEventRepo(self._store)
         self.discovery_projection_receipts = _ReceiptRepo(self._store)
+        self.attack_surface_snapshots = _RunScopedRepo(
+            self._store.attack_surface_snapshots
+        )
         self.hunter_families = _HunterFamilyRepo(
             self._store, fail_on_insert=fail_on == "hunter_families"
         )
         self.hunt_v3_queue = _HuntV3QueueRepo(
             self._store, fail_on_insert=fail_on == "hunt_v3_queue"
         )
+        self.impact_chains = _RunScopedRepo(self._store.impact_chains)
         self.runtime_instances = _RuntimeInstanceRepo(self._store)
         self.preflight_reports = _PreflightReportRepo(self._store)
+        self.run_faults = _RunFaultRepo(
+            self._store, fail_on_insert=fail_on == "run_faults"
+        )
 
     def __enter__(self) -> FakeUnitOfWork:
-        self._store.open_transactions += 1
-        self._snapshot = deepcopy(self._store)
-        self._committed = False
-        return self
+        self._store._transaction_lock.acquire()
+        try:
+            self._store.open_transactions += 1
+            thread_id = threading.get_ident()
+            self._store._transaction_depth_by_thread[thread_id] = (
+                self._store._transaction_depth_by_thread.get(thread_id, 0) + 1
+            )
+            self._snapshot = deepcopy(self._store)
+            self._committed = False
+            return self
+        except BaseException:
+            self._store.open_transactions = max(0, self._store.open_transactions - 1)
+            thread_id = threading.get_ident()
+            depth = self._store._transaction_depth_by_thread.get(thread_id, 0) - 1
+            if depth > 0:
+                self._store._transaction_depth_by_thread[thread_id] = depth
+            else:
+                self._store._transaction_depth_by_thread.pop(thread_id, None)
+            self._store._transaction_lock.release()
+            raise
 
     def commit(self) -> None:
         self._committed = True
@@ -2179,7 +2271,14 @@ class FakeUnitOfWork:
             if exc_type is not None or not self._committed:
                 self.rollback()
         finally:
+            thread_id = threading.get_ident()
+            depth = self._store._transaction_depth_by_thread.get(thread_id, 0) - 1
+            if depth > 0:
+                self._store._transaction_depth_by_thread[thread_id] = depth
+            else:
+                self._store._transaction_depth_by_thread.pop(thread_id, None)
             self._store.open_transactions = max(0, self._store.open_transactions - 1)
+            self._store._transaction_lock.release()
         return False
 
     def _restore(self, snapshot: _Store) -> None:
@@ -2305,14 +2404,20 @@ class FakeUnitOfWork:
         self._store.frontier_events.update(snapshot.frontier_events)
         self._store.discovery_projection_receipts.clear()
         self._store.discovery_projection_receipts.update(snapshot.discovery_projection_receipts)
+        self._store.attack_surface_snapshots.clear()
+        self._store.attack_surface_snapshots.update(snapshot.attack_surface_snapshots)
         self._store.hunter_families.clear()
         self._store.hunter_families.update(snapshot.hunter_families)
         self._store.hunt_v3_queue.clear()
         self._store.hunt_v3_queue.update(snapshot.hunt_v3_queue)
+        self._store.impact_chains.clear()
+        self._store.impact_chains.update(snapshot.impact_chains)
         self._store.runtime_instances.clear()
         self._store.runtime_instances.update(snapshot.runtime_instances)
         self._store.preflight_reports.clear()
         self._store.preflight_reports.update(snapshot.preflight_reports)
+        self._store.run_faults.clear()
+        self._store.run_faults.update(snapshot.run_faults)
 
 
 class FakeUnitOfWorkFactory:

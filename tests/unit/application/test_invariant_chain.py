@@ -47,7 +47,7 @@ from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import CREATED_AT, seed_spine
-from fixtures import base_request
+from core.fixtures import base_request
 from zest.research.chain import ChainNodeKind, ChainStep
 
 

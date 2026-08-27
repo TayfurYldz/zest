@@ -367,6 +367,7 @@ execution_attempt = Table(
     Column("authorized_at", DateTime(timezone=True), nullable=True),
     Column("dispatch_started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("target_contact_status", Text, nullable=False, server_default="UNKNOWN"),
     ForeignKeyConstraint(
         ["experiment_id", "research_run_id"],
         ["experiment.experiment_id", "experiment.research_run_id"],
@@ -393,6 +394,10 @@ execution_attempt = Table(
     CheckConstraint(
         "side_effect_level IN (0, 1, 2, 3)",
         name="ck_execution_attempt_side_effect_level",
+    ),
+    CheckConstraint(
+        "target_contact_status IN ('CONFIRMED', 'NOT_CONTACTED', 'UNKNOWN')",
+        name="ck_execution_attempt_target_contact_status",
     ),
 )
 
@@ -484,6 +489,66 @@ audit_event = Table(
         "('HUMAN_OPERATOR', 'CONTROL_PLANE', 'WORKER', 'INTEGRATION')",
         name="ck_audit_event_actor_type",
     ),
+)
+
+run_fault = Table(
+    "run_fault",
+    metadata,
+    Column("fault_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("hypothesis_id", Text, nullable=True),
+    Column("experiment_id", Text, nullable=True),
+    Column("attempt_id", Text, nullable=True),
+    Column("request_id", Text, nullable=True),
+    Column("capability", Text, nullable=True),
+    Column("action", Text, nullable=True),
+    Column("runtime_instance_id", Text, ForeignKey("runtime_instance.runtime_instance_id"), nullable=True),
+    Column("correlation_id", Text, nullable=True),
+    Column("component", Text, nullable=False),
+    Column("phase", Text, nullable=False),
+    Column("fault_class", Text, nullable=False),
+    Column("fault_code", Text, nullable=False),
+    Column("fatal", Boolean, nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("resolved_at", DateTime(timezone=True), nullable=True),
+    Column("diagnostic_summary", Text, nullable=False),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_run_fault_hypothesis_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_run_fault_experiment_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["attempt_id", "research_run_id"],
+        ["execution_attempt.attempt_id", "execution_attempt.research_run_id"],
+        name="fk_run_fault_attempt_same_run",
+    ),
+    CheckConstraint(
+        "component IN ('CONTROL', 'EXECUTION', 'WORKER', 'RUNTIME', 'SUPERVISOR', 'PERSISTENCE', 'PLANNING')",
+        name="ck_run_fault_component",
+    ),
+    CheckConstraint(
+        "phase IN ('AUTHORIZATION', 'DISPATCH', 'INVOCATION', 'INGESTION', 'TICK', 'HEARTBEAT', 'RECONCILIATION', 'PERSISTENCE', 'PLANNING')",
+        name="ck_run_fault_phase",
+    ),
+    CheckConstraint(
+        "fault_class IN ('EXECUTION', 'RUNTIME', 'SUPERVISOR', 'PERSISTENCE', 'POLICY')",
+        name="ck_run_fault_class",
+    ),
+    CheckConstraint("char_length(fault_code) BETWEEN 1 AND 128", name="ck_run_fault_code"),
+    CheckConstraint(
+        "char_length(diagnostic_summary) BETWEEN 1 AND 1000",
+        name="ck_run_fault_diagnostic_summary",
+    ),
+    CheckConstraint(
+        "resolved_at IS NULL OR resolved_at >= occurred_at",
+        name="ck_run_fault_resolution_order",
+    ),
+    Index("ix_run_fault_run_occurred", "research_run_id", "occurred_at"),
 )
 
 research_reasoning = Table(
@@ -1911,6 +1976,7 @@ SPINE_TABLES = (
     impact_chain_edge,
     runtime_instance,
     preflight_report,
+    run_fault,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1960,4 +2026,5 @@ APPEND_ONLY_TABLES = (
     "oast_callback_delivery",
     "oast_admission",
     "preflight_report",
+    "run_fault",
 )

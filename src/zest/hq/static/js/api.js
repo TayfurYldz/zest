@@ -9,6 +9,7 @@ async function request(path, options = {}) {
 
 export function getDashboard() { return request("/api/dashboard"); }
 export function getAnalysis(runId) { return request(`/api/runs/${encodeURIComponent(runId)}/analysis`); }
+export function semanticEventsUrl(runId) { return `/api/runs/${encodeURIComponent(runId)}/events`; }
 export function postRunAction(runId, action) {
   const body = action === "start" || action === "resume" ? "{}" : undefined;
   return request(`/api/runs/${encodeURIComponent(runId)}/${action}`, {

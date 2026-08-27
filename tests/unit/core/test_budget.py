@@ -14,7 +14,7 @@ from zest.core import (
     allocate_experiment_budget,
     evaluate_execution,
 )
-from fixtures import base_request, issued_budget
+from core.fixtures import base_request, issued_budget
 
 
 class BudgetTests(unittest.TestCase):

@@ -73,6 +73,7 @@ UNTRACKED_SOURCE_SUFFIXES = (
     ".md",
     ".toml",
     ".json",
+    ".js",
     ".yml",
     ".yaml",
     ".txt",

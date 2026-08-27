@@ -38,6 +38,7 @@ from zest.application.ingest_worker_invocation import (
     IngestionOutcome,
     IngestionStatus,
 )
+from zest.application.observability import run_fault_for_invocation
 from zest.application.plan_records import (
     durable_plan_matches,
     experiment_plan_from_record,
@@ -69,6 +70,7 @@ from zest.data.records import (
     ExperimentRecord,
     IssuedBudgetRecord,
     RateLimitProfileRecord,
+    TargetContactStatus,
 )
 from zest.data.unit_of_work import UnitOfWork
 from zest.platform.contract_validation import ContractValidator
@@ -649,19 +651,34 @@ class ExecutePlannedExperiment:
     ) -> ResearchLoopOutcome:
         now = self._clock.now()
         attempt_state, experiment_state, loop_status = _classify_invocation(invocation)
+        contact_status = invocation.target_contact_status
+        if contact_status not in {item.value for item in TargetContactStatus}:
+            contact_status = TargetContactStatus.UNKNOWN.value
         ingestion: IngestionOutcome | None = None
         persist_failed = False
         try:
             with self._uow_factory.open() as uow:
+                attempt = uow.execution_attempts.get(authorized.attempt_id)
+                if attempt is None:
+                    raise PersistenceError("execution_attempt not found for outcome")
                 uow.execution_attempts.set_state(
                     authorized.attempt_id,
                     attempt_state,
                     completed_at=now,
+                    target_contact_status=contact_status,
                 )
                 uow.experiments.set_execution_state(
                     authorized.experiment_id,
                     experiment_state,
                 )
+                fault = run_fault_for_invocation(
+                    attempt,
+                    invocation,
+                    occurred_at=now,
+                    hypothesis_id=authorized.hypothesis_id,
+                )
+                if fault is not None and uow.run_faults.get(fault.fault_id) is None:
+                    uow.run_faults.insert(fault)
                 uow.commit()
         except PersistenceError:
             persist_failed = True
@@ -688,6 +705,26 @@ class ExecutePlannedExperiment:
                         authorized.experiment_id,
                         experiment_state,
                     )
+                    if uow.run_faults.get(
+                        f"rf:attempt:{authorized.attempt_id}:contract_invalid"
+                    ) is None:
+                        uow.run_faults.insert(
+                            run_fault_for_invocation(
+                                replace(
+                                    attempt,
+                                    state=attempt_state,
+                                ),
+                                WorkerInvocationOutcome(
+                                    invocation_status=InvocationStatus.CONTRACT_INVALID,
+                                    started_at=invocation.started_at,
+                                    completed_at=invocation.completed_at,
+                                    reason=ingestion.reason or "worker result rejected",
+                                    target_contact_status=contact_status,
+                                ),
+                                occurred_at=now,
+                                hypothesis_id=authorized.hypothesis_id,
+                            )
+                        )
                     uow.commit()
             elif ingestion.status is IngestionStatus.NO_OBSERVATION:
                 if loop_status is not ResearchLoopStatus.REAUTHORIZATION_REQUIRED:

@@ -51,6 +51,7 @@ class GroundTruthLab:
         self.fixture_kind = fixture_kind
         self.ledger: list[LabRequestRecord] = []
         self.get_count = 0
+        self._ledger_condition = threading.Condition()
         self._server = _LabServer(("127.0.0.1", 0), _GroundTruthHandler, lab=self)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
@@ -77,13 +78,26 @@ class GroundTruthLab:
         self.stop()
 
     def http_request_count(self) -> int:
-        return len(self.ledger)
+        with self._ledger_condition:
+            return len(self.ledger)
+
+    def wait_for_request_count(self, expected: int, timeout: float = 1.0) -> bool:
+        deadline = time.monotonic() + timeout
+        with self._ledger_condition:
+            while len(self.ledger) < expected:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._ledger_condition.wait(remaining)
+            return True
 
     def followed_external(self) -> bool:
         return any("example.com" in item.path for item in self.ledger)
 
     def record(self, record: LabRequestRecord) -> None:
-        self.ledger.append(record)
+        with self._ledger_condition:
+            self.ledger.append(record)
+            self._ledger_condition.notify_all()
 
 
 class _LabServer(ThreadingHTTPServer):

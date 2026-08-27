@@ -5,7 +5,7 @@ import unittest
 import pathsetup  # noqa: F401
 
 from zest.core import CoreInputError, evaluate_execution
-from fixtures import base_request
+from core.fixtures import base_request
 
 
 class InputErrorTests(unittest.TestCase):

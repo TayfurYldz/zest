@@ -225,7 +225,17 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
             self.assertEqual(status, "SUCCEEDED")
             self.assertEqual(raw["cross_object_request"]["object_visibility"], "PUBLIC")
             self.assertNotIn("expected_class", raw)
+            self.assertTrue(lab.wait_for_request_count(4))
             self.assertEqual(lab.http_request_count(), 4)
+            self.assertCountEqual(
+                [item.path for item in lab.ledger],
+                [
+                    "/vulnerable/accounts/alice",
+                    "/vulnerable/accounts/bob",
+                    "/secure/accounts/bob",
+                    "/vulnerable/accounts/bob",
+                ],
+            )
         with GroundTruthLab(DELEGATED_ACCESS) as lab:
             _, raw, _ = execute_http_authorization(
                 {

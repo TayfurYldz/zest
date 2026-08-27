@@ -1,4 +1,4 @@
-from zest_worker.runtime import run
+from .runtime import run
 
 
 def main() -> None:

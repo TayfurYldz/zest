@@ -7,6 +7,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pathsetup  # noqa: F401
 
@@ -23,6 +24,7 @@ from zest.application.lease_fencing import (
     LeaseFencedWorkerPort,
     SingleRunFencedUowFactory,
 )
+from zest.application.local_run_supervisor import LocalRunSupervisor
 from zest.application.orchestration_config import fingerprint_for_start
 from zest.application.orchestration_lease import LeaseConfig
 from zest.application.preflight import (
@@ -142,7 +144,12 @@ def _seed() -> _Store:
     return store
 
 
-def _runtime(store: _Store, worker=None, *, cadence_seconds: float = 0.05) -> ZestdRuntime:
+def _runtime(
+    store: _Store,
+    worker=None,
+    *,
+    cadence_seconds: float = 0.05,
+) -> ZestdRuntime:
     factory = FakeUnitOfWorkFactory(store=store)
     return ZestdRuntime(
         factory,
@@ -154,6 +161,17 @@ def _runtime(store: _Store, worker=None, *, cadence_seconds: float = 0.05) -> Ze
         probe_worker=_healthy_worker,
         probe_model=_healthy_model,
     )
+
+
+def _blocking_tick(entered: threading.Event, release: threading.Event):
+    def _tick(supervisor: LocalRunSupervisor):
+        del supervisor
+        entered.set()
+        if not release.wait(timeout=15):
+            raise AssertionError("blocking supervisor was not released")
+        return None
+
+    return _tick
 
 
 def _orchestration_record(**overrides) -> ResearchOrchestrationRecord:
@@ -392,14 +410,18 @@ class ZestdRuntimeTests(unittest.TestCase):
 
     def test_two_daemons_only_one_owner(self) -> None:
         store = _seed()
+        entered = threading.Event()
+        release = threading.Event()
         a = _runtime(store, cadence_seconds=30)
         b = _runtime(store, cadence_seconds=30)
         self._runtime = a
         a.start_process()
         b.start_process()
         try:
-            a.start_run("run-1")
-            b.start_run("run-1")
+            with patch.object(LocalRunSupervisor, "tick", new=_blocking_tick(entered, release)):
+                a.start_run("run-1")
+                b.start_run("run-1")
+                self.assertTrue(entered.wait(timeout=10))
             self.assertTrue(a.is_supervising("run-1"))
             self.assertFalse(b.is_supervising("run-1"))
             self.assertEqual(
@@ -407,11 +429,15 @@ class ZestdRuntimeTests(unittest.TestCase):
                 a.runtime_instance_id,
             )
         finally:
+            release.set()
             b.drain(join_timeout=1)
 
     def test_ten_two_daemon_races_have_exactly_one_owner(self) -> None:
         for _ in range(10):
             store = _seed()
+            entered = threading.Event()
+            release_a = threading.Event()
+            release_b = threading.Event()
             a = _runtime(store, cadence_seconds=30)
             b = _runtime(store, cadence_seconds=30)
             a.start_process()
@@ -430,23 +456,33 @@ class ZestdRuntimeTests(unittest.TestCase):
                 threading.Thread(target=_start, args=(a,)),
                 threading.Thread(target=_start, args=(b,)),
             ]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=10)
-            self.assertEqual(errors, [])
-            owners = [
-                runtime.runtime_instance_id
-                for runtime in (a, b)
-                if runtime.is_supervising("run-1")
-            ]
-            self.assertEqual(len(owners), 1)
-            self.assertEqual(
-                store.research_orchestrations["run-1"].owner_runtime_instance_id,
-                owners[0],
-            )
-            a.drain(join_timeout=1)
-            b.drain(join_timeout=1)
+            with patch.object(
+                LocalRunSupervisor,
+                "tick",
+                new=_blocking_tick(entered, release_a),
+            ):
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=10)
+                try:
+                    self.assertEqual(errors, [])
+                    self.assertTrue(entered.wait(timeout=10))
+                    owners = [
+                        runtime.runtime_instance_id
+                        for runtime in (a, b)
+                        if runtime.is_supervising("run-1")
+                    ]
+                    self.assertEqual(len(owners), 1)
+                    self.assertEqual(
+                        store.research_orchestrations["run-1"].owner_runtime_instance_id,
+                        owners[0],
+                    )
+                finally:
+                    release_a.set()
+                    release_b.set()
+                    a.drain(join_timeout=1)
+                    b.drain(join_timeout=1)
 
     def test_new_process_recovers_from_store_after_stop_without_drain(self) -> None:
         store = _seed()

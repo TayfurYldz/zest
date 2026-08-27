@@ -30,7 +30,7 @@ from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
 from support.spine import seed_spine
 from support.worker_requests import valid_worker_request
-from fixtures import base_request
+from core.fixtures import base_request
 
 
 CREATED_AT = datetime(2026, 8, 17, tzinfo=timezone.utc)

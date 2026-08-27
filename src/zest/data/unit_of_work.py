@@ -65,6 +65,7 @@ from zest.data.ports import (
     HuntV3QueueRepository,
     ImpactChainRepository,
     RuntimeInstanceRepository,
+    RunFaultRepository,
 )
 
 
@@ -116,6 +117,7 @@ class UnitOfWork(Protocol):
     research_cycles: ResearchCycleRepository
     budget_consumptions: BudgetConsumptionRepository
     audit_events: AuditEventRepository
+    run_faults: RunFaultRepository
     session_contexts: SessionContextRepository
     discovery_run_configs: DiscoveryRunConfigRepository
     control_events: ControlEventRepository

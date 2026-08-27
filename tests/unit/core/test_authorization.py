@@ -11,7 +11,7 @@ from zest.core import (
     ReasonCode,
     evaluate_execution,
 )
-from fixtures import base_request
+from core.fixtures import base_request
 
 
 class AuthorizationTests(unittest.TestCase):

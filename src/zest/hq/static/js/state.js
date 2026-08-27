@@ -7,6 +7,8 @@ export const initialState = {
   analysisError: "",
   dashboardLoading: false,
   dashboardError: "",
+  transportState: "OFFLINE",
+  lastEventId: "",
   inspector: null,
 };
 

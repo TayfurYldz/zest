@@ -41,6 +41,7 @@ from zest.data.postgres.repositories import (
     PostgresPromotionRunRepository,
     PostgresRateLimitProfileRepository,
     PostgresRuntimeInstanceRepository,
+    PostgresRunFaultRepository,
     PostgresPreflightReportRepository,
     PostgresResearchAdmissionRepository,
     PostgresResearchReasoningRepository,
@@ -127,6 +128,7 @@ class PostgresUnitOfWork:
         self.research_cycles: PostgresResearchCycleRepository
         self.budget_consumptions: PostgresBudgetConsumptionRepository
         self.audit_events: PostgresAuditEventRepository
+        self.run_faults: PostgresRunFaultRepository
         self.session_contexts: PostgresSessionContextRepository
         self.discovery_run_configs: PostgresDiscoveryRunConfigRepository
         self.control_events: PostgresControlEventRepository
@@ -219,6 +221,7 @@ class PostgresUnitOfWork:
         self.research_cycles = PostgresResearchCycleRepository(self._connection)
         self.budget_consumptions = PostgresBudgetConsumptionRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
+        self.run_faults = PostgresRunFaultRepository(self._connection)
         self.session_contexts = PostgresSessionContextRepository(self._connection)
         self.discovery_run_configs = PostgresDiscoveryRunConfigRepository(self._connection)
         self.control_events = PostgresControlEventRepository(self._connection)

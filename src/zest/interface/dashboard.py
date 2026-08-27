@@ -255,6 +255,16 @@ def _operator_run_analysis(research_run_id: str) -> dict[str, Any]:
     return result
 
 
+def _operator_semantic_events(research_run_id: str, *, last_event_id: str = ""):
+    runtime = _RUN_CONTROL_RUNTIME
+    if runtime is None:
+        raise RuntimeError("run control runtime is not configured")
+    control = runtime.control
+    if not hasattr(control, "open_semantic_events"):
+        raise RuntimeError("operator API client does not expose semantic events")
+    return control.open_semantic_events(research_run_id, last_event_id=last_event_id)
+
+
 def collect_dashboard_payload(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
     source = dict(os.environ if env is None else env)
     snapshot = build_status_snapshot(env=source)
@@ -1054,6 +1064,48 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._send_json({"ok": True, "result": result})
+            return
+        if (
+            len(parts) == 4
+            and parts[0] == "api"
+            and parts[1] == "runs"
+            and parts[2]
+            and parts[3] == "events"
+        ):
+            upstream = None
+            headers_sent = False
+            try:
+                upstream = _operator_semantic_events(
+                    unquote(parts[2]),
+                    last_event_id=self.headers.get("Last-Event-ID", "").strip(),
+                )
+                self.send_response(HTTPStatus.OK.value)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                headers_sent = True
+                while True:
+                    chunk = upstream.read(4096)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except OperatorError as exc:
+                if not headers_sent:
+                    self._send_json(exc.to_payload(), status=exc.http_status)
+            except RuntimeError as exc:
+                if not headers_sent:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            except Exception as exc:
+                if not headers_sent:
+                    self._send_json({"ok": False, "error": exc.__class__.__name__}, status=HTTPStatus.BAD_GATEWAY)
+            finally:
+                if upstream is not None:
+                    upstream.close()
             return
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain; charset=utf-8")
 

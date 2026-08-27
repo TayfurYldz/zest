@@ -43,6 +43,7 @@ from zest.application.operator_run_read_model import (
     build_run_list,
 )
 from zest.application.operator_hq_read_model import build_hq_run_analysis
+from zest.application.observer import ObserverService
 from zest.application.orchestration_lease import LeaseConfig
 from zest.application.persist_preflight import (
     configuration_fingerprint_for_command,
@@ -112,6 +113,7 @@ class ZestdRuntime:
         host_identity: str = "zestd",
         process_id: str = "0",
         environment_name: str = "local",
+        observer_service: ObserverService | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._worker = worker
@@ -127,6 +129,7 @@ class ZestdRuntime:
         self._host_identity = host_identity
         self._process_id = process_id
         self._environment_name = environment_name
+        self._observer = observer_service or ObserverService()
         self._instance: RuntimeInstanceRecord | None = None
         self._registry: LocalRunSupervisorRegistry | None = None
         self._unfenced_controller = AutonomousResearchController(
@@ -390,9 +393,16 @@ class ZestdRuntime:
             locally_supervised=self.is_supervising(research_run_id),
         )
 
-    def run_analysis(self, research_run_id: str) -> dict[str, object]:
+    def run_analysis(self, research_run_id: str, *, include_observer: bool = True) -> dict[str, object]:
         self._require_pg()
-        return build_hq_run_analysis(self._uow_factory, research_run_id)
+        payload = build_hq_run_analysis(
+            self._uow_factory,
+            research_run_id,
+            locally_supervised=self.is_supervising(research_run_id),
+        )
+        if include_observer:
+            payload["observer"] = self._observer.observe(payload)
+        return payload
 
     def list_runs(self) -> list[dict[str, object]]:
         self._require_pg()
@@ -556,7 +566,7 @@ class ZestdRuntime:
             command = command or reconstruct_start_command(
                 self._uow_factory, research_run_id, recovery=recovery
             )
-            report = self._run_preflight(command)
+            report = self._run_preflight(command, check_reconciliation=recovery)
         except DatabaseUnavailableError as exc:
             self._mark_pg_unavailable(exc)
             return None
@@ -614,7 +624,12 @@ class ZestdRuntime:
             )
         return supervisor
 
-    def _run_preflight(self, command: StartAutonomousResearchCommand) -> PreflightReport:
+    def _run_preflight(
+        self,
+        command: StartAutonomousResearchCommand,
+        *,
+        check_reconciliation: bool = True,
+    ) -> PreflightReport:
         report = self._preflight.execute(
             PreflightCommand(
                 research_run_id=command.research_run_id,
@@ -624,6 +639,7 @@ class ZestdRuntime:
                 model=self._probe_model(),
                 required_worker_capabilities=self._required_worker_capabilities,
                 requesting_owner_runtime_instance_id=self.runtime_instance_id,
+                check_reconciliation=check_reconciliation,
             )
         )
         persist_preflight_report(

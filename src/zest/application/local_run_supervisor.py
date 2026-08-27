@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 
 from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
@@ -18,6 +19,7 @@ from zest.application.autonomous_research_controller import (
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.orchestration_lease import LeaseConfig
+from zest.application.observability import supervisor_fault
 from zest.application.ports import UnitOfWorkFactory
 from zest.data.errors import (
     LeaseFencingError,
@@ -167,6 +169,32 @@ class LocalRunSupervisor:
                 if record is None:
                     raise ApplicationError("orchestration not found")
                 result = _result_from_persisted(record)
+            except Exception as exc:
+                # A supervisor exception must be durable operational truth;
+                # it must not be mistaken for a research result.
+                try:
+                    with self.uow_factory.open() as uow:
+                        uow.run_faults.insert(
+                            supervisor_fault(
+                                self.research_run_id,
+                                exc,
+                                runtime_instance_id=self.owner_runtime_instance_id,
+                                occurred_at=datetime.now(timezone.utc),
+                            )
+                        )
+                        uow.commit()
+                except PersistenceError:
+                    # The original supervisor fault remains an operational
+                    # failure even when its persistence path is unavailable.
+                    pass
+                self._stop_event.set()
+                with self.uow_factory.open() as uow:
+                    record = uow.research_orchestrations.get(self.research_run_id)
+                    uow.rollback()
+                self._last_result = (
+                    _result_from_persisted(record) if record is not None else None
+                )
+                return self._last_result
         else:
             result = _result_from_persisted(record)
         self._last_result = result

@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from zest.application.operator_errors import OperatorError, OperatorErrorCode
+from zest.application.observability import (
+    activity_from_fault,
+    project_effective_run_state,
+)
 from zest.application.persist_preflight import preflight_record_to_mapping
 from zest.application.ports import UnitOfWorkFactory
 from zest.data.budget_ledger import ledger_totals
@@ -130,6 +134,12 @@ def build_run_detail(
         program = uow.programs.get(run.program_id)
         auth = uow.authorization_sources.get(run.authorization_source_id)
         orchestration = uow.research_orchestrations.get(research_run_id)
+        runtime = None
+        if orchestration is not None and orchestration.owner_runtime_instance_id is not None:
+            runtime = uow.runtime_instances.get(orchestration.owner_runtime_instance_id)
+        elif runtime_instance_id is not None:
+            runtime = uow.runtime_instances.get(runtime_instance_id)
+        run_faults = uow.run_faults.list_for_research_run(research_run_id)
         latest_preflight: PreflightReportRecord | None = (
             uow.preflight_reports.latest_for_research_run(research_run_id)
         )
@@ -147,6 +157,12 @@ def build_run_detail(
         audits = uow.audit_events.list_for_subject("research_run", research_run_id)
         uow.rollback()
     totals = ledger_totals(consumptions)
+    operational = project_effective_run_state(
+        orchestration,
+        runtime,
+        run_faults,
+        now=datetime.now(timezone.utc),
+    )
     pending_proposals = [
         {
             "kind": "finding_proposal",
@@ -172,6 +188,44 @@ def build_run_detail(
         "program_id": run.program_id,
         "program_name": None if program is None else program.name,
         "state": None if orchestration is None else orchestration.state,
+        "operational": {
+            "persisted_state": operational.persisted_state,
+            "effective_state": operational.effective_state,
+            "reason_codes": list(operational.reason_codes),
+            "runtime_liveness": operational.runtime_liveness,
+        },
+        "run_faults": [
+            {
+                "fault_id": fault.fault_id,
+                "component": fault.component,
+                "phase": fault.phase,
+                "fault_class": fault.fault_class,
+                "fault_code": fault.fault_code,
+                "fatal": fault.fatal,
+                "occurred_at": _iso(fault.occurred_at),
+                "diagnostic_summary": fault.diagnostic_summary,
+                "attempt_id": fault.attempt_id,
+                "experiment_id": fault.experiment_id,
+                "runtime_instance_id": fault.runtime_instance_id,
+                "resolved_at": _iso(fault.resolved_at),
+            }
+            for fault in run_faults
+        ],
+        "semantic_activities": [
+            {
+                "activity_id": activity.activity_id,
+                "plane": activity.plane,
+                "kind": activity.kind,
+                "occurred_at": _iso(activity.occurred_at),
+                "summary": activity.summary,
+                "source_type": activity.source_type,
+                "source_id": activity.source_id,
+                "attempt_id": activity.attempt_id,
+                "experiment_id": activity.experiment_id,
+                "runtime_instance_id": activity.runtime_instance_id,
+            }
+            for activity in (activity_from_fault(fault) for fault in run_faults)
+        ],
         "desired_action": None,
         "current_phase": None if orchestration is None else orchestration.current_phase,
         "cycle_number": None if orchestration is None else orchestration.cycle_number,
@@ -231,6 +285,18 @@ def build_run_list(
         for run in runs:
             program = uow.programs.get(run.program_id)
             orchestration = uow.research_orchestrations.get(run.research_run_id)
+            runtime = (
+                None
+                if orchestration is None or orchestration.owner_runtime_instance_id is None
+                else uow.runtime_instances.get(orchestration.owner_runtime_instance_id)
+            )
+            faults = uow.run_faults.list_for_research_run(run.research_run_id)
+            operational = project_effective_run_state(
+                orchestration,
+                runtime,
+                faults,
+                now=datetime.now(timezone.utc),
+            )
             latest = uow.preflight_reports.latest_for_research_run(run.research_run_id)
             rows.append(
                 redact_secret_keys(
@@ -239,6 +305,12 @@ def build_run_list(
                         "program_id": run.program_id,
                         "program_name": None if program is None else program.name,
                         "state": None if orchestration is None else orchestration.state,
+                        "operational": {
+                            "persisted_state": operational.persisted_state,
+                            "effective_state": operational.effective_state,
+                            "reason_codes": list(operational.reason_codes),
+                            "runtime_liveness": operational.runtime_liveness,
+                        },
                         "current_phase": (
                             None if orchestration is None else orchestration.current_phase
                         ),

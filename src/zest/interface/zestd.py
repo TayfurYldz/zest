@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 from zest.application.orchestration_lease import LeaseConfig
+from zest.application.observer import ObserverService, ObserverSettings
 from zest.application.osd_settings import load_osd_settings, resolve_alembic_ini
 from zest.application.preflight import (
     ModelReadinessInput,
@@ -26,6 +27,7 @@ from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 from zest.interface.operator_api import OperatorApiServer
 from zest.platform.health import ComponentHealth, HealthCheck
 from zest.platform.worker_health import probe_local_python_worker
+from zest.integrations.observer import NvidiaCompatibleObserverProvider
 
 
 def _alembic_ini() -> str:
@@ -106,6 +108,20 @@ def main(argv: list[str] | None = None) -> int:
             available_capabilities=frozenset({"diagnostic.echo"}),
         )
 
+    observer_settings = ObserverSettings.from_env(os.environ)
+    observer_provider = None
+    if (
+        observer_settings.enabled
+        and observer_settings.provider == "nvidia-compatible"
+        and observer_settings.model
+        and observer_settings.nvidia_api_key
+    ):
+        observer_provider = NvidiaCompatibleObserverProvider(
+            api_key=observer_settings.nvidia_api_key,
+            model=observer_settings.model,
+            base_url=observer_settings.base_url,
+            timeout_seconds=observer_settings.timeout_seconds,
+        )
     runtime = ZestdRuntime(
         factory,
         worker,
@@ -121,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         process_id=str(os.getpid()),
         engine_version=settings.release_version,
         environment_name=settings.environment_name,
+        observer_service=ObserverService(observer_provider, settings=observer_settings),
     )
     runtime.start_process()
     server = OperatorApiServer(runtime, host=host, port=port)

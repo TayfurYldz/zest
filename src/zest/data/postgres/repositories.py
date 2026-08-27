@@ -29,6 +29,7 @@ from zest.data.records import (
     ALLOWED_INVARIANT_STATUSES,
     ALLOWED_PROMOTION_STAGES,
     ALLOWED_SESSION_STATES,
+    ALLOWED_TARGET_CONTACT_STATUSES,
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -74,6 +75,7 @@ from zest.data.records import (
     ResearchReasoningRecord,
     ResearchRunRecord,
     RuntimeInstanceRecord,
+    RunFaultRecord,
     ScopeRuleV2Record,
     SensorObservationRecord,
     TargetInferenceRecord,
@@ -922,6 +924,7 @@ class PostgresExecutionAttemptRepository:
                 authorized_at=record.authorized_at,
                 dispatch_started_at=record.dispatch_started_at,
                 completed_at=record.completed_at,
+                target_contact_status=record.target_contact_status,
             ),
         )
 
@@ -979,15 +982,23 @@ class PostgresExecutionAttemptRepository:
         *,
         dispatch_started_at: datetime | None = None,
         completed_at: datetime | None = None,
+        target_contact_status: str | None = None,
     ) -> None:
         require_opaque_id(attempt_id, "attempt_id")
         if state not in ALLOWED_EXECUTION_ATTEMPT_STATES:
             raise PersistenceInputError("state is not an ExecutionAttempt state")
+        if (
+            target_contact_status is not None
+            and target_contact_status not in ALLOWED_TARGET_CONTACT_STATUSES
+        ):
+            raise PersistenceInputError("target_contact_status is not valid")
         values: dict[str, object] = {"state": state}
         if dispatch_started_at is not None:
             values["dispatch_started_at"] = dispatch_started_at
         if completed_at is not None:
             values["completed_at"] = completed_at
+        if target_contact_status is not None:
+            values["target_contact_status"] = target_contact_status
         try:
             result = self._connection.execute(
                 update(tables.execution_attempt)
@@ -2622,6 +2633,82 @@ class PostgresAuditEventRepository:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.audit_event_from_row(row) for row in rows]
 
+
+class PostgresRunFaultRepository:
+    """Insert-only typed operational fault repository."""
+
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: RunFaultRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.run_fault.insert().values(
+                fault_id=record.fault_id,
+                research_run_id=record.research_run_id,
+                hypothesis_id=record.hypothesis_id,
+                experiment_id=record.experiment_id,
+                attempt_id=record.attempt_id,
+                request_id=record.request_id,
+                capability=record.capability,
+                action=record.action,
+                runtime_instance_id=record.runtime_instance_id,
+                correlation_id=record.correlation_id,
+                component=record.component,
+                phase=record.phase,
+                fault_class=record.fault_class,
+                fault_code=record.fault_code,
+                fatal=record.fatal,
+                occurred_at=record.occurred_at,
+                resolved_at=record.resolved_at,
+                diagnostic_summary=record.diagnostic_summary,
+            ),
+        )
+
+    def get(self, fault_id: str) -> RunFaultRecord | None:
+        require_opaque_id(fault_id, "fault_id")
+        return _fetch_one(
+            self._connection,
+            tables.run_fault,
+            tables.run_fault.c.fault_id,
+            fault_id,
+            map_row.run_fault_from_row,
+        )
+
+    def list_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                _apply_read_limit(
+                    select(tables.run_fault)
+                    .where(tables.run_fault.c.research_run_id == research_run_id)
+                    .order_by(tables.run_fault.c.occurred_at, tables.run_fault.c.fault_id),
+                    limit,
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.run_fault_from_row(row) for row in rows]
+
+    def list_unresolved_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[RunFaultRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                _apply_read_limit(
+                    select(tables.run_fault)
+                    .where(tables.run_fault.c.research_run_id == research_run_id)
+                    .where(tables.run_fault.c.resolved_at.is_(None))
+                    .order_by(tables.run_fault.c.occurred_at, tables.run_fault.c.fault_id),
+                    limit,
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.run_fault_from_row(row) for row in rows]
 
 class PostgresResearchOrchestrationRepository:
     def __init__(self, connection: Connection) -> None:

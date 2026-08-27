@@ -8,6 +8,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 _REPO = Path(__file__).resolve().parents[2]
 _SRC = _REPO / "src"
@@ -23,6 +24,7 @@ from zest.application.preflight import (
     WorkerReadinessInput,
 )
 from zest.application.zestd import ZestdRuntime
+from zest.application.local_run_supervisor import LocalRunSupervisor
 from zest.application.runtime_instance import register_runtime_instance
 from zest.core.enums import ScopeRuleEffect
 from zest.data.postgres.engine import (
@@ -91,6 +93,17 @@ def _runtime(engine) -> ZestdRuntime:
         probe_worker=_healthy_worker,
         probe_model=_healthy_model,
     )
+
+
+def _blocking_tick(entered: threading.Event, release: threading.Event):
+    def _tick(supervisor: LocalRunSupervisor):
+        del supervisor
+        entered.set()
+        if not release.wait(timeout=15):
+            raise AssertionError("blocking supervisor was not released")
+        return None
+
+    return _tick
 
 
 def _seed_policy_and_scope(uow: PostgresUnitOfWork) -> None:
@@ -183,7 +196,7 @@ class ZestdPostgresTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a44_001_oast_correlation")
+        self.assertEqual(version, "a45_001_observability_foundation")
         self.assertIn("runtime_instance", tables)
         self.assertIn("preflight_report", tables)
 
@@ -215,6 +228,8 @@ class ZestdPostgresTests(unittest.TestCase):
             self._runtimes = [a, b]
             a.start_process()
             b.start_process()
+            entered = threading.Event()
+            release = threading.Event()
             barrier = threading.Barrier(2)
             errors: list[BaseException] = []
 
@@ -229,20 +244,23 @@ class ZestdPostgresTests(unittest.TestCase):
                 threading.Thread(target=_start, args=(a,)),
                 threading.Thread(target=_start, args=(b,)),
             ]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=15)
-            self.assertEqual(errors, [])
-            owners = [runtime for runtime in (a, b) if runtime.is_supervising("run-1")]
-            self.assertEqual(len(owners), 1)
-            with PostgresUnitOfWork(self.engine) as uow:
-                current = uow.research_orchestrations.get("run-1")
-                uow.rollback()
-            self.assertEqual(current.owner_runtime_instance_id, owners[0].runtime_instance_id)
-            a.drain(join_timeout=1)
-            b.drain(join_timeout=1)
-            self._runtimes = []
+            with patch.object(LocalRunSupervisor, "tick", new=_blocking_tick(entered, release)):
+                for thread in threads:
+                    thread.start()
+                self.assertTrue(entered.wait(timeout=5))
+                for thread in threads:
+                    thread.join(timeout=15)
+                self.assertEqual(errors, [])
+                owners = [runtime for runtime in (a, b) if runtime.is_supervising("run-1")]
+                self.assertEqual(len(owners), 1)
+                with PostgresUnitOfWork(self.engine) as uow:
+                    current = uow.research_orchestrations.get("run-1")
+                    uow.rollback()
+                self.assertEqual(current.owner_runtime_instance_id, owners[0].runtime_instance_id)
+                release.set()
+                a.drain(join_timeout=1)
+                b.drain(join_timeout=1)
+                self._runtimes = []
 
     def test_new_process_recovers_after_lease_expiry(self) -> None:
         first = _runtime(self.engine)

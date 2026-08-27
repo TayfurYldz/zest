@@ -12,7 +12,7 @@ from zest.core import (
     evaluate_recorded_approval,
 )
 from zest.core.approval import check_approval
-from fixtures import human_approval
+from core.fixtures import human_approval
 
 
 class ApprovalTests(unittest.TestCase):

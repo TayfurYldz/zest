@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pathsetup  # noqa: F401
 
-from fixtures import base_request
+from core.fixtures import base_request
 from zest.application.admit_diagnostic_invariant import (
     AdmitDiagnosticInvariant,
     AdmitDiagnosticInvariantCommand,

@@ -8,6 +8,7 @@ from zest.data.records import (
     ApprovalRecord,
     AttackSurfaceSnapshotRecord,
     AuditEventRecord,
+    RunFaultRecord,
     AuthorizationSourceRecord,
     BountyTableRecord,
     CandidateAdmissionRecord,
@@ -294,6 +295,7 @@ def execution_attempt_from_row(row: Mapping[str, Any]) -> ExecutionAttemptRecord
         authorized_at=data.get("authorized_at"),
         dispatch_started_at=data.get("dispatch_started_at"),
         completed_at=data.get("completed_at"),
+        target_contact_status=data.get("target_contact_status", "UNKNOWN"),
     )
 
 
@@ -349,6 +351,30 @@ def audit_event_from_row(row: Mapping[str, Any]) -> AuditEventRecord:
         subject_id=data["subject_id"],
         payload=data["payload"],
         correlation_id=data.get("correlation_id"),
+    )
+
+
+def run_fault_from_row(row: Mapping[str, Any]) -> RunFaultRecord:
+    data = _mapping(row)
+    return RunFaultRecord(
+        fault_id=data["fault_id"],
+        research_run_id=data["research_run_id"],
+        component=data["component"],
+        phase=data["phase"],
+        fault_class=data["fault_class"],
+        fault_code=data["fault_code"],
+        fatal=bool(data["fatal"]),
+        occurred_at=data["occurred_at"],
+        diagnostic_summary=data["diagnostic_summary"],
+        hypothesis_id=data.get("hypothesis_id"),
+        experiment_id=data.get("experiment_id"),
+        attempt_id=data.get("attempt_id"),
+        request_id=data.get("request_id"),
+        capability=data.get("capability"),
+        action=data.get("action"),
+        runtime_instance_id=data.get("runtime_instance_id"),
+        correlation_id=data.get("correlation_id"),
+        resolved_at=data.get("resolved_at"),
     )
 
 

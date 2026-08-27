@@ -16,7 +16,7 @@ from zest.core import (
     SideEffectLevel,
     evaluate_execution,
 )
-from fixtures import base_request, human_approval, issued_budget
+from core.fixtures import base_request, human_approval, issued_budget
 
 
 class PrecedenceTests(unittest.TestCase):

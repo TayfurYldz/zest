@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import pathsetup  # noqa: F401
 
@@ -85,6 +86,26 @@ class LocalRunSupervisorTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
+
+    def test_controller_fault_is_durable_and_stops_supervisor(self) -> None:
+        store = _seed()
+        supervisor = self._supervisor(store)
+        supervisor.controller.step = mock.Mock(
+            side_effect=RuntimeError("planning failed password=not-persisted")
+        )
+
+        result = supervisor.tick()
+
+        self.assertIn(
+            result.state,
+            {OrchestrationState.READY.value, OrchestrationState.RUNNING.value},
+        )
+        self.assertTrue(supervisor._stop_event.is_set())
+        self.assertEqual(len(store.run_faults), 1)
+        fault = next(iter(store.run_faults.values()))
+        self.assertTrue(fault.fatal)
+        self.assertNotIn("not-persisted", fault.diagnostic_summary)
+        self.assertEqual(fault.research_run_id, "run-1")
 
     def test_non_runnable_state_does_not_step(self) -> None:
         store = _seed()

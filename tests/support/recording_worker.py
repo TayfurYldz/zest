@@ -70,7 +70,7 @@ class RecordingWorkerPort:
         *,
         timeout_ms: int | None = None,
     ) -> WorkerInvocationOutcome:
-        if self._store is not None and self._store.open_transactions != 0:
+        if self._store is not None and self._store.transaction_open_on_current_thread():
             raise AssertionError("Worker invoked while a Data transaction is open")
         if self._store is not None:
             correlation = request.get("correlation")

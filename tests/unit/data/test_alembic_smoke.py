@@ -137,6 +137,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "impact_chain_edge",
                 "runtime_instance",
                 "preflight_report",
+                "run_fault",
             },
         )
         self.assertEqual(set(metadata.tables), names)

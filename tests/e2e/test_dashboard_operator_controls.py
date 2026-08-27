@@ -128,8 +128,69 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
         self._bootstrap_patcher = mock.patch.object(
             dashboard, "bootstrap_program", side_effect=self.bootstrap
         )
+        self._analysis_patcher = mock.patch.object(
+            dashboard,
+            "_operator_run_analysis",
+            return_value={
+                "schema": "hq.run.analysis.v1",
+                "read_model_schema": "hq.run.read-model.v1",
+                "research_run_id": "run/1",
+                "projection_only": True,
+                "truth": {
+                    "research_run_id": "run/1",
+                    "persisted_lifecycle_state": "RUNNING",
+                    "effective_operational_state": "RUNNING",
+                    "current_phase": "DISPATCHING",
+                    "runtime_liveness": "LIVE",
+                    "human_attention_required": False,
+                },
+                "motors": {"observer": {"availability": "UNKNOWN"}},
+                "observer": {
+                    "mode": "DETERMINISTIC",
+                    "enabled": False,
+                    "provider": "none",
+                    "model": None,
+                    "fallback_reason": "DISABLED",
+                    "brief": {
+                        "status": "ACTIVE",
+                        "headline": "Run is active",
+                        "what": "Persisted state is active.",
+                        "why": "Observer is not authoritative.",
+                        "confirmed_facts": ["Persisted lifecycle state is RUNNING."],
+                        "unknowns": [],
+                        "operator_attention": "NONE",
+                        "source_event_ids": ["activity-1"],
+                        "generated_at": "2026-08-27T12:00:00+00:00",
+                        "provider": "none",
+                        "model": None,
+                    },
+                },
+                "current_research_lineage": {"stages": {}},
+                "research_intent": {"status": "UNKNOWN"},
+                "verification_chain": {"stages": [], "final_state": "UNKNOWN", "authoritative": True, "observer_can_finalize": False},
+                "active_pipeline": [],
+                "semantic_activity_timeline": {
+                    "count": 1,
+                    "shown": 1,
+                    "truncated": False,
+                    "items": [{
+                        "activity_id": "activity-1",
+                        "timestamp": "2026-08-27T12:00:00+00:00",
+                        "plane": "EXECUTION",
+                        "event_type": "RUN_FAULT",
+                        "summary": "sanitized failure",
+                        "source_type": "run_fault",
+                        "source_id": "fault-1",
+                    }],
+                },
+                "failure_inspector": None,
+                "counters": {},
+                "state_consistency_warnings": [],
+            },
+        )
         self._payload_patcher.start()
         self._bootstrap_patcher.start()
+        self._analysis_patcher.start()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -142,7 +203,39 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
         self.thread.join(timeout=2)
         self._bootstrap_patcher.stop()
         self._payload_patcher.stop()
+        self._analysis_patcher.stop()
         dashboard.configure_dashboard_run_control(None)
+
+    def test_live_cockpit_truth_drawer_and_narrow_fallback(self) -> None:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            try:
+                page.goto(self.url, wait_until="domcontentloaded")
+                page.locator("#truthStrip").get_by_text("RUNNING", exact=True).first.wait_for(state="visible")
+                page.locator("#transportChip").wait_for(state="visible")
+                page.wait_for_function("document.querySelector('#transportChip').textContent === 'POLLING'")
+
+                page.get_by_role("button", name="Mission / Live", exact=True).click()
+                page.get_by_text("AI Observer", exact=True).wait_for(state="visible")
+                page.get_by_text("Non-authoritative narrator", exact=True).wait_for(state="visible")
+                page.get_by_role("button", name="Research", exact=True).click()
+                page.get_by_text("Research Intent", exact=True).wait_for(state="visible")
+                page.get_by_text("Verification / false-positive boundary", exact=True).wait_for(state="visible")
+                page.get_by_role("button", name="Mission / Live", exact=True).click()
+                page.get_by_role("button", name="Inspect inspect", exact=True).click()
+                page.locator("#inspector[role='dialog']").wait_for(state="visible")
+                page.keyboard.press("Escape")
+                page.locator("#inspector").wait_for(state="hidden")
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                self.assertEqual(
+                    page.locator(".shell-body").evaluate("node => getComputedStyle(node).display"),
+                    "block",
+                )
+                self.assertTrue(page.locator("#inspector").is_hidden())
+            finally:
+                browser.close()
 
     def test_bootstrap_and_full_run_lifecycle_controls(self) -> None:
         with sync_playwright() as playwright:
@@ -201,7 +294,7 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 ).click()
                 page.get_by_text("ready: run/1").wait_for(state="visible")
 
-                page.get_by_role("button", name="Experiment Control", exact=True).click()
+                page.get_by_role("button", name="Execution", exact=True).click()
 
                 start = page.locator('#runs button[data-run-action="start"]')
                 start.wait_for(state="visible")

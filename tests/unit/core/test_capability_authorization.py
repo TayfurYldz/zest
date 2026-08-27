@@ -8,7 +8,7 @@ from zest.core.capability import CapabilityAuthorizationView
 from zest.core.enums import ExecutionDecisionKind, ReasonCode, SideEffectLevel
 from zest.core.execution import evaluate_execution
 from zest.tools.registry import load_capability_registry, registry_from_documents
-from fixtures import base_request, capability_view_for_side_effect, human_approval
+from core.fixtures import base_request, capability_view_for_side_effect, human_approval
 
 
 def _view(**overrides) -> CapabilityAuthorizationView:

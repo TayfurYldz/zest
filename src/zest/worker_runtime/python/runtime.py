@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Mapping, TextIO
 
-from zest.worker_runtime.python.capabilities import execute
+from .capabilities import execute
 
 WORKER_ID_ENV = "ZEST_WORKER_ID"
 DEFAULT_WORKER_ID = "local-python-diagnostic"

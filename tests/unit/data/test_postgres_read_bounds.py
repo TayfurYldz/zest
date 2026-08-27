@@ -12,6 +12,7 @@ from zest.data.postgres.discovery_repositories import (
     PostgresDiscoveryFactRepository,
 )
 from zest.data.postgres.repositories import (
+    PostgresAuditEventRepository,
     PostgresHypothesisRepository,
     PostgresImpactChainRepository,
 )
@@ -65,6 +66,18 @@ class PostgresReadBoundsTests(unittest.TestCase):
             compiled = _compiled(statement)
             self.assertIn("LIMIT", str(compiled))
             self.assertEqual(compiled.params["param_1"], 3)
+
+    def test_audit_subject_query_is_available_to_run_read_models(self) -> None:
+        connection = _connection_with_empty_rows()
+
+        PostgresAuditEventRepository(connection).list_for_subject(
+            "research_run", "run-1", limit=7
+        )
+
+        statement = connection.execute.call_args.args[0]
+        compiled = _compiled(statement)
+        self.assertIn("LIMIT", str(compiled))
+        self.assertEqual(compiled.params["param_1"], 7)
 
     def test_omitted_limit_preserves_unbounded_caller_semantics(self) -> None:
         connection = _connection_with_empty_rows()

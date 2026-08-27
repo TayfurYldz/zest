@@ -11,6 +11,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote
 
 from zest.application.autonomous_research_controller import (
     OrchestrationTickResult,
@@ -92,6 +93,27 @@ class OperatorApiRunControl:
         if not isinstance(result, dict):
             raise ApplicationError("operator API returned an invalid run analysis")
         return result
+
+    def open_semantic_events(self, research_run_id: str, *, last_event_id: str = ""):
+        """Open the read-only bounded SSE stream for the dashboard proxy."""
+
+        request = urllib.request.Request(
+            self._base + f"/api/runs/{quote(research_run_id, safe='')}/events",
+            method="GET",
+            headers={
+                "Accept": "text/event-stream",
+                **({"Last-Event-ID": last_event_id} if last_event_id else {}),
+            },
+        )
+        try:
+            return self._opener.open(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise _operator_http_error(exc.code, detail) from None
+        except urllib.error.URLError as exc:
+            raise OperatorError(
+                OperatorErrorCode.OSD_UNREACHABLE, "zestd is unreachable"
+            ) from exc
 
     def console_snapshot(self) -> dict[str, Any]:
         payload = self._request("GET", "/api/console", {})

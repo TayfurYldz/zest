@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError
 import pathsetup  # noqa: F401
 
 from zest.core import BudgetUsage, IssuedBudget
-from fixtures import issued_budget
+from core.fixtures import issued_budget
 
 
 class ImmutabilityTests(unittest.TestCase):

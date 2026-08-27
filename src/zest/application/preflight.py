@@ -131,6 +131,7 @@ class PreflightCommand:
     model: ModelReadinessInput
     required_worker_capabilities: frozenset[str] = frozenset()
     requesting_owner_runtime_instance_id: str | None = None
+    check_reconciliation: bool = True
 
 
 @dataclass(frozen=True)
@@ -232,7 +233,8 @@ class Preflight:
                     orchestration, now, command.requesting_owner_runtime_instance_id
                 )
             )
-            checks.append(self._reconciliation_check(run.research_run_id))
+            if command.check_reconciliation:
+                checks.append(self._reconciliation_check(run.research_run_id))
         checks.append(_worker_capability_check(command))
         checks.append(_worker_health_check(command.worker))
         checks.append(_model_readiness_check(command.model))

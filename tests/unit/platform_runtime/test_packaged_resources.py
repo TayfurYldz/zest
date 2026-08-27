@@ -86,6 +86,19 @@ class PackagedResourceTests(unittest.TestCase):
         self.assertIn(dashboard.resolve(), selected)
         self.assertIn(logrotate.resolve(), selected)
 
+    def test_untracked_javascript_assets_are_source_export_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            asset = root / "src" / "zest" / "hq" / "static" / "js" / "views" / "research.js"
+            asset.parent.mkdir(parents=True)
+            asset.write_text("export const research = true;\n", encoding="utf-8")
+            selected = iter_export_paths(
+                root,
+                include_untracked_source=True,
+                tracked_files=[],
+            )
+        self.assertIn(asset.resolve(), selected)
+
     def test_source_export_excludes_claude_and_agent_memory_recursively(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

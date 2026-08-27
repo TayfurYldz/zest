@@ -29,7 +29,7 @@ Panels use solid elevated surfaces and one-pixel `--line` borders. Glass/backdro
 
 ## 5. Navigation
 
-The primary rail contains twelve independent destinations. Each destination has its own view module and is selected without a page reload. `aria-current="page"` identifies the selected destination. The rail compacts into a horizontally scrollable navigation strip below 768px.
+The primary rail contains six operational destinations plus the separate Program Setup surface: Mission / Live, Research, Execution, Surface, Evidence, and Authority. Destinations are selected without a page reload; `aria-current="page"` identifies the selected destination. The rail compacts into a horizontally scrollable navigation strip below 768px.
 
 ## 6. Operational state semantics
 

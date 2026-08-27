@@ -12,7 +12,7 @@ from zest.core import (
     ScopeRuleMatch,
     evaluate_execution,
 )
-from fixtures import base_request
+from core.fixtures import base_request
 
 
 def _scope(*matches: ScopeRuleMatch, ambiguous: bool = False) -> ScopeEvaluationInput:

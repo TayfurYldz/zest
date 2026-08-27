@@ -203,6 +203,64 @@ class OperatorApiPostgresOutageHandlerTests(unittest.TestCase):
         self.assertNotIn(b"Traceback", raw)
         runtime.run_analysis.assert_called_once_with("run-1")
 
+    def test_semantic_events_route_is_bounded_redacted_sse(self) -> None:
+        runtime = mock.Mock()
+        runtime.run_analysis.return_value = {
+            "semantic_activity_timeline": {
+                "items": [{
+                    "activity_id": "activity-1",
+                    "timestamp": "2026-08-27T12:00:00+00:00",
+                    "plane": "EXECUTION",
+                    "event_type": "RUN_FAULT",
+                    "importance": "HIGH",
+                    "summary": "execution failed password=hidden",
+                    "source_type": "run_fault",
+                    "source_id": "fault-1",
+                }]
+            }
+        }
+        server, host, port = self._serve(runtime)
+        import http.client
+
+        conn = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            conn.request("GET", "/api/runs/run-1/events")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Type"), "text/event-stream; charset=utf-8")
+            self.assertEqual(response.readline(), b"id: activity-1\n")
+            self.assertEqual(response.readline(), b"event: semantic_activity\n")
+            data = response.readline()
+            self.assertIn(b'"schema":"zest.hq.semantic-event.v1"', data)
+            self.assertNotIn(b"password=hidden", data)
+            self.assertIn(b"[REDACTED]", data)
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_semantic_events_resume_after_last_event_id(self) -> None:
+        runtime = mock.Mock()
+        runtime.run_analysis.return_value = {
+            "semantic_activity_timeline": {
+                "items": [
+                    {"activity_id": "activity-1", "summary": "first"},
+                    {"activity_id": "activity-2", "summary": "second"},
+                ]
+            }
+        }
+        server, host, port = self._serve(runtime)
+        import http.client
+
+        conn = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            conn.request("GET", "/api/runs/run-1/events", headers={"Last-Event-ID": "activity-1"})
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.readline(), b"id: activity-2\n")
+        finally:
+            conn.close()
+            server.shutdown()
+
     def test_health_returns_json_when_runtime_health_raises_unavailable(self) -> None:
         from zest.data.errors import DatabaseUnavailableError
 

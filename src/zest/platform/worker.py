@@ -32,6 +32,8 @@ class WorkerInvocationOutcome:
     stderr_diagnostics: str = ""
     stderr_truncated: bool = False
     reason: str | None = None
+    # Adapters must prove contact explicitly; absence is UNKNOWN.
+    target_contact_status: str = "UNKNOWN"
 
 
 class WorkerPort(Protocol):

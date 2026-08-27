@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 import json
+import re
 from typing import Any, Mapping
 
 from zest.core.enums import ActorType, AuthorizationSourceState
@@ -77,9 +78,72 @@ class ExecutionAttemptState(Enum):
     UNKNOWN_OUTCOME = "UNKNOWN_OUTCOME"
 
 
+class TargetContactStatus(Enum):
+    """Authoritative contact truth for one execution attempt.
+
+    Creation and dispatch do not prove contact. UNKNOWN is the safe default.
+    """
+
+    CONFIRMED = "CONFIRMED"
+    NOT_CONTACTED = "NOT_CONTACTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class RunFaultClass(Enum):
+    """Typed operational fault class. Never a research or hypothesis result."""
+
+    EXECUTION = "EXECUTION"
+    RUNTIME = "RUNTIME"
+    SUPERVISOR = "SUPERVISOR"
+    PERSISTENCE = "PERSISTENCE"
+    POLICY = "POLICY"
+
+
+class RunFaultComponent(Enum):
+    CONTROL = "CONTROL"
+    EXECUTION = "EXECUTION"
+    WORKER = "WORKER"
+    RUNTIME = "RUNTIME"
+    SUPERVISOR = "SUPERVISOR"
+    PERSISTENCE = "PERSISTENCE"
+    PLANNING = "PLANNING"
+
+
+class RunFaultPhase(Enum):
+    AUTHORIZATION = "AUTHORIZATION"
+    DISPATCH = "DISPATCH"
+    INVOCATION = "INVOCATION"
+    INGESTION = "INGESTION"
+    TICK = "TICK"
+    HEARTBEAT = "HEARTBEAT"
+    RECONCILIATION = "RECONCILIATION"
+    PERSISTENCE = "PERSISTENCE"
+    PLANNING = "PLANNING"
+
+
 ALLOWED_EXECUTION_ATTEMPT_STATES = frozenset(
     item.value for item in ExecutionAttemptState
 )
+ALLOWED_TARGET_CONTACT_STATUSES = frozenset(item.value for item in TargetContactStatus)
+ALLOWED_RUN_FAULT_CLASSES = frozenset(item.value for item in RunFaultClass)
+ALLOWED_RUN_FAULT_COMPONENTS = frozenset(item.value for item in RunFaultComponent)
+ALLOWED_RUN_FAULT_PHASES = frozenset(item.value for item in RunFaultPhase)
+_DIAGNOSTIC_SECRET_PATTERN = re.compile(
+    r"(?i)(authorization|api[-_]?key|bearer|cookie|password|secret|token)"
+    r"\s*[:=]\s*[^\s,;]+"
+)
+
+
+def sanitize_diagnostic_summary(value: str, *, max_length: int = 1000) -> str:
+    """Bound a diagnostic and redact common inline credential forms."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise PersistenceInputError("diagnostic_summary must be a non-empty string")
+    cleaned = _DIAGNOSTIC_SECRET_PATTERN.sub(r"\1=[REDACTED]", value.strip())
+    cleaned = cleaned.replace("\x00", "")
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "...[truncated]"
+    return cleaned
 
 ALLOWED_REASONING_ROLES = frozenset({"GENERATOR", "FALSIFIER"})
 ALLOWED_ADMISSION_OUTCOMES = frozenset(
@@ -1957,6 +2021,7 @@ class ExecutionAttemptRecord:
     authorized_at: datetime | None = None
     dispatch_started_at: datetime | None = None
     completed_at: datetime | None = None
+    target_contact_status: str = TargetContactStatus.UNKNOWN.value
 
     def __post_init__(self) -> None:
         require_opaque_id(self.attempt_id, "attempt_id")
@@ -1982,6 +2047,10 @@ class ExecutionAttemptRecord:
             require_aware_datetime(self.dispatch_started_at, "dispatch_started_at")
         if self.completed_at is not None:
             require_aware_datetime(self.completed_at, "completed_at")
+        if self.target_contact_status not in ALLOWED_TARGET_CONTACT_STATUSES:
+            raise PersistenceInputError(
+                "target_contact_status is not a valid contact truth state"
+            )
 
 
 @dataclass(frozen=True)
@@ -2117,6 +2186,67 @@ class AuditEventRecord:
         object.__setattr__(self, "payload", dict(self.payload))
         if self.correlation_id is not None:
             require_opaque_id(self.correlation_id, "correlation_id")
+
+
+@dataclass(frozen=True)
+class RunFaultRecord:
+    """Durable operational fault. Never an Observation, Evidence, or Finding."""
+
+    fault_id: str
+    research_run_id: str
+    component: str
+    phase: str
+    fault_class: str
+    fault_code: str
+    fatal: bool
+    occurred_at: datetime
+    diagnostic_summary: str
+    hypothesis_id: str | None = None
+    experiment_id: str | None = None
+    attempt_id: str | None = None
+    request_id: str | None = None
+    capability: str | None = None
+    action: str | None = None
+    runtime_instance_id: str | None = None
+    correlation_id: str | None = None
+    resolved_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "fault_id",
+            "research_run_id",
+            "fault_code",
+        ):
+            require_opaque_id(getattr(self, field_name), field_name)
+        for field_name in (
+            "hypothesis_id",
+            "experiment_id",
+            "attempt_id",
+            "request_id",
+            "capability",
+            "action",
+            "runtime_instance_id",
+            "correlation_id",
+        ):
+            require_optional_opaque_id(getattr(self, field_name), field_name)
+        if self.component not in ALLOWED_RUN_FAULT_COMPONENTS:
+            raise PersistenceInputError("component is not a RunFault component")
+        if self.phase not in ALLOWED_RUN_FAULT_PHASES:
+            raise PersistenceInputError("phase is not a RunFault phase")
+        if self.fault_class not in ALLOWED_RUN_FAULT_CLASSES:
+            raise PersistenceInputError("fault_class is not a RunFault class")
+        if not isinstance(self.fatal, bool):
+            raise PersistenceInputError("fatal must be bool")
+        require_aware_datetime(self.occurred_at, "occurred_at")
+        object.__setattr__(
+            self,
+            "diagnostic_summary",
+            sanitize_diagnostic_summary(self.diagnostic_summary),
+        )
+        if self.resolved_at is not None:
+            require_aware_datetime(self.resolved_at, "resolved_at")
+            if self.resolved_at < self.occurred_at:
+                raise PersistenceInputError("resolved_at must not precede occurred_at")
 
 
 ALLOWED_ORCHESTRATION_STATES = frozenset(

@@ -16,30 +16,33 @@
     <div id="app" class="app-shell">
       <header class="context-bar" aria-label="Global operational context">
         <div class="brand-lockup">
-          <span class="brand-mark" aria-hidden="true">R</span>
-          <span><strong>Zest</strong><small>Security Operations / HQ command surface</small></span>
+          <span class="brand-mark" aria-hidden="true">Z</span>
+          <span><strong>Zest</strong><small>Research operations cockpit</small></span>
         </div>
         <div id="contextSummary" class="context-summary" aria-live="polite">Loading operational context…</div>
         <div class="context-actions">
+          <span id="transportChip" class="status-chip status-unknown" aria-live="polite">OFFLINE</span>
           <span id="healthChip" class="status-chip status-unknown">UNKNOWN</span>
           <button id="refreshButton" class="button button-quiet" type="button">Refresh</button>
         </div>
       </header>
       <div class="shell-body">
         <aside class="primary-rail" aria-label="Primary navigation">
-          <div class="rail-label">Research program</div>
+          <div class="rail-label">Operational planes</div>
           <nav id="primaryNav" class="primary-nav"></nav>
           <div class="rail-footer">Projection only<br><span class="mono">PostgreSQL / source of truth</span></div>
         </aside>
         <main id="main-content" class="main-content" tabindex="-1">
+          <section id="truthStrip" class="truth-strip" aria-label="Selected run truth" aria-live="polite"></section>
           <div class="workspace-heading">
-            <div><p class="eyebrow">Zest HQ</p><h1 id="viewTitle">Mission Control</h1><p id="viewDescription" class="muted">Operational state, provenance, and human-required work.</p></div>
+            <div><h1 id="viewTitle">Mission / Live</h1><p id="viewDescription" class="muted">Authoritative selected-run projection.</p></div>
             <div id="runSelectorWrap" class="run-selector-wrap"><label for="runSelector">Selected run</label><select id="runSelector"><option value="">No run selected</option></select></div>
           </div>
           <div id="viewRoot" class="view-root" aria-live="polite"></div>
         </main>
-        <aside id="inspector" class="inspector" aria-label="Record inspector" aria-hidden="true"></aside>
+        <button id="inspectorScrim" class="inspector-scrim" type="button" aria-label="Close inspector" hidden></button>
       </div>
+      <aside id="inspector" class="inspector" role="dialog" aria-modal="true" aria-label="Record inspector" aria-hidden="true" hidden></aside>
     </div>
     <script type="module" src="/static/js/app.js"></script>
     <!-- HQ-B1 bootstrap contract remains in the modular setup view: /api/dashboard, /api/programs/bootstrap, const form = event.currentTarget;, new FormData(form), form.reset();, if (submit.disabled) return;, submit.disabled = true;, submit.disabled = false;, status.textContent = `error: ${err.message}`; -->

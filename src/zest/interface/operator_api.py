@@ -2,7 +2,7 @@
 
 PostgreSQL remains source of truth. This HTTP surface is a command client
 boundary: it does not accept scope/budget/config overrides and never
-returns secrets. SSE is deferred; clients poll REST snapshots.
+returns secrets. Semantic SSE is read-only; clients can fall back to REST.
 """
 
 from __future__ import annotations
@@ -11,22 +11,27 @@ import json
 import logging
 import sys
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from zest.application.errors import ApplicationError
 from zest.application.operator_command_payload import reject_authority_overrides
 from zest.application.operator_errors import OperatorError, OperatorErrorCode
 from zest.application.zestd import ZestdRuntime
 from zest.data.errors import DatabaseUnavailableError, PersistenceError
+from zest.data.records import sanitize_diagnostic_summary
 from zest.safe_data import redact_secret_keys
 
 OPERATOR_API_DEFAULT_HOST = "127.0.0.1"
 OPERATOR_API_DEFAULT_PORT = 8766
 LOCAL_BIND_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 LOGGER = logging.getLogger("zest.operator_api")
+SSE_MAX_SECONDS = 15.0
+SSE_HEARTBEAT_SECONDS = 1.0
+SSE_MAX_ITEMS = 50
 
 _DEGRADED_HEALTH = {
     "ok": False,
@@ -120,6 +125,17 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "runs" and parts[2]:
                 payload = self.runtime.run_detail(unquote(parts[2]))
                 self._send(*_json_bytes({"ok": True, "result": payload}))
+                return
+            if (
+                len(parts) == 4
+                and parts[0] == "api"
+                and parts[1] == "runs"
+                and parts[2]
+                and parts[3] == "events"
+            ):
+                query = parse_qs(urlparse(self.path).query)
+                last_event_id = self.headers.get("Last-Event-ID") or (query.get("last_event_id") or [""])[0]
+                self._send_semantic_events(unquote(parts[2]), last_event_id.strip())
                 return
             if (
                 len(parts) == 4
@@ -283,6 +299,82 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(payload)
+
+    def _send_semantic_events(self, research_run_id: str, last_event_id: str) -> None:
+        """Stream bounded semantic projections, never raw logs or commands."""
+
+        initial = self.runtime.run_analysis(research_run_id, include_observer=False)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        cursor = last_event_id or None
+        emitted: set[str] = set()
+        started = time.monotonic()
+        snapshot = initial
+        try:
+            while time.monotonic() - started < SSE_MAX_SECONDS:
+                timeline = snapshot.get("semantic_activity_timeline", {})
+                items = timeline.get("items", []) if isinstance(timeline, dict) else []
+                ids = [
+                    str(item.get("activity_id"))
+                    for item in items
+                    if isinstance(item, dict) and item.get("activity_id")
+                ]
+                if cursor and cursor in ids:
+                    candidates = items[ids.index(cursor) + 1 :]
+                elif cursor:
+                    candidates = []
+                else:
+                    candidates = items
+                sent = 0
+                for item in candidates:
+                    if not isinstance(item, dict):
+                        continue
+                    event_id = str(item.get("activity_id") or "")
+                    if not event_id or event_id in emitted:
+                        continue
+                    raw_summary = str(item.get("summary") or "semantic activity")
+                    try:
+                        summary = sanitize_diagnostic_summary(raw_summary)
+                    except Exception:
+                        summary = "sanitized semantic activity"
+                    payload = {
+                        "schema": "zest.hq.semantic-event.v1",
+                        "activity_id": event_id,
+                        "research_run_id": research_run_id,
+                        "timestamp": item.get("timestamp"),
+                        "plane": item.get("plane"),
+                        "event_type": item.get("event_type") or item.get("kind"),
+                        "importance": item.get("importance", "INFO"),
+                        "summary": summary,
+                        "source_type": item.get("source_type"),
+                        "source_id": item.get("source_id"),
+                    }
+                    data = json.dumps(
+                        redact_secret_keys(payload),
+                        separators=(",", ":"),
+                        ensure_ascii=True,
+                    )
+                    self.wfile.write(
+                        f"id: {event_id}\nevent: semantic_activity\ndata: {data}\n\n".encode("utf-8")
+                    )
+                    self.wfile.flush()
+                    emitted.add(event_id)
+                    cursor = event_id
+                    sent += 1
+                    if sent >= SSE_MAX_ITEMS:
+                        break
+                if not sent:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+                time.sleep(SSE_HEARTBEAT_SECONDS)
+                snapshot = self.runtime.run_analysis(research_run_id, include_observer=False)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
 
 class OperatorApiServer:
