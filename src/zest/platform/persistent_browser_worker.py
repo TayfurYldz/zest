@@ -84,6 +84,23 @@ class PersistentBrowserWorkerAdapter:
     def resource_controller(self) -> BrowserResourceController | None:
         return self._controller
 
+    def probe_startup_readiness(self) -> tuple[bool, str]:
+        """Prove Worker process startup and containment without dispatching a request.
+
+        This establishes the same supervised process and containment handshake
+        used by the first real invocation, but sends no WorkerRequest and causes
+        no target contact.
+        """
+
+        with self._lock:
+            error = self._ensure_process()
+            if error is not None:
+                return False, error
+            return (
+                True,
+                "persistent browser worker process and containment handshake ready",
+            )
+
     def invoke(
         self,
         request: Mapping[str, object],

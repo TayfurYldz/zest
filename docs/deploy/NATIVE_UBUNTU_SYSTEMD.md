@@ -95,7 +95,15 @@ sudo systemctl enable --now zest-dashboard.service
 
 Applied: `NoNewPrivileges`, `PrivateTmp`, `ProtectHome`, `ProtectSystem=strict`
 with `ReadWritePaths=/var/lib/zest /var/log/zest`, `UMask=0027`,
-`Delegate=yes` (cgroup v2 child for PersistentBrowserWorkerAdapter).
+`Delegate=yes` (cgroup v2 child for PersistentBrowserWorkerAdapter). The unit
+starts through `zest.platform.zestd_cgroup_launcher`: it moves the launcher
+into a daemon child, verifies the delegated parent is process-free, enables
+only `memory` and `pids` there, creates an empty `zest-browser-root` sibling,
+and exports that browser root as `ZEST_BROWSER_CGROUP_ROOT` before executing
+`zestd`. The browser controller creates its disposable `zest-browser-*`
+children below that root. This is required on systemd 249, where
+`DelegateSubgroup=` is unavailable. If the delegated v2 topology cannot be
+established, the launcher exits without starting `zestd`.
 
 Omitted because they break Worker/browser/cgroup:
 

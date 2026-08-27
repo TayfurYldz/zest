@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import pathsetup  # noqa: F401
 
@@ -14,6 +15,7 @@ from zest.research.context import ExternalContentSource
 from zest.research.epistemic import EpistemicClass
 from zest.research.model_port import ModelRole
 from zest.research.planning import DIAGNOSTIC_CLAIM
+from zest.research.types import ResearchInputError
 from support.fake_model import ScriptedModelPort, default_generator_output
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run, seed_spine
@@ -151,6 +153,24 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         admission = next(iter(store.research_admissions.values()))
         self.assertIsNone(admission.admitted_hypothesis_id)
         self.assertEqual(admission.reason_code, "MODEL_INVOCATION_FAILED")
+
+    def test_unsupported_model_capability_is_persisted_as_rejection(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        with patch(
+            "zest.application.propose_research_hypothesis.plan_admitted_hypothesis",
+            side_effect=ResearchInputError("unknown or unsupported capability cannot be planned"),
+        ):
+            result = _use_case(store).execute(_command())
+        self.assertEqual(result.outcome, AdmissionOutcome.REJECTED_UNSUPPORTED)
+        self.assertEqual(result.reason_code, "UNSUPPORTED_CAPABILITY")
+        self.assertIsNone(result.hypothesis_id)
+        self.assertIsNone(result.experiment_plan)
+        self.assertEqual(store.hypotheses, {})
+        admission = next(iter(store.research_admissions.values()))
+        self.assertEqual(admission.outcome, AdmissionOutcome.REJECTED_UNSUPPORTED.value)
+        self.assertEqual(admission.reason_code, "UNSUPPORTED_CAPABILITY")
+        self.assertIsNone(admission.admitted_hypothesis_id)
 
     def test_transaction_failure_does_not_leave_partial_reasoning(self) -> None:
         store = _Store()

@@ -49,6 +49,7 @@ from zest.platform.health import ComponentHealth, HealthCheck
 from zest.platform.url_normalize import normalize_url
 from zest.research.orchestration import TERMINAL_ORCHESTRATION_STATES
 from zest.research.routing import RuntimeCandidate
+from zest.tools.capabilities import BROWSER_PAGE_CAPABILITY
 
 _BLOCKING_RECONCILIATION_RESOLUTIONS = frozenset(
     {
@@ -76,6 +77,7 @@ class PreflightCheckName(Enum):
     NO_CONFLICTING_LEASE = "NO_CONFLICTING_LEASE"
     WORKER_CAPABILITIES_PRESENT = "WORKER_CAPABILITIES_PRESENT"
     WORKER_RUNTIME_HEALTHY = "WORKER_RUNTIME_HEALTHY"
+    BROWSER_RESOURCE_CONTAINMENT = "BROWSER_RESOURCE_CONTAINMENT"
     MODEL_RUNTIME_READY = "MODEL_RUNTIME_READY"
 
 
@@ -108,6 +110,7 @@ class WorkerReadinessInput:
 
     health: HealthCheck
     available_capabilities: frozenset[str] = frozenset()
+    browser_containment: HealthCheck | None = None
 
 
 @dataclass(frozen=True)
@@ -237,6 +240,8 @@ class Preflight:
                 checks.append(self._reconciliation_check(run.research_run_id))
         checks.append(_worker_capability_check(command))
         checks.append(_worker_health_check(command.worker))
+        if BROWSER_PAGE_CAPABILITY in command.required_worker_capabilities:
+            checks.append(_browser_containment_check(command.worker))
         checks.append(_model_readiness_check(command.model))
 
         status = (
@@ -497,6 +502,22 @@ def _worker_health_check(worker: WorkerReadinessInput) -> PreflightCheckResult:
         PreflightCheckName.WORKER_RUNTIME_HEALTHY,
         healthy,
         f"{worker.health.component}: {worker.health.health.value} - {worker.health.detail}",
+    )
+
+
+def _browser_containment_check(worker: WorkerReadinessInput) -> PreflightCheckResult:
+    containment = worker.browser_containment
+    if containment is None:
+        return PreflightCheckResult(
+            PreflightCheckName.BROWSER_RESOURCE_CONTAINMENT,
+            False,
+            "browser resource containment was not probed",
+        )
+    healthy = containment.health is ComponentHealth.HEALTHY
+    return PreflightCheckResult(
+        PreflightCheckName.BROWSER_RESOURCE_CONTAINMENT,
+        healthy,
+        f"{containment.component}: {containment.health.value} - {containment.detail}",
     )
 
 

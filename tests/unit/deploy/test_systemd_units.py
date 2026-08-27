@@ -41,7 +41,10 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn("Group=zest", active)
         self.assertIn("WorkingDirectory=/opt/zest/current", active)
         self.assertIn(f"EnvironmentFile={LINUX_ENV_FILE}", active)
-        self.assertIn("ExecStart=/opt/zest/current/.venv/bin/zestd", active)
+        self.assertIn(
+            "ExecStart=/opt/zest/current/.venv/bin/python -m zest.platform.zestd_cgroup_launcher -- /opt/zest/current/.venv/bin/zestd",
+            active,
+        )
         self.assertIn("Restart=on-failure", active)
         self.assertIn("RestartSec=5", active)
         self.assertIn("TimeoutStopSec=30", active)

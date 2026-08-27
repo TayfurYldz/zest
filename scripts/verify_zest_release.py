@@ -92,7 +92,7 @@ def assert_assets(root: Path) -> None:
         "Group=zest",
         "WorkingDirectory=/opt/zest/current",
         "EnvironmentFile=/etc/zest/zest.env",
-        "ExecStart=/opt/zest/current/.venv/bin/zestd",
+        "ExecStart=/opt/zest/current/.venv/bin/python -m zest.platform.zestd_cgroup_launcher -- /opt/zest/current/.venv/bin/zestd",
         "Delegate=yes",
     )
     for item in required:

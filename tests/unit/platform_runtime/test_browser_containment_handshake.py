@@ -150,6 +150,35 @@ class BrowserContainmentHandshakeTests(unittest.TestCase):
         self.assertIsNotNone(spawned_pid)
         self.assertGreater(worker_pid, 0)
 
+    def test_startup_readiness_probe_establishes_containment_without_dispatch(self) -> None:
+        controller = _RecordingController(BrowserResourceLimits())
+        adapter = self._adapter(
+            HANDSHAKE_PREAMBLE + "time.sleep(30)\n",
+            controller,
+        )
+
+        ready, detail = adapter.probe_startup_readiness()
+
+        self.assertTrue(ready)
+        self.assertIn("containment handshake ready", detail)
+        self.assertEqual(len(controller.confirmed_pids), 1)
+
+    def test_startup_readiness_probe_fails_closed_when_containment_is_unavailable(self) -> None:
+        controller = _RecordingController(
+            BrowserResourceLimits(),
+            ready=False,
+        )
+        adapter = self._adapter(
+            "import time; time.sleep(30)",
+            controller,
+        )
+
+        ready, detail = adapter.probe_startup_readiness()
+
+        self.assertFalse(ready)
+        self.assertIn("unavailable", detail.lower())
+        self.assertEqual(controller.confirmed_pids, [])
+
     def test_unavailable_enforcement_never_starts_the_browser(self) -> None:
         controller = _RecordingController(BrowserResourceLimits(), ready=False)
         adapter = self._adapter("import time; time.sleep(30)", controller)

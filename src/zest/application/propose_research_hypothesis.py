@@ -793,14 +793,40 @@ class ProposeResearchHypothesis:
         admission_record_id = new_opaque_id()
         plan = None
         if admitted and proposal is not None and challenge is not None and hypothesis_id is not None:
-            plan = plan_admitted_hypothesis(
-                hypothesis_id,
-                proposal,
-                challenge,
-                budget_id=command.budget_id,
-                target_reference=command.target_reference,
-                message=command.echo_message,
-            )
+            try:
+                plan = plan_admitted_hypothesis(
+                    hypothesis_id,
+                    proposal,
+                    challenge,
+                    budget_id=command.budget_id,
+                    target_reference=command.target_reference,
+                    message=command.echo_message,
+                )
+            except ResearchInputError as exc:
+                # Model output is research input, never execution authority.
+                # Unsupported capabilities are distinguished from other
+                # planning/input failures so the audit record remains truthful.
+                message = str(exc)
+                unsupported = (
+                    message
+                    == "unknown or unsupported capability cannot be planned"
+                )
+                admission = AdmissionDecision(
+                    outcome=(
+                        AdmissionOutcome.REJECTED_UNSUPPORTED
+                        if unsupported
+                        else AdmissionOutcome.REJECTED_UNTESTABLE
+                    ),
+                    reason=message,
+                    reason_code=(
+                        "UNSUPPORTED_CAPABILITY"
+                        if unsupported
+                        else "PLANNING_INPUT_REJECTED"
+                    ),
+                    proposal=proposal,
+                    challenge=challenge,
+                )
+                hypothesis_id = None
         identity = runtime_identity
         if identity is None:
             source = generator_result or falsifier_result

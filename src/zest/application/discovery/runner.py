@@ -46,7 +46,7 @@ from zest.data.records import (
     ObservationRecord,
 )
 from zest.platform.secrets import CompositeSecretPort
-from zest.platform.worker import WorkerPort
+from zest.platform.worker import InvocationStatus, WorkerPort
 from zest.research.discovery.canonical import canonical_key
 from zest.research.discovery.config import DiscoveryRunConfig
 from zest.research.discovery.control_resolve import LiveControlView
@@ -247,6 +247,26 @@ class SurfaceDiscoveryRunner:
             ResearchLoopStatus.DISPATCH_DENIED,
             ResearchLoopStatus.HUMAN_REVIEW_REQUIRED,
         }
+        if loop.status is ResearchLoopStatus.INVOCATION_FAILED:
+            stop_reason = (
+                "INVOCATION_START_FAILED"
+                if loop.invocation_status is InvocationStatus.START_FAILED
+                else "INVOCATION_FAILED"
+            )
+            with self._uow_factory.open() as uow:
+                # The attempt/run fault written by ExecutePlannedExperiment
+                # is the operational source of truth.  This frontier event
+                # only makes the selected discovery item terminal and prevents
+                # it from being selected again; it is not an observation.
+                self._append_event(uow, record.frontier_id, "FAILED_TERMINAL", now)
+                uow.commit()
+            return SurfaceDiscoveryCycleResult(
+                research_run_id,
+                stop_reason,
+                record.frontier_id,
+                experiment_id,
+                worker_invoked,
+            )
         if loop.status is ResearchLoopStatus.UNKNOWN_OUTCOME:
             return SurfaceDiscoveryCycleResult(
                 research_run_id, "UNKNOWN_OUTCOME", record.frontier_id, experiment_id, True

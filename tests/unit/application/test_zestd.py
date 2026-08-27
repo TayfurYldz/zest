@@ -53,7 +53,11 @@ from zest.research.orchestration import OrchestrationBounds, OrchestrationState
 from zest.research.routing import CandidateLocality, RuntimeCandidate
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
-from support.recording_worker import RecordingWorkerPort, invocation_outcome
+from support.recording_worker import (
+    RecordingWorkerPort,
+    completed_diagnostic_outcome,
+    invocation_outcome,
+)
 from support.spine import CREATED_AT, seed_authorization_run
 from zest.platform.worker import InvocationStatus
 
@@ -66,11 +70,34 @@ class FixedClock:
         return CREATED_AT
 
 
-def _healthy_worker() -> WorkerReadinessInput:
+def _healthy_browser_worker() -> WorkerReadinessInput:
     return WorkerReadinessInput(
         health=HealthCheck("worker", ComponentHealth.HEALTHY, "ok"),
-        available_capabilities=frozenset({"diagnostic.echo"}),
+        available_capabilities=frozenset({"diagnostic.echo", "browser.page"}),
+        browser_containment=HealthCheck("browser-containment", ComponentHealth.HEALTHY, "ready"),
     )
+
+
+def _completed_worker_outcome(request):
+    outcome = completed_diagnostic_outcome(request)
+    if request.get("worker_capability") != "browser.page":
+        return outcome
+    worker_result = dict(outcome.worker_result or {})
+    worker_result["worker_id"] = "local-python-browser"
+    worker_result["raw_result"] = {
+        "attempted_network_requests": 0,
+        "browser_context_reference": "ctx-1",
+        "page_reference": "page-1",
+        "snapshot_fingerprint": "fp-1",
+        "normalized_url": TARGET,
+        "path": "/",
+        "ready_state": "complete",
+        "frame_count": 1,
+        "controls": [],
+        "network_events": [],
+        "snapshot_schema_version": "browser.page.snapshot.v1",
+    }
+    return replace(outcome, worker_result=worker_result)
 
 
 def _healthy_model() -> ModelReadinessInput:
@@ -153,12 +180,12 @@ def _runtime(
     factory = FakeUnitOfWorkFactory(store=store)
     return ZestdRuntime(
         factory,
-        worker or RecordingWorkerPort(store=store),
+        worker or RecordingWorkerPort(store=store, handler=_completed_worker_outcome),
         ScriptedModelPort(),
         lease_config=LeaseConfig(heartbeat_interval_seconds=0.2, lease_ttl_seconds=0.8),
         cadence_seconds=cadence_seconds,
         probe_schema=_ok_schema,
-        probe_worker=_healthy_worker,
+        probe_worker=_healthy_browser_worker,
         probe_model=_healthy_model,
     )
 
@@ -584,7 +611,7 @@ class ZestdRuntimeTests(unittest.TestCase):
             lease_config=LeaseConfig(heartbeat_interval_seconds=0.2, lease_ttl_seconds=0.8),
             cadence_seconds=0.05,
             probe_schema=_ok_schema,
-            probe_worker=_healthy_worker,
+            probe_worker=_healthy_browser_worker,
             probe_model=_healthy_model,
         )
         self._runtime = runtime
@@ -652,7 +679,7 @@ class ZestdRuntimeTests(unittest.TestCase):
             lease_config=LeaseConfig(heartbeat_interval_seconds=0.2, lease_ttl_seconds=0.8),
             cadence_seconds=0.05,
             probe_schema=_ok_schema,
-            probe_worker=_healthy_worker,
+            probe_worker=_healthy_browser_worker,
             probe_model=lambda: ModelReadinessInput(
                 candidate=None,
                 health=HealthCheck("model", ComponentHealth.AUTH_REQUIRED, "login required"),
@@ -669,7 +696,7 @@ class ZestdRuntimeTests(unittest.TestCase):
 
     def test_drain_marks_stopped_and_is_idempotent(self) -> None:
         store = _seed()
-        worker = RecordingWorkerPort(store=store)
+        worker = RecordingWorkerPort(store=store, handler=_completed_worker_outcome)
         self._runtime = _runtime(store, worker, cadence_seconds=30)
         self._runtime.start_process()
         instance_id = self._runtime.runtime_instance_id

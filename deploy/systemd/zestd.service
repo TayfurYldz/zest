@@ -19,7 +19,7 @@ WorkingDirectory=/opt/zest/current
 EnvironmentFile=/etc/zest/zest.env
 Environment=HOME=/var/lib/zest
 Environment=XDG_CACHE_HOME=/var/lib/zest/.cache
-ExecStart=/opt/zest/current/.venv/bin/zestd
+ExecStart=/opt/zest/current/.venv/bin/python -m zest.platform.zestd_cgroup_launcher -- /opt/zest/current/.venv/bin/zestd
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

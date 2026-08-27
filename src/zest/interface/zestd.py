@@ -26,8 +26,10 @@ from zest.data.postgres.engine import (
 from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 from zest.interface.operator_api import OperatorApiServer
 from zest.platform.health import ComponentHealth, HealthCheck
+from zest.platform.browser_resource_control import BrowserResourceLimits, browser_resource_controller
 from zest.platform.worker_health import probe_local_python_worker
 from zest.integrations.observer import NvidiaCompatibleObserverProvider
+from zest.tools.registry import load_capability_registry
 
 
 def _alembic_ini() -> str:
@@ -103,9 +105,32 @@ def main(argv: list[str] | None = None) -> int:
 
     def probe_worker() -> WorkerReadinessInput:
         health = probe_local_python_worker()
+        browser_ready, browser_detail = worker.probe_startup_readiness()
+
+        browser_health = HealthCheck(
+            "browser-runtime",
+            ComponentHealth.HEALTHY
+            if browser_ready
+            else ComponentHealth.UNAVAILABLE,
+            browser_detail,
+        )
+
+        if health.health is ComponentHealth.HEALTHY and not browser_ready:
+            health = HealthCheck(
+                "worker",
+                ComponentHealth.UNAVAILABLE,
+                f"persistent browser worker unavailable: {browser_detail}",
+            )
+
+        capabilities = frozenset(
+            definition.capability_id
+            for definition in load_capability_registry().worker_definitions()
+        )
+
         return WorkerReadinessInput(
             health=health,
-            available_capabilities=frozenset({"diagnostic.echo"}),
+            available_capabilities=capabilities,
+            browser_containment=browser_health,
         )
 
     observer_settings = ObserverSettings.from_env(os.environ)

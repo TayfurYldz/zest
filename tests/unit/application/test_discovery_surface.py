@@ -29,8 +29,11 @@ from zest.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
 from zest.research.discovery.types import SURFACE_DISCOVERY_STRATEGY_VERSION
 from zest.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
-from support.recording_worker import RecordingWorkerPort
+from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.spine import CREATED_AT, seed_authorization_run
+from zest.platform.worker import InvocationStatus
+from zest.core.enums import ScopeRuleEffect
+from zest.core.scope_compiler import CompiledScope, CompiledScopeRule
 
 
 def _bounds(**overrides) -> DiscoveryBounds:
@@ -391,6 +394,57 @@ class RunnerConfigTests(unittest.TestCase):
         )
         self.assertEqual(result.stop_reason, "MAX_BROWSER_ACTIONS")
         self.assertEqual(len(worker.calls), 0)
+
+    def test_browser_invocation_start_failure_is_terminal_without_projection(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(
+            store=store,
+            outcome=invocation_outcome(
+                InvocationStatus.START_FAILED,
+                reason="browser process failed to start",
+            ),
+        )
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        result = runner.run_cycle(
+            SurfaceDiscoveryStart(
+                config=_config(),
+                compiled_scope=CompiledScope(
+                    rules=(
+                        CompiledScopeRule(
+                            rule_id="rule-allow",
+                            effect=ScopeRuleEffect.ALLOW,
+                            scheme="http",
+                            host="127.0.0.1",
+                            host_pattern=None,
+                            port=9,
+                            path_prefix=None,
+                            source_reference="scope-src",
+                            expires_at=None,
+                        ),
+                    )
+                ),
+            ),
+            budget_id="budget-1",
+            target_reference="http://127.0.0.1:9/",
+            scope=_scope(),
+        )
+        self.assertEqual(result.stop_reason, "INVOCATION_START_FAILED")
+        self.assertTrue(result.worker_invoked)
+        self.assertEqual(store.worker_results, {})
+        self.assertEqual(store.observations, {})
+        self.assertEqual(store.evidence, {})
+        self.assertEqual(len(store.run_faults), 1)
+        fault = next(iter(store.run_faults.values()))
+        self.assertEqual(fault.fault_code, "INVOCATION_START_FAILED")
+        self.assertEqual(fault.component, "EXECUTION")
+        event_kinds = [
+            item.event_kind
+            for item in store.frontier_events.values()
+            if item.frontier_id == result.frontier_id
+        ]
+        self.assertIn("FAILED_TERMINAL", event_kinds)
 
     def test_reobserve_does_not_respin_when_inspect_path_exists(self) -> None:
         store = _Store()

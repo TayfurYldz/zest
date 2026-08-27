@@ -187,13 +187,31 @@ class LocalRunSupervisor:
                     # The original supervisor fault remains an operational
                     # failure even when its persistence path is unavailable.
                     pass
+                try:
+                    result = self.controller.stop_for_operational_failure(
+                        self.research_run_id,
+                        phase="supervisor_fault",
+                    )
+                except (
+                    ApplicationError,
+                    PersistenceError,
+                    LeaseFencingError,
+                    TerminalOrchestrationStateError,
+                ):
+                    # If PostgreSQL/fencing prevents the authoritative
+                    # transition, preserve the original durable RunFault and
+                    # stop. Recovery/reconciliation will classify the row.
+                    with self.uow_factory.open() as uow:
+                        record = uow.research_orchestrations.get(self.research_run_id)
+                        uow.rollback()
+                    result = (
+                        _result_from_persisted(record)
+                        if record is not None
+                        else None
+                    )
+
                 self._stop_event.set()
-                with self.uow_factory.open() as uow:
-                    record = uow.research_orchestrations.get(self.research_run_id)
-                    uow.rollback()
-                self._last_result = (
-                    _result_from_persisted(record) if record is not None else None
-                )
+                self._last_result = result
                 return self._last_result
         else:
             result = _result_from_persisted(record)

@@ -53,6 +53,14 @@ def _healthy_worker() -> WorkerReadinessInput:
     )
 
 
+def _healthy_browser_worker() -> WorkerReadinessInput:
+    return WorkerReadinessInput(
+        health=HealthCheck("worker", ComponentHealth.HEALTHY, "diagnostic echo ok"),
+        available_capabilities=frozenset({"diagnostic.echo", "browser.page"}),
+        browser_containment=HealthCheck("browser-containment", ComponentHealth.HEALTHY, "ready"),
+    )
+
+
 def _healthy_model() -> ModelReadinessInput:
     candidate = RuntimeCandidate(
         identity=api_runtime_identity(adapter_id="openai.responses", runtime_id="openai.responses"),
@@ -291,6 +299,40 @@ class PreflightTests(unittest.TestCase):
         report = Preflight(FakeUnitOfWorkFactory(store), clock=FixedClock()).execute(command)
         self.assertEqual(report.status, PreflightStatus.NOT_READY)
         self.assertFalse(_checks_by_name(report, PreflightCheckName.WORKER_CAPABILITIES_PRESENT)[0].passed)
+
+    def test_browser_discovery_requires_resource_containment(self) -> None:
+        store = self._store()
+        command = _command(
+            worker=WorkerReadinessInput(
+                health=HealthCheck("worker", ComponentHealth.HEALTHY, "diagnostic echo ok"),
+                available_capabilities=frozenset({"diagnostic.echo", "browser.page"}),
+                browser_containment=HealthCheck(
+                    "browser-containment", ComponentHealth.UNAVAILABLE, "delegation unavailable"
+                ),
+            ),
+            required_worker_capabilities=frozenset({"browser.page"}),
+        )
+        report = Preflight(FakeUnitOfWorkFactory(store), clock=FixedClock()).execute(command)
+        self.assertEqual(report.status, PreflightStatus.NOT_READY)
+        check = _checks_by_name(report, PreflightCheckName.BROWSER_RESOURCE_CONTAINMENT)[0]
+        self.assertFalse(check.passed)
+
+    def test_browser_discovery_is_ready_when_containment_is_ready(self) -> None:
+        store = self._store()
+        report = Preflight(FakeUnitOfWorkFactory(store), clock=FixedClock()).execute(
+            _command(
+                worker=_healthy_browser_worker(),
+                required_worker_capabilities=frozenset({"browser.page"}),
+            )
+        )
+        self.assertEqual(report.status, PreflightStatus.READY_TO_START)
+        self.assertTrue(_checks_by_name(report, PreflightCheckName.BROWSER_RESOURCE_CONTAINMENT)[0].passed)
+
+    def test_non_browser_preflight_does_not_require_containment_probe(self) -> None:
+        store = self._store()
+        report = Preflight(FakeUnitOfWorkFactory(store), clock=FixedClock()).execute(_command())
+        self.assertEqual(report.status, PreflightStatus.READY_TO_START)
+        self.assertEqual(_checks_by_name(report, PreflightCheckName.BROWSER_RESOURCE_CONTAINMENT), [])
 
     def test_unavailable_worker_denies(self) -> None:
         store = self._store()

@@ -80,6 +80,7 @@ from zest.data.errors import (
 from zest.data.records import AuditEventRecord, RuntimeInstanceRecord
 from zest.platform.worker import WorkerPort
 from zest.research.model_port import ModelPort
+from zest.tools.capabilities import BROWSER_PAGE_CAPABILITY
 from zest.research.orchestration import OrchestrationState
 from zest.safe_data import redact_secret_keys
 
@@ -637,7 +638,14 @@ class ZestdRuntime:
                 schema=self._probe_schema(),
                 worker=self._probe_worker(),
                 model=self._probe_model(),
-                required_worker_capabilities=self._required_worker_capabilities,
+                required_worker_capabilities=(
+                    self._required_worker_capabilities
+                    | (
+                        frozenset({BROWSER_PAGE_CAPABILITY})
+                        if command.surface_discovery is not None
+                        else frozenset()
+                    )
+                ),
                 requesting_owner_runtime_instance_id=self.runtime_instance_id,
                 check_reconciliation=check_reconciliation,
             )

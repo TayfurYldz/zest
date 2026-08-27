@@ -369,6 +369,57 @@ class AutonomousResearchController:
             CycleOutcome.COMPLETE,
         )
 
+    def stop_for_operational_failure(
+        self,
+        research_run_id: str,
+        *,
+        phase: str = "runtime_fault",
+    ) -> OrchestrationTickResult:
+        """Fail an actively-owned orchestration without creating research truth."""
+
+        now = self._clock.now()
+        with self._uow_factory.open() as uow:
+            current = uow.research_orchestrations.get(research_run_id)
+            if current is None:
+                raise ApplicationError("orchestration not found")
+
+            if current.state not in {
+                OrchestrationState.READY.value,
+                OrchestrationState.RUNNING.value,
+            }:
+                uow.rollback()
+                return _result_from_record(current, CycleOutcome.CONTINUE)
+
+            updated = replace(
+                current,
+                state=OrchestrationState.FAILED_OPERATIONAL.value,
+                stop_reason=StopReason.OPERATIONAL_FAILURE.value,
+                last_phase=phase,
+                updated_at=now,
+                checkpoint_at=now,
+            )
+
+            uow.research_orchestrations.save(updated)
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id=self._actor_id,
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type="ORCHESTRATION_OPERATIONAL_FAILURE",
+                    subject_type="research_run",
+                    subject_id=research_run_id,
+                    payload={
+                        "previous_state": current.state,
+                        "phase": phase,
+                        "not_research_truth": True,
+                    },
+                )
+            )
+            uow.commit()
+
+        return _result_from_record(updated, CycleOutcome.BLOCKED)
+
     def step(self, command: StartAutonomousResearchCommand) -> OrchestrationTickResult:
         current = self._reload(command.research_run_id)
         config = configuration_from_record(current)
@@ -830,6 +881,22 @@ class AutonomousResearchController:
                 current,
                 StopReason.OPERATIONAL_FAILURE,
                 "unknown_outcome",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        if result.stop_reason == "INVOCATION_START_FAILED":
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "discovery_invocation_start_failed",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        if result.stop_reason == "INVOCATION_FAILED":
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "discovery_invocation_failed",
                 experiment_id=result.experiment_id,
                 increment_cycle=True,
             )
