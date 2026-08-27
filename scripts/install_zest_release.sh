@@ -186,11 +186,14 @@ fi
 "${RELEASE_DIR}/.venv/bin/python" "${RELEASE_DIR}/scripts/verify_zest_release.py" "${VERIFY_ARGS[@]}"
 
 chown -R "root:${SERVICE_GROUP}" "$RELEASE_DIR"
+
+# Tighten release permissions without destroying executable bits installed by
+# packages. Playwright, for example, requires its driver/node helper outside
+# .venv/bin at runtime.
 find "$RELEASE_DIR" -type d -exec chmod 0750 {} +
-find "$RELEASE_DIR" -type f -exec chmod 0640 {} +
-if [[ -d "${RELEASE_DIR}/.venv/bin" ]]; then
-  find "${RELEASE_DIR}/.venv/bin" -type f -exec chmod 0750 {} +
-fi
+find "$RELEASE_DIR" -type f -perm /111 -exec chmod 0750 {} +
+find "$RELEASE_DIR" -type f ! -perm /111 -exec chmod 0640 {} +
+
 chmod 0750 "${RELEASE_DIR}/scripts/"*.sh "${RELEASE_DIR}/scripts/"*.py 2>/dev/null || true
 
 # Provision the Playwright-managed Chromium revision for the actual service

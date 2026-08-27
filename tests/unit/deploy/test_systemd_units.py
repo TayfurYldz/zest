@@ -153,6 +153,25 @@ class PackagingAndEnvTests(unittest.TestCase):
         self.assertNotIn("--check-alembic-heads", pre_venv)
         self.assertNotIn("--check-db", pre_venv)
 
+    def test_install_permission_hardening_preserves_runtime_executables(self) -> None:
+        text = INSTALL_SH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'find "$RELEASE_DIR" -type f -perm /111 -exec chmod 0750 {} +',
+            text,
+        )
+        self.assertIn(
+            'find "$RELEASE_DIR" -type f ! -perm /111 -exec chmod 0640 {} +',
+            text,
+        )
+
+        # A blanket chmod 0640 breaks package-owned runtime helpers such as
+        # Playwright's driver/node outside .venv/bin.
+        self.assertNotIn(
+            'find "$RELEASE_DIR" -type f -exec chmod 0640 {} +',
+            text,
+        )
+
     def test_install_script_provisions_browser_runtime_before_publish(self) -> None:
         text = INSTALL_SH.read_text(encoding="utf-8")
 
