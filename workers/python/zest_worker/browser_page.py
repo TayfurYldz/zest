@@ -20,7 +20,7 @@ from .browser_envelope import parse_envelope
 
 BROWSER_PAGE_CAPABILITY = "browser.page"
 SNAPSHOT_SCHEMA_VERSION = "browser.page.snapshot.v1"
-ALLOWED_SCHEMES = frozenset({"http"})
+ALLOWED_SCHEMES = frozenset({"http", "https"})
 INTERACT_KINDS = frozenset({"click", "fill", "select", "submit"})
 FORBIDDEN_HEADERS = frozenset(
     {"cookie", "cookie2", "set-cookie", "authorization", "proxy-authorization"}
@@ -355,7 +355,7 @@ def _reject_origin(origin: str) -> str | None:
     except ValueError:
         return "authorized_origin is invalid"
     if parsed.scheme not in ALLOWED_SCHEMES:
-        return "scheme must be http"
+        return "scheme must be http or https"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
     if parsed.path not in {"", "/"}:

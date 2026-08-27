@@ -24,7 +24,7 @@ from zest.core.enums import (
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.errors import PersistenceConflictError, PersistenceError
 from zest.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord, RateLimitProfileRecord
-from zest.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from zest.research.planning import human_seeded_hypothesis, plan_diagnostic_echo
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import (
@@ -346,6 +346,52 @@ class TransactionPhaseTests(unittest.TestCase):
         self.assertEqual(len(store.worker_results), 0)
         attempt = next(iter(store.execution_attempts.values()))
         self.assertEqual(attempt.state, "DISPATCHING")
+
+
+class WorkerResultClassificationTests(unittest.TestCase):
+    def test_completed_blocked_worker_result_does_not_mark_experiment_succeeded(self) -> None:
+        store = _Store()
+        seed_spine(store)
+
+        def blocked_worker(request):
+            return WorkerInvocationOutcome(
+                invocation_status=InvocationStatus.COMPLETED,
+                started_at=CREATED_AT,
+                completed_at=CREATED_AT,
+                worker_result={
+                    "contract_version": "v1",
+                    "correlation": dict(request["correlation"]),
+                    "worker_id": "blocked-test-worker",
+                    "status": "BLOCKED",
+                    "started_at": CREATED_AT.isoformat(),
+                    "completed_at": CREATED_AT.isoformat(),
+                    "raw_result": {},
+                    "diagnostics": {
+                        "error": "policy blocked before target contact",
+                        "contacted": False,
+                        "self_authorized": False,
+                    },
+                },
+                exit_code=0,
+            )
+
+        worker = RecordingWorkerPort(
+            store=store,
+            handler=blocked_worker,
+        )
+        use_case, factory, _ = _use_case(store, worker=worker)
+
+        outcome = use_case.execute(_command())
+
+        self.assertEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        self.assertEqual(outcome.attempt_state, ExecutionAttemptState.COMPLETED.value)
+        self.assertEqual(outcome.experiment_execution_state, "BLOCKED")
+        self.assertEqual(factory.store.experiments["exp-1"].execution_state, "BLOCKED")
+        self.assertEqual(len(factory.store.observations), 0)
+
+        results = list(factory.store.worker_results.values())
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "BLOCKED")
 
 
 class ResultAndFalsePositiveTests(unittest.TestCase):

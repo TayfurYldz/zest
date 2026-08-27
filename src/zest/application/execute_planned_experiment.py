@@ -1233,6 +1233,12 @@ def _classify_invocation(
                 ExperimentExecutionState.BUDGET_EXHAUSTED.value,
                 ResearchLoopStatus.DISPATCH_DENIED,
             )
+        if result.get("status") == "BLOCKED":
+            return (
+                ExecutionAttemptState.COMPLETED.value,
+                ExperimentExecutionState.BLOCKED.value,
+                ResearchLoopStatus.NO_OBSERVATION,
+            )
         return (
             ExecutionAttemptState.COMPLETED.value,
             ExperimentExecutionState.EXECUTION_SUCCEEDED.value,

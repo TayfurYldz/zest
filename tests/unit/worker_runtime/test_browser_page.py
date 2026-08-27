@@ -87,6 +87,47 @@ class BrowserPageWorkerTests(unittest.TestCase):
         for control in raw["controls"]:
             self.assertNotIn("value", control)
 
+    def test_https_origin_is_supported_and_other_schemes_remain_blocked(self) -> None:
+        https_origin = "https://127.0.0.1:443"
+        self.engine.seed_page(
+            f"{https_origin}/secure",
+            {"html": "<p>secure</p>"},
+        )
+
+        https_envelope = {
+            **_envelope(path="/secure"),
+            "normalized_scheme": "https",
+            "normalized_port": 443,
+        }
+
+        status, raw, diagnostics = self._execute(
+            _request(
+                "navigate",
+                {
+                    "authorized_origin": https_origin,
+                    "path": "/secure",
+                },
+                network_envelope=https_envelope,
+            )
+        )
+
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNone(diagnostics)
+        self.assertGreaterEqual(raw["attempted_network_requests"], 1)
+
+        status, _, diagnostics = self._execute(
+            _request(
+                "navigate",
+                {
+                    "authorized_origin": "ftp://127.0.0.1",
+                    "path": "/secure",
+                },
+            )
+        )
+
+        self.assertEqual(status, "BLOCKED")
+        self.assertIn("scheme", diagnostics["error"])
+
     def test_stale_element_and_snapshot_rejected(self) -> None:
         status, raw, _ = self._execute(
             _request("navigate", {"authorized_origin": ORIGIN, "path": "/app"})
