@@ -1,8 +1,8 @@
 import { getAnalysis, getDashboard, postRunAction, semanticEventsUrl } from "./api.js";
 import { createStore } from "./state.js";
-import { escapeHtml, statusChip } from "./components.js";
+import { escapeHtml } from "./components.js";
 import { createInspector } from "./inspector.js";
-import { render as renderMission } from "./views/mission.js";
+import { appendLiveEvent, bind as bindMission, render as renderMission } from "./views/mission.js";
 import { render as renderSurface } from "./views/surface.js";
 import { render as renderResearch } from "./views/research.js";
 import { render as renderExperiments } from "./views/experiments.js";
@@ -11,13 +11,13 @@ import { render as renderAudit } from "./views/audit.js";
 import { bind as bindSetup, render as renderSetup } from "./views/setup.js";
 
 const views = [
-  ["mission", "01", "Mission / Live", "Selected-run operational cockpit", renderMission],
-  ["research", "02", "Research", "Intent, verification, and false-positive boundaries", renderResearch],
-  ["execution", "03", "Execution", "Plans, attempts, and worker outcomes", renderExperiments],
-  ["surface", "04", "Surface", "Persisted surface intelligence", renderSurface],
-  ["evidence", "05", "Evidence", "Observation, evidence, and review boundaries", renderEvidence],
-  ["authority", "06", "Authority", "Scope, authorization, and reconciliation", renderAudit],
-  ["setup", "07", "Program Setup", "Bounded configuration bootstrap", renderSetup],
+  ["mission", "01", "Canlı Operasyon", "Seçili çalışmanın operasyonel görünümü", renderMission],
+  ["research", "02", "Araştırma", "Niyet, doğrulama ve false-positive sınırları", renderResearch],
+  ["execution", "03", "Programlar", "Planlar, denemeler ve worker sonuçları", renderExperiments],
+  ["surface", "04", "Kanıtlar", "Kayıtlı yüzey bilgisi", renderSurface],
+  ["evidence", "05", "Bulgular", "Observation, evidence ve inceleme sınırları", renderEvidence],
+  ["authority", "06", "Politika", "Scope, authorization ve uzlaştırma", renderAudit],
+  ["setup", "07", "Ayarlar", "Sınırları belirlenmiş yapılandırma", renderSetup],
 ];
 
 const descriptions = new Map(views.map(([id, _index, title, description]) => [id, { title, description }]));
@@ -29,23 +29,13 @@ const inspector = createInspector(document.querySelector("#inspector"), () => st
 
 function renderTruthStrip(analysis, selectedRun) {
   const element = document.querySelector("#truthStrip");
-  if (!selectedRun) {
-    element.innerHTML = `<div class="truth-strip-empty"><span class="section-label">Truth strip</span><strong>NO RUN SELECTED</strong><span class="muted">Choose a persisted run to load authoritative state.</span></div>`;
-    return;
-  }
-  const truth = analysis?.truth;
-  if (!truth) {
-    element.innerHTML = `<div class="truth-strip-empty"><span class="section-label">Truth strip</span><strong>${escapeHtml(selectedRun.research_run_id)}</strong><span class="muted">Analysis unavailable · operational truth is UNKNOWN</span>${statusChip("UNKNOWN")}</div>`;
-    return;
-  }
-  const items = [
-    ["effective state", truth.effective_operational_state],
-    ["lifecycle", truth.persisted_lifecycle_state],
-    ["phase", truth.current_phase],
-    ["runtime", truth.runtime_liveness],
-    ["attention", truth.human_attention_required ? "REQUIRED" : "NONE"],
-  ];
-  element.innerHTML = `<div class="truth-strip-heading"><span class="section-label">Truth strip</span><span class="mono">${escapeHtml(truth.research_run_id || selectedRun.research_run_id)}</span></div><div class="truth-strip-values">${items.map(([label, value]) => `<div class="truth-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value ?? "UNKNOWN"))}</strong></div>`).join("")}</div>`;
+  element.hidden = true;
+  element.innerHTML = "";
+}
+
+function translateState(value) {
+  const labels = { RUNNING: "ÇALIŞIYOR", ACTIVE: "AKTİF", EXECUTING: "YÜRÜTÜLÜYOR", PAUSED: "DURAKLATILDI", WAITING: "BEKLİYOR", WAITING_HUMAN: "İNSAN BEKLENİYOR", STOPPED: "DURDURULDU", FAILED: "HATA", RUNTIME_FAULT: "RUNTIME HATASI", COMPLETED: "TAMAMLANDI", READY: "HAZIR", LIVE: "CANLI", UNKNOWN: "BİLİNMİYOR" };
+  return labels[String(value || "UNKNOWN").toUpperCase()] || String(value || "BİLİNMİYOR");
 }
 
 function currentRun(snapshot, id) {
@@ -59,7 +49,10 @@ function registerRecord(key, record) {
 }
 
 function updateNavigation(active) {
-  nav.innerHTML = views.map(([id, index, title]) => `<button class="nav-item" type="button" data-view="${id}" aria-label="${escapeHtml(title)}" aria-current="${id === active ? "page" : "false"}"><span class="nav-index">${index}</span>${escapeHtml(title)}</button>`).join("");
+  const workspace = new Set(["mission", "execution", "research", "surface", "evidence"]);
+  const labels = { mission: "Genel Bakış", execution: "Programlar", research: "Araştırma", surface: "Kanıtlar", evidence: "Bulgular", authority: "Politika", setup: "Ayarlar" };
+  const button = ([id, index, title]) => `<button class="nav-item ${workspace.has(id) ? "nav-workspace" : "nav-system"}" type="button" data-view="${id}" aria-label="${escapeHtml(labels[id] || title)}" title="${escapeHtml(labels[id] || title)}" aria-current="${id === active ? "page" : "false"}"><span class="nav-index" aria-hidden="true">${index}</span><span class="nav-label">${labels[id] || escapeHtml(title)}</span></button>`;
+  nav.innerHTML = `<div class="nav-group"><span class="rail-group-label">Workspace</span>${views.filter(([id]) => workspace.has(id)).map(button).join("")}</div><div class="nav-group nav-group-system"><span class="rail-group-label">System</span>${views.filter(([id]) => !workspace.has(id)).map(button).join("")}</div>`;
 }
 
 function render() {
@@ -70,22 +63,26 @@ function render() {
   document.querySelector("#viewTitle").textContent = metadata.title;
   document.querySelector("#viewDescription").textContent = metadata.description;
   const context = { ...state, snapshot: state.dashboardSnapshot, analysis: state.selectedAnalysis, registerRecord, refreshDashboard };
-  root.innerHTML = state.dashboardError && !state.dashboardSnapshot ? `<div class="notice notice-danger">Dashboard unavailable: ${escapeHtml(state.dashboardError)}</div>` : view[0] === "setup" ? renderSetup(context) : view[4](context);
+  root.innerHTML = state.dashboardError && !state.dashboardSnapshot ? `<div class="notice notice-danger">Dashboard kullanılamıyor: ${escapeHtml(state.dashboardError)}</div>` : view[0] === "setup" ? renderSetup(context) : view[4](context);
   if (view[0] === "setup") bindSetup(context);
+  if (view[0] === "mission") bindMission(root);
   const selected = currentRun(state.dashboardSnapshot, state.selectedRunId);
   renderTruthStrip(state.selectedAnalysis, selected);
   renderTransport(state);
-  document.querySelector("#contextSummary").textContent = selected ? `${selected.program_id || "program UNKNOWN"} / ${selected.research_run_id} / ${selected.state || "UNKNOWN"}` : "No research run selected — projection idle";
+  document.querySelector("#contextSummary").textContent = selected ? (selected.program_id || selected.research_run_id || "Seçili çalışma") : "Seçili çalışma yok";
   const health = state.dashboardSnapshot?.operator?.database?.health || state.dashboardSnapshot?.database?.state || "UNKNOWN";
   const healthChip = document.querySelector("#healthChip");
-  healthChip.textContent = String(health).toUpperCase();
-  healthChip.className = `status-chip status-${/healthy|available|pass/.test(String(health).toLowerCase()) ? "healthy" : "unknown"}`;
+  const healthIsRelevant = health && !/healthy|available|pass/i.test(String(health)) && String(health).toUpperCase() !== "UNKNOWN";
+  const hasHealth = Boolean(healthIsRelevant);
+  healthChip.hidden = !hasHealth;
+  healthChip.textContent = hasHealth ? "Dikkat gerekli" : "";
+  healthChip.className = "status-chip status-warning";
   const selector = document.querySelector("#runSelector");
   const runs = state.dashboardSnapshot?.database?.runs || [];
-  selector.innerHTML = `<option value="">No run selected</option>${runs.map((run) => `<option value="${escapeHtml(run.research_run_id)}">${escapeHtml(run.research_run_id)} · ${escapeHtml(run.state || "UNKNOWN")}</option>`).join("")}`;
+  selector.innerHTML = `<option value="">Seçili çalışma yok</option>${runs.map((run) => `<option value="${escapeHtml(run.research_run_id)}">${escapeHtml(run.research_run_id)}</option>`).join("")}`;
   selector.value = state.selectedRunId;
-  if (state.analysisLoading) root.insertAdjacentHTML("afterbegin", `<div class="notice">Loading selected-run analysis…</div>`);
-  if (state.analysisError) root.insertAdjacentHTML("afterbegin", `<div class="notice notice-danger">Analysis unavailable: ${escapeHtml(state.analysisError)}</div>`);
+  if (state.analysisLoading) root.insertAdjacentHTML("afterbegin", `<div class="notice">Seçili çalışma analizi yükleniyor…</div>`);
+  if (state.analysisError) root.insertAdjacentHTML("afterbegin", `<div class="notice notice-danger">Analiz kullanılamıyor: ${escapeHtml(state.analysisError)}</div>`);
 }
 
 let dashboardTimer = null;
@@ -94,12 +91,16 @@ let analysisKey = "";
 let eventSource = null;
 let transportPollTimer = null;
 let transportRunId = "";
+let transportCursor = "";
+let backgroundAnalysisRun = "";
 
 function renderTransport(state) {
   const chip = document.querySelector("#transportChip");
   const value = state.transportState || "OFFLINE";
+  const labels = { LIVE: "Canlı", RECONNECTING: "Yeniden bağlanıyor…", POLLING: "Yedek bağlantı · Polling", OFFLINE: "Bağlantı kesildi" };
   const classes = { LIVE: "active", RECONNECTING: "warning", POLLING: "info", OFFLINE: "unknown" };
-  chip.textContent = value;
+  chip.hidden = value === "LIVE";
+  chip.textContent = labels[value] || value;
   chip.className = `status-chip status-${classes[value] || "unknown"}`;
 }
 
@@ -113,6 +114,7 @@ function stopLiveTransport() {
 
 function startLiveTransport(runId) {
   stopLiveTransport();
+  transportCursor = "";
   store.update({ transportState: runId ? "RECONNECTING" : "OFFLINE", lastEventId: "" });
   if (!runId) return;
   transportRunId = runId;
@@ -140,9 +142,13 @@ function startLiveTransport(runId) {
   };
   const handleSemanticEvent = (event) => {
     if (transportRunId !== runId || store.getState().selectedRunId !== runId) return;
-    if (event.lastEventId && event.lastEventId === store.getState().lastEventId) return;
-    store.update({ lastEventId: event.lastEventId || "" });
-    loadAnalysis(runId, { preserve: true });
+    const payload = (() => { try { return JSON.parse(event.data || "{}"); } catch { return null; } })();
+    const lastEventId = event.lastEventId || payload?.activity_id || "";
+    if (lastEventId && lastEventId === transportCursor) return;
+    transportCursor = lastEventId;
+    if (lastEventId) store.update({ lastEventId }, { notify: false });
+    if (payload) appendLiveEvent(payload, registerRecord);
+    loadAnalysis(runId, { preserve: true, background: true });
   };
   eventSource.onmessage = handleSemanticEvent;
   eventSource.addEventListener("semantic_activity", handleSemanticEvent);
@@ -170,16 +176,20 @@ async function refreshDashboard() {
   }
 }
 
-async function loadAnalysis(runId, { preserve = false } = {}) {
+async function loadAnalysis(runId, { preserve = false, background = false } = {}) {
   if (!runId) { analysisKey = ""; store.update({ selectedAnalysis: null, analysisError: "", analysisLoading: false }); return; }
+  if (background && backgroundAnalysisRun === runId) return;
   if (analysisKey === runId && store.getState().analysisLoading) return;
   analysisKey = runId;
-  store.update({ ...(preserve ? {} : { selectedAnalysis: null }), analysisError: "", analysisLoading: true });
+  backgroundAnalysisRun = background ? runId : "";
+  if (!background) store.update({ ...(preserve ? {} : { selectedAnalysis: null }), analysisError: "", analysisLoading: true });
   try {
     const analysis = await getAnalysis(runId);
-    if (store.getState().selectedRunId === runId) store.update({ selectedAnalysis: analysis, analysisLoading: false });
+    if (store.getState().selectedRunId === runId) store.update({ selectedAnalysis: analysis, analysisLoading: false }, { notify: !background });
   } catch (error) {
-    if (store.getState().selectedRunId === runId) store.update({ analysisError: error.message, analysisLoading: false });
+    if (store.getState().selectedRunId === runId && !background) store.update({ analysisError: error.message, analysisLoading: false });
+  } finally {
+    if (backgroundAnalysisRun === runId) backgroundAnalysisRun = "";
   }
 }
 
@@ -190,6 +200,12 @@ nav.addEventListener("click", (event) => {
 });
 document.querySelector("#runSelector").addEventListener("change", (event) => { analysisKey = ""; store.update({ selectedRunId: event.target.value, selectedAnalysis: null, analysisError: "" }); startLiveTransport(event.target.value); loadAnalysis(event.target.value); });
 document.querySelector("#refreshButton").addEventListener("click", refreshDashboard);
+document.querySelector("#mobileNavToggle").addEventListener("click", () => {
+  const open = document.body.classList.toggle("mobile-nav-open");
+  const toggle = document.querySelector("#mobileNavToggle");
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.setAttribute("aria-label", open ? "Menüyü kapat" : "Menüyü aç");
+});
 root.addEventListener("click", async (event) => {
   const recordButton = event.target.closest("button[data-inspector-key]");
   if (recordButton) {
@@ -205,6 +221,12 @@ root.addEventListener("click", async (event) => {
   try { await postRunAction(runId, action); await refreshDashboard(); await loadAnalysis(runId); }
   catch (error) { actionButton.insertAdjacentHTML("afterend", `<span class="control-status">${escapeHtml(error.message)}</span>`); }
   finally { actionButton.disabled = false; }
+});
+nav.addEventListener("click", () => {
+  document.body.classList.remove("mobile-nav-open");
+  const toggle = document.querySelector("#mobileNavToggle");
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-label", "Menüyü aç");
 });
 
 store.subscribe(render);

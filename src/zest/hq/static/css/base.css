@@ -1,18 +1,18 @@
 * { box-sizing: border-box; }
-html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; }
-body { line-height: 1.45; }
+html, body { min-height: 100%; margin: 0; background: var(--z-canvas); color: var(--z-text-primary); font-family: var(--font-sans); font-size: 14px; }
+body { line-height: 1.5; font-weight: 500; }
 button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .52; }
 a { color: var(--accent); }
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: clamp(20px, 2vw, 28px); letter-spacing: -.02em; }
+h1 { font-size: 24px; letter-spacing: -.02em; }
 h2 { font-size: 17px; }
 h3 { font-size: 14px; }
 .muted { color: var(--muted); }
 .subtle { color: var(--subtle); }
-.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: -.01em; }
-.eyebrow, .rail-label, .section-label { color: var(--subtle); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; letter-spacing: -.01em; }
+.eyebrow, .rail-label, .rail-group-label, .section-label { color: var(--z-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: 20; transform: translateY(-150%); padding: 8px 12px; background: var(--accent); color: #111; border-radius: var(--radius-xs); }
 .skip-link:focus { transform: translateY(0); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

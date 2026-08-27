@@ -15,28 +15,25 @@
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <div id="app" class="app-shell">
       <header class="context-bar" aria-label="Global operational context">
-        <div class="brand-lockup">
-          <span class="brand-mark" aria-hidden="true">Z</span>
-          <span><strong>Zest</strong><small>Research operations cockpit</small></span>
-        </div>
-        <div id="contextSummary" class="context-summary" aria-live="polite">Loading operational context…</div>
+        <div class="brand-lockup"><strong>ZEST</strong></div>
+        <button id="mobileNavToggle" class="mobile-nav-toggle" type="button" aria-controls="primaryNav" aria-expanded="false" aria-label="Menüyü aç"><span aria-hidden="true">☰</span></button>
+        <div id="contextSummary" class="context-summary" aria-live="polite">Operasyon bağlamı yükleniyor…</div>
         <div class="context-actions">
           <span id="transportChip" class="status-chip status-unknown" aria-live="polite">OFFLINE</span>
           <span id="healthChip" class="status-chip status-unknown">UNKNOWN</span>
-          <button id="refreshButton" class="button button-quiet" type="button">Refresh</button>
+          <button id="refreshButton" class="button button-quiet" type="button" aria-label="Yenile"><span aria-hidden="true">↻</span> <span>Yenile</span></button>
         </div>
       </header>
       <div class="shell-body">
         <aside class="primary-rail" aria-label="Primary navigation">
-          <div class="rail-label">Operational planes</div>
           <nav id="primaryNav" class="primary-nav"></nav>
-          <div class="rail-footer">Projection only<br><span class="mono">PostgreSQL / source of truth</span></div>
+          <div class="rail-footer"><span class="core-status" aria-hidden="true">●</span> Core hazır <span class="mono">0.1.0</span></div>
         </aside>
         <main id="main-content" class="main-content" tabindex="-1">
-          <section id="truthStrip" class="truth-strip" aria-label="Selected run truth" aria-live="polite"></section>
+          <section id="truthStrip" class="truth-strip" aria-label="Seçili çalışma gerçeği" aria-live="polite"></section>
           <div class="workspace-heading">
-            <div><h1 id="viewTitle">Mission / Live</h1><p id="viewDescription" class="muted">Authoritative selected-run projection.</p></div>
-            <div id="runSelectorWrap" class="run-selector-wrap"><label for="runSelector">Selected run</label><select id="runSelector"><option value="">No run selected</option></select></div>
+            <div><h1 id="viewTitle">Canlı Operasyon</h1><p id="viewDescription" class="muted">Seçili çalışmanın operasyonel görünümü.</p></div>
+            <div id="runSelectorWrap" class="run-selector-wrap"><label for="runSelector">Seçili çalışma</label><select id="runSelector"><option value="">Seçili çalışma yok</option></select></div>
           </div>
           <div id="viewRoot" class="view-root" aria-live="polite"></div>
         </main>
@@ -45,6 +42,7 @@
       <aside id="inspector" class="inspector" role="dialog" aria-modal="true" aria-label="Record inspector" aria-hidden="true" hidden></aside>
     </div>
     <script type="module" src="/static/js/app.js"></script>
+    <!-- Projection only: all displayed state is a read-model projection. -->
     <!-- HQ-B1 bootstrap contract remains in the modular setup view: /api/dashboard, /api/programs/bootstrap, const form = event.currentTarget;, new FormData(form), form.reset();, if (submit.disabled) return;, submit.disabled = true;, submit.disabled = false;, status.textContent = `error: ${err.message}`; -->
   </body>
 </html>

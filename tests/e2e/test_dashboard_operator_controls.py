@@ -212,18 +212,16 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             try:
                 page.goto(self.url, wait_until="domcontentloaded")
-                page.locator("#truthStrip").get_by_text("RUNNING", exact=True).first.wait_for(state="visible")
+                page.locator(".zest-head-meta").get_by_text("Çalışıyor", exact=True).wait_for(state="visible")
                 page.locator("#transportChip").wait_for(state="visible")
-                page.wait_for_function("document.querySelector('#transportChip').textContent === 'POLLING'")
+                page.wait_for_function("document.querySelector('#transportChip').textContent === 'Yedek bağlantı · Polling'")
 
-                page.get_by_role("button", name="Mission / Live", exact=True).click()
-                page.get_by_text("AI Observer", exact=True).wait_for(state="visible")
-                page.get_by_text("Non-authoritative narrator", exact=True).wait_for(state="visible")
-                page.get_by_role("button", name="Research", exact=True).click()
+                page.get_by_role("button", name="Genel Bakış", exact=True).click()
+                page.get_by_role("button", name="Araştırma", exact=True).click()
                 page.get_by_text("Research Intent", exact=True).wait_for(state="visible")
                 page.get_by_text("Verification / false-positive boundary", exact=True).wait_for(state="visible")
-                page.get_by_role("button", name="Mission / Live", exact=True).click()
-                page.get_by_role("button", name="Inspect inspect", exact=True).click()
+                page.get_by_role("button", name="Genel Bakış", exact=True).click()
+                page.get_by_role("button", name="İncele: Tümünü gör", exact=True).click()
                 page.locator("#inspector[role='dialog']").wait_for(state="visible")
                 page.keyboard.press("Escape")
                 page.locator("#inspector").wait_for(state="hidden")
@@ -233,7 +231,86 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                     page.locator(".shell-body").evaluate("node => getComputedStyle(node).display"),
                     "block",
                 )
+                page.locator("#primaryNav").wait_for(state="hidden")
+                page.get_by_role("button", name="Menüyü aç", exact=True).click()
+                page.get_by_role("button", name="Kanıtlar", exact=True).wait_for(state="visible")
+                page.get_by_role("button", name="Menüyü kapat", exact=True).click()
+                page.locator("#primaryNav").wait_for(state="hidden")
                 self.assertTrue(page.locator("#inspector").is_hidden())
+            finally:
+                browser.close()
+
+    def test_sse_event_streams_incrementally_without_full_mission_rerender(self) -> None:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.add_init_script(
+                """
+                class FakeEventSource {
+                    static instance = null;
+                    constructor(url) {
+                        this.url = url;
+                        this.readyState = 1;
+                        this.listeners = {};
+                        FakeEventSource.instance = this;
+                        setTimeout(() => this.onopen?.(), 0);
+                    }
+                    addEventListener(name, callback) {
+                        (this.listeners[name] ||= []).push(callback);
+                    }
+                    close() { this.readyState = 2; }
+                    emit(payload) {
+                        const event = { data: JSON.stringify(payload), lastEventId: payload.activity_id };
+                        this.onmessage?.(event);
+                        for (const callback of this.listeners.semantic_activity || []) callback(event);
+                    }
+                }
+                window.EventSource = FakeEventSource;
+                window.__FakeEventSource = FakeEventSource;
+                """
+            )
+            try:
+                page.goto(self.url, wait_until="domcontentloaded")
+                page.locator(".activity-list").wait_for(state="visible")
+                page.wait_for_function("window.__FakeEventSource.instance?.readyState === 1")
+                page.evaluate("window.__missionRootBefore = document.querySelector('#viewRoot')")
+
+                frame = {
+                    "research_run_id": "run/1",
+                    "activity_id": "live-1",
+                    "timestamp": "2026-08-27T12:00:01+00:00",
+                    "plane": "EXECUTION",
+                    "event_type": "SEMANTIC_ACTIVITY",
+                    "summary": "Canlı olay ulaştı",
+                    "source_type": "execution",
+                }
+                page.evaluate("payload => window.__FakeEventSource.instance.emit(payload)", frame)
+                live_row = page.locator('[data-activity-id="live-1"]')
+                live_row.wait_for(state="visible")
+                self.assertTrue(page.evaluate("window.__FakeEventSource.instance.readyState === 1"))
+                self.assertIn("Canlı olay ulaştı", live_row.inner_text())
+                self.assertTrue(page.evaluate("document.querySelector('#viewRoot') === window.__missionRootBefore"))
+
+                page.evaluate("payload => window.__FakeEventSource.instance.emit(payload)", frame)
+                self.assertEqual(page.locator('[data-activity-id="live-1"]').count(), 1)
+
+                for index in range(2, 152):
+                    page.evaluate(
+                        "payload => window.__FakeEventSource.instance.emit(payload)",
+                        {**frame, "activity_id": f"live-{index}", "summary": f"Canlı olay {index}"},
+                    )
+                self.assertLessEqual(page.locator(".activity-list > .activity-item").count(), 120)
+
+                page.locator(".activity-list").evaluate(
+                    "node => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); }"
+                )
+                page.evaluate(
+                    "payload => window.__FakeEventSource.instance.emit(payload)",
+                    {**frame, "activity_id": "live-152", "summary": "Kullanıcıdan uzakta yeni olay"},
+                )
+                page.get_by_role("button", name="1 yeni olay ↓", exact=True).wait_for(state="visible")
+                page.get_by_role("button", name="1 yeni olay ↓", exact=True).click()
+                page.get_by_role("button", name="1 yeni olay ↓", exact=True).wait_for(state="hidden")
             finally:
                 browser.close()
 
@@ -243,7 +320,7 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
             page = browser.new_page()
             try:
                 page.goto(self.url, wait_until="domcontentloaded")
-                page.get_by_role("button", name="Program Setup", exact=True).click()
+                page.get_by_role("button", name="Ayarlar", exact=True).click()
                 page.locator("#programName").fill("Local Program")
                 page.locator("#targetReference").fill("http://127.0.0.1:1")
 
@@ -294,7 +371,7 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 ).click()
                 page.get_by_text("ready: run/1").wait_for(state="visible")
 
-                page.get_by_role("button", name="Execution", exact=True).click()
+                page.get_by_role("button", name="Programlar", exact=True).click()
 
                 start = page.locator('#runs button[data-run-action="start"]')
                 start.wait_for(state="visible")
@@ -311,7 +388,7 @@ class DashboardOperatorControlsBrowserTests(unittest.TestCase):
                 self.assertEqual(self.control.calls[-1], ("resume", "run/1"))
 
                 page.locator('#runs button[data-run-action="cancel"]').click()
-                page.get_by_text("Terminal: COMPLETED").wait_for(state="visible")
+                page.get_by_text("Son durum: COMPLETED").wait_for(state="visible")
                 self.assertEqual(self.control.calls, [
                     ("start", "run/1"),
                     ("pause", "run/1"),

@@ -57,8 +57,8 @@ class HqB2SurfaceTests(unittest.TestCase):
         shell = read_static_asset('css/shell.css')[0].decode('utf-8')
         index = read_index()
 
-        self.assertIn('aria-label="${escapeHtml(title)}"', app)
-        for label in ('Mission / Live', 'Research', 'Execution', 'Surface', 'Evidence', 'Authority', 'Program Setup'):
+        self.assertIn('aria-label="${escapeHtml(labels[id] || title)}"', app)
+        for label in ('Canlı Operasyon', 'Araştırma', 'Programlar', 'Kanıtlar', 'Bulgular', 'Politika', 'Ayarlar'):
             self.assertIn(f'"{label}"', app)
         self.assertIn('@media (max-width: 768px)', shell)
         self.assertIn('.inspector { position: fixed;', shell)
@@ -108,6 +108,49 @@ class HqB2SurfaceTests(unittest.TestCase):
             self.assertIn(marker, mission)
         for marker in ('research_intent', 'verification_chain', 'FALSE_POSITIVE', 'observer_can_finalize'):
             self.assertIn(marker, research)
+
+    def test_glass_console_r3_makes_zest_the_primary_live_surface(self) -> None:
+        mission = read_static_asset('js/views/mission.js')[0].decode('utf-8')
+        tokens = read_static_asset('css/tokens.css')[0].decode('utf-8')
+        views = read_static_asset('css/views.css')[0].decode('utf-8')
+        for marker in ('zest-live-panel', 'signal-strip', 'process-row', 'data-narration', 'prefers-reduced-motion'):
+            self.assertIn(marker, mission + views)
+        for marker in ('--z-canvas: #0B0B0C', '--z-accent: #E5484D', '--z-text-primary: #F4F4F5', '--z-glass: rgba(255,255,255,.05)'):
+            self.assertIn(marker, tokens)
+        self.assertIn('min-height: 536px', views)
+        self.assertIn('LiveZestPanel', mission)
+        self.assertIn('Context', mission)
+
+    def test_final_console_uses_red_accent_and_incremental_transcript_contract(self) -> None:
+        app = read_static_asset('js/app.js')[0].decode('utf-8')
+        mission = read_static_asset('js/views/mission.js')[0].decode('utf-8')
+        state = read_static_asset('js/state.js')[0].decode('utf-8')
+        tokens = read_static_asset('css/tokens.css')[0].decode('utf-8')
+        views = read_static_asset('css/views.css')[0].decode('utf-8')
+        for marker in ('appendLiveEvent', 'background: true', 'notify: !background', 'lastEventId'):
+            self.assertIn(marker, app)
+        for marker in ('MAX_TRANSCRIPT_ROWS', 'data-live-follow', 'Yeni olayları göster', 'activity-item-new', 'localizedChip'):
+            self.assertIn(marker, mission)
+        self.assertIn('notify = true', state)
+        self.assertIn('--z-accent: #E5484D', tokens)
+        self.assertIn('background: #000000', views)
+        self.assertIn('Canlı Operasyon', app)
+        self.assertIn('ZEST', read_index())
+
+    def test_r6_transcript_workspace_and_mobile_navigation_contract(self) -> None:
+        app = read_static_asset('js/app.js')[0].decode('utf-8')
+        index = read_index()
+        mission = read_static_asset('js/views/mission.js')[0].decode('utf-8')
+        shell = read_static_asset('css/shell.css')[0].decode('utf-8')
+        views = read_static_asset('css/views.css')[0].decode('utf-8')
+        self.assertIn('id="mobileNavToggle"', index)
+        self.assertIn('mobile-nav-open', app)
+        self.assertIn('transcript-shell', mission)
+        self.assertNotIn('<dl class="runtime-context"', mission)
+        self.assertNotIn('Mevcut araştırma</div>', mission)
+        self.assertNotIn('class="recent-activity"', mission)
+        self.assertIn('#truthStrip[hidden]', views)
+        self.assertIn('body.mobile-nav-open .primary-rail', shell)
 
 
 if __name__ == '__main__':

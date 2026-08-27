@@ -12,6 +12,6 @@ export function listCollection(analysis, path, title, context) {
   return recordList(title, bundleItems(analysis, path), context);
 }
 
-export function unavailable(message = "Select a run to load PostgreSQL-backed analysis.") {
-  return section("Analysis unavailable", `<div class="notice">${message}</div>`);
+export function unavailable(message = "PostgreSQL destekli analizi yüklemek için bir çalışma seçin.") {
+  return section("Analiz kullanılamıyor", `<div class="notice">${message}</div>`);
 }

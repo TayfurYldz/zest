@@ -147,7 +147,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("/api/dashboard", HTML)
         self.assertNotIn("https://", HTML)
         self.assertNotIn("http://", HTML)
-        self.assertIn("Research operations cockpit", HTML)
+        self.assertIn("<strong>ZEST</strong>", HTML)
         self.assertIn("/api/programs/bootstrap", HTML)
 
     def test_bootstrap_success_path_keeps_form_reference_across_await(self) -> None:

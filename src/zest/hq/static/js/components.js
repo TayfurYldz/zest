@@ -56,10 +56,10 @@ export function controlsForRun(run) {
   const state = String(run.state || "CREATED").toUpperCase();
   const id = escapeHtml(run.research_run_id);
   const button = (action, label) => `<button class="button button-quiet" type="button" data-run-action="${action}" data-run-id="${id}">${label}</button>`;
-  if (["CREATED", "STARTABLE"].includes(state)) return `<div class="control-row">${button("preflight", "PREFLIGHT")}${button("start", "START")}</div>`;
-  if (["READY", "RUNNING", "ACTIVE", "EXECUTING"].includes(state)) return `<div class="control-row">${button("pause", "PAUSE")}${button("cancel", "CANCEL")}</div>`;
-  if (["PAUSED", "WAITING_HUMAN", "RECONCILIATION_REQUIRED"].includes(state)) return `<div class="control-row">${button("preflight", "PREFLIGHT")}${button("resume", "RESUME")}${button("cancel", "CANCEL")}</div>`;
-  return `<span class="control-status">Terminal: ${escapeHtml(state)}</span>`;
+  if (["CREATED", "STARTABLE"].includes(state)) return `<div class="control-row">${button("preflight", "ÖN KONTROL")}${button("start", "BAŞLAT")}</div>`;
+  if (["READY", "RUNNING", "ACTIVE", "EXECUTING"].includes(state)) return `<div class="control-row">${button("pause", "DURAKLAT")}${button("cancel", "İPTAL")}</div>`;
+  if (["PAUSED", "WAITING_HUMAN", "RECONCILIATION_REQUIRED"].includes(state)) return `<div class="control-row">${button("preflight", "ÖN KONTROL")}${button("resume", "SÜRDÜR")}${button("cancel", "İPTAL")}</div>`;
+  return `<span class="control-status">Son durum: ${escapeHtml(state)}</span>`;
 }
 
 export function simplePairs(values) {

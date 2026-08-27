@@ -17,7 +17,7 @@ export function createStore() {
   const listeners = new Set();
   return {
     getState: () => state,
-    update(patch) { state = { ...state, ...patch }; listeners.forEach((listener) => listener(state)); },
+    update(patch, { notify = true } = {}) { state = { ...state, ...patch }; if (notify) listeners.forEach((listener) => listener(state)); },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
   };
 }
