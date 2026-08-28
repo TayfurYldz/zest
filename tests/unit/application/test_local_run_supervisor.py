@@ -351,6 +351,37 @@ class LocalRunSupervisorTests(unittest.TestCase):
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
         self.assertEqual(result.stop_reason, "OPERATOR_CANCELLED")
 
+    def test_registry_owned_run_ids_reports_only_live_supervisors(self) -> None:
+        store = _seed()
+        factory = FakeUnitOfWorkFactory(store=store)
+        controller = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(store=store),
+            ScriptedModelPort(),
+            clock=FixedClock(),
+        )
+        controller.start(_command())
+        controller.pause("run-1")
+        registry = LocalRunSupervisorRegistry()
+
+        supervisor = registry.start(
+            research_run_id="run-1",
+            controller=controller,
+            command=_command(),
+            uow_factory=factory,
+            cadence_seconds=10,
+        )
+
+        self.assertIsNotNone(supervisor)
+        self.assertEqual(registry.owned_run_ids(), ("run-1",))
+        self.assertTrue(registry.is_active("run-1"))
+
+        supervisor.request_stop()
+        supervisor.join(2)
+
+        self.assertEqual(registry.owned_run_ids(), ())
+        self.assertFalse(registry.is_active("run-1"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -369,8 +369,13 @@ class LocalRunSupervisorRegistry:
         return supervisor is not None and supervisor.is_running
 
     def owned_run_ids(self) -> tuple[str, ...]:
+        """Return only runs with a live supervisor thread in this process."""
         with self._lock:
-            return tuple(self._supervisors)
+            return tuple(
+                research_run_id
+                for research_run_id, supervisor in self._supervisors.items()
+                if supervisor.is_running
+            )
 
     def supervisor(self, research_run_id: str):
         with self._lock:
