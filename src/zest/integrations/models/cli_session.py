@@ -7,6 +7,7 @@ A diagnostic echo that ignores ModelCallRequest is not MODELPORT_COMPATIBLE.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import tempfile
@@ -419,7 +420,7 @@ def probe_codex_cli(
         readiness = readiness_from_flags(
             installed=True,
             executable=path,
-            detail=result.stderr.strip() or result.reason or "codex --version failed",
+            detail=_safe_process_failure_detail(result),
         )
         return CliRuntimeAvailability(
             available=False,
@@ -729,7 +730,7 @@ def _result_from_process(
             raise ContentPolicyBlockedError("codex CLI content/safety policy blocked the request")
         if _codex_non_git_working_directory_error(combined):
             raise RuntimeProcessError(NON_GIT_WORKING_DIRECTORY_DETAIL)
-        raise RuntimeProcessError(result.reason or "codex CLI process failed")
+        raise RuntimeProcessError(_safe_process_failure_detail(result))
     raw = result.stdout.strip()
     if not raw:
         raise StructuredOutputTransportError("codex CLI stdout was empty")
@@ -755,6 +756,31 @@ def _codex_non_git_working_directory_error(text: str) -> bool:
 
 def _codex_content_policy_refusal(text: str) -> bool:
     return any(marker in text for marker in CODEX_CONTENT_POLICY_REFUSAL_MARKERS)
+
+
+def _safe_process_failure_detail(result: ArgvProcessResult) -> str:
+    """Return deterministic process provenance without provider output text."""
+
+    stdout_bytes = result.stdout.encode("utf-8")
+    stderr_bytes = result.stderr.encode("utf-8")
+    failure_code = (
+        "PROCESS_EXIT_NONZERO"
+        if result.exit_code is not None and result.exit_code != 0
+        else "PROCESS_FAILED"
+    )
+    metadata = {
+        "cleanup_failed": result.cleanup_failed,
+        "cleanup_status": "FAILED" if result.cleanup_failed else "NOT_FAILED",
+        "exit_code": result.exit_code,
+        "failure_code": failure_code,
+        "reason": result.reason,
+        "stderr_byte_length": len(stderr_bytes),
+        "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
+        "stderr_truncated": result.stderr_truncated,
+        "stdout_byte_length": len(stdout_bytes),
+        "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+    }
+    return json.dumps(metadata, sort_keys=True, separators=(",", ":"))
 
 
 def _load_json_object(raw: str) -> dict[str, object]:

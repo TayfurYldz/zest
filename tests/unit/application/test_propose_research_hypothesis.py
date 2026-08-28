@@ -10,12 +10,15 @@ from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesisCommand,
 )
 from zest.data.errors import PersistenceError
+from zest.integrations.models.cli_session import CodexCliSessionAdapter
+from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
 from zest.research.admission import AdmissionOutcome
 from zest.research.context import ExternalContentSource
 from zest.research.epistemic import EpistemicClass
 from zest.research.model_port import ModelRole
 from zest.research.planning import DIAGNOSTIC_CLAIM
 from zest.research.types import ResearchInputError
+from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 from support.fake_model import ScriptedModelPort, default_generator_output
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run, seed_spine
@@ -153,6 +156,41 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         admission = next(iter(store.research_admissions.values()))
         self.assertIsNone(admission.admitted_hypothesis_id)
         self.assertEqual(admission.reason_code, "MODEL_INVOCATION_FAILED")
+
+    def test_process_failure_persists_safe_provenance_without_provider_output(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        prompt_secret = "SENTINEL-PROMPT-SECRET"
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.5",
+            configuration_id="codex-cli-gpt55",
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
+                status=ArgvProcessStatus.PROCESS_FAILED,
+                argv=argv,
+                exit_code=17,
+                stdout=f"provider echoed {prompt_secret}",
+                stderr=f"provider failed with {prompt_secret}",
+                reason="non-zero exit",
+            ),
+        )
+
+        result = _use_case(store, adapter).execute(
+            _command(research_question=f"diagnostic question {prompt_secret}")
+        )
+
+        self.assertEqual(result.outcome, AdmissionOutcome.MODEL_INVOCATION_FAILED)
+        self.assertEqual(store.hypotheses, {})
+        admission = next(iter(store.research_admissions.values()))
+        self.assertEqual(admission.reason_code, "MODEL_INVOCATION_FAILED")
+        self.assertIn('"failure_code":"PROCESS_EXIT_NONZERO"', admission.reason)
+        self.assertIn('"exit_code":17', admission.reason)
+        self.assertIn('"stdout_sha256":', admission.reason)
+        self.assertIn('"stderr_sha256":', admission.reason)
+        self.assertNotIn(prompt_secret, admission.reason)
+        self.assertNotIn("provider echoed", admission.reason)
+        self.assertNotIn("provider failed", admission.reason)
 
     def test_unsupported_model_capability_is_persisted_as_rejection(self) -> None:
         store = _Store()

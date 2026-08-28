@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -1030,7 +1031,9 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
                 )
                 with self.assertRaises(RuntimeProcessError) as ctx:
                     adapter.complete(_request())
-                self.assertEqual(str(ctx.exception), "non-zero exit")
+                diagnostic = str(ctx.exception)
+                self.assertIn('"failure_code":"PROCESS_EXIT_NONZERO"', diagnostic)
+                self.assertNotIn(stderr, diagnostic)
 
     def test_explicit_policy_refusal_markers_are_content_policy_blocked(self) -> None:
         cases = (
@@ -1062,6 +1065,9 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
                 self.assertNotIn(stderr, str(ctx.exception))
 
     def test_unmatched_process_error_remains_runtime_process_error(self) -> None:
+        prompt_secret = "SENTINEL-PROMPT-SECRET"
+        stdout = f"provider echoed prompt {prompt_secret}"
+        stderr = f"schema validation failed: {prompt_secret}"
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
@@ -1070,14 +1076,38 @@ class CodexPassiveLiveProbeTests(unittest.TestCase):
             runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
                 status=ArgvProcessStatus.PROCESS_FAILED,
                 argv=argv,
-                exit_code=1,
-                stderr="schema validation failed for generated output",
+                exit_code=17,
+                stdout=stdout,
+                stderr=stderr,
+                stderr_truncated=True,
                 reason="non-zero exit",
+                cleanup_failed=True,
+                cleanup_reason=f"unsafe cleanup output {prompt_secret}",
             ),
         )
         with self.assertRaises(RuntimeProcessError) as ctx:
             adapter.complete(_request())
-        self.assertEqual(str(ctx.exception), "non-zero exit")
+        diagnostic = str(ctx.exception)
+        self.assertIn('"failure_code":"PROCESS_EXIT_NONZERO"', diagnostic)
+        self.assertIn('"exit_code":17', diagnostic)
+        self.assertIn('"reason":"non-zero exit"', diagnostic)
+        self.assertIn('"stderr_truncated":true', diagnostic)
+        self.assertIn(f'"stdout_byte_length":{len(stdout.encode("utf-8"))}', diagnostic)
+        self.assertIn(f'"stderr_byte_length":{len(stderr.encode("utf-8"))}', diagnostic)
+        self.assertIn(
+            f'"stdout_sha256":"{hashlib.sha256(stdout.encode("utf-8")).hexdigest()}"',
+            diagnostic,
+        )
+        self.assertIn(
+            f'"stderr_sha256":"{hashlib.sha256(stderr.encode("utf-8")).hexdigest()}"',
+            diagnostic,
+        )
+        self.assertIn('"cleanup_failed":true', diagnostic)
+        self.assertIn('"cleanup_status":"FAILED"', diagnostic)
+        self.assertNotIn(stdout, diagnostic)
+        self.assertNotIn(stderr, diagnostic)
+        self.assertNotIn(prompt_secret, diagnostic)
+        self.assertNotIn("unsafe cleanup output", diagnostic)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,88 @@ def _alembic_ini() -> str:
     return str(resolve_alembic_ini(os.environ, source_file=Path(__file__)))
 
 
+def _compose_codex_model(configurations, *, probe_codex=None):
+    """Qualify the selected production runtime once and cache its readiness."""
+
+    from zest.integrations.models.cli_session import (
+        CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+        CodexCliSessionAdapter,
+        probe_codex_cli,
+    )
+    from zest.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
+    from zest.research.routing import CandidateLocality, RuntimeCandidate
+
+    configuration = configurations[0] if configurations else None
+    if configuration is None:
+        readiness = ModelReadinessInput(
+            candidate=None,
+            health=HealthCheck(
+                "model",
+                ComponentHealth.UNAVAILABLE,
+                "no Codex model configuration selected",
+            ),
+        )
+        return _UnavailableModel(), lambda readiness=readiness: readiness
+
+    probe = probe_codex or probe_codex_cli
+    availability = probe(configuration=configuration, live_probe=True)
+    runtime_readiness = availability.readiness
+    qualified = (
+        availability.available is True
+        and runtime_readiness is not None
+        and runtime_readiness.auth_ready is True
+        and runtime_readiness.diagnostic_ready is True
+        and runtime_readiness.modelport_compatible is True
+        and runtime_readiness.benchmark_compatible is True
+        and availability.outcome is RuntimeOutcome.COMPLETED
+    )
+
+    if qualified:
+        model = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable=configuration.executable,
+            version=availability.version,
+            model=configuration.model,
+            configuration_id=configuration.configuration_id,
+        )
+        identity = model.runtime_identity
+        health = HealthCheck("model", ComponentHealth.HEALTHY, availability.detail)
+    else:
+        model = _UnavailableModel()
+        identity = cli_session_runtime_identity(
+            adapter_id="codex.cli.session",
+            runtime_id=configuration.configuration_id,
+            runtime_version=availability.version,
+            session_reference="local-authenticated-cli-session",
+            model_id=configuration.model,
+            runtime_configuration=configuration.runtime_configuration(),
+        )
+        health_by_outcome = {
+            RuntimeOutcome.AUTH_FAILED: ComponentHealth.AUTH_REQUIRED,
+            RuntimeOutcome.RATE_LIMITED: ComponentHealth.RATE_LIMITED,
+            RuntimeOutcome.CONTENT_POLICY_BLOCKED: ComponentHealth.BLOCKED_POLICY,
+        }
+        health = HealthCheck(
+            "model",
+            health_by_outcome.get(availability.outcome, ComponentHealth.UNAVAILABLE),
+            availability.detail,
+        )
+
+    readiness = ModelReadinessInput(
+        candidate=RuntimeCandidate(
+            identity=identity,
+            available=availability.available is True,
+            authenticated=(
+                runtime_readiness is not None and runtime_readiness.auth_ready is True
+            ),
+            structured_output_compatible=qualified,
+            locality=CandidateLocality.LOCAL,
+        ),
+        health=health,
+    )
+    return model, lambda readiness=readiness: readiness
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="zestd")
     parser.add_argument("--host", default=None)
@@ -55,46 +137,13 @@ def main(argv: list[str] | None = None) -> int:
     engine = create_sync_engine(settings.database_url)
     factory = PostgresUnitOfWork(engine)
     from zest.integrations.models.cli_session import (
-        CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
-        CodexCliSessionAdapter,
         load_codex_model_configurations,
-        probe_codex_cli,
     )
     from zest.platform.persistent_browser_worker import PersistentBrowserWorkerAdapter
-    from zest.research.model_runtime import api_runtime_identity
-    from zest.research.routing import CandidateLocality, RuntimeCandidate
 
     worker = PersistentBrowserWorkerAdapter()
     configurations = load_codex_model_configurations(os.environ)
-    configuration = configurations[0] if configurations else None
-    availability = probe_codex_cli(configuration=configuration) if configuration else None
-    model: CodexCliSessionAdapter | _UnavailableModel
-    if configuration is not None and availability is not None and availability.readiness and availability.readiness.auth_ready:
-        model = CodexCliSessionAdapter(
-            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
-            executable=configuration.executable,
-            version=availability.version,
-            model=configuration.model,
-            configuration_id=configuration.configuration_id,
-        )
-        model_probe = lambda: ModelReadinessInput(
-            candidate=RuntimeCandidate(
-                identity=api_runtime_identity(
-                    adapter_id="codex.cli", runtime_id=configuration.model
-                ),
-                available=True,
-                authenticated=True,
-                structured_output_compatible=True,
-                locality=CandidateLocality.LOCAL,
-            ),
-            health=HealthCheck("model", ComponentHealth.HEALTHY, "codex auth ready"),
-        )
-    else:
-        model = _UnavailableModel()
-        model_probe = lambda: ModelReadinessInput(
-            candidate=None,
-            health=HealthCheck("model", ComponentHealth.UNAVAILABLE, "codex not ready"),
-        )
+    model, model_probe = _compose_codex_model(configurations)
 
     def probe_schema() -> SchemaHealthInput:
         try:
