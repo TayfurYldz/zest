@@ -31,6 +31,7 @@ from zest.application.execute_planned_experiment import (
 from zest.application.http_transaction_authorization import authorize_http_transaction_plan
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.program_research_context import ProgramPolicyView
 from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
@@ -143,6 +144,7 @@ class SurfaceDiscoveryRunner:
         target_reference: str,
         scope: ScopeEvaluationInput,
         approval: ApprovalView | None = None,
+        program_policy: ProgramPolicyView | None = None,
     ) -> SurfaceDiscoveryCycleResult:
         self.ensure_started(start)
         now = self._clock.now()
@@ -209,7 +211,11 @@ class SurfaceDiscoveryRunner:
             return SurfaceDiscoveryCycleResult(
                 research_run_id, None, record.frontier_id, None, False
             )
-        scope_decision = authorize_http_transaction_plan(plan, start.compiled_scope)
+        scope_decision = authorize_http_transaction_plan(
+            plan,
+            start.compiled_scope,
+            program_policy=program_policy,
+        )
         if not scope_decision.accepted:
             with self._uow_factory.open() as uow:
                 self._block(uow, record.frontier_id, "BLOCKED_SCOPE", now)
@@ -239,6 +245,7 @@ class SurfaceDiscoveryRunner:
                 scope=scope,
                 approval=approval,
                 compiled_scope=start.compiled_scope,
+                program_policy=program_policy,
                 identity_id=identity_id,
                 identity=identity,
             )

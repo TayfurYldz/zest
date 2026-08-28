@@ -34,6 +34,7 @@ from zest.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
 )
 from zest.application.discovery.runner import SurfaceDiscoveryStart
+from zest.application.program_research_context import ProgramPolicyView
 from zest.application.session_binding import session_material_reference
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
@@ -336,6 +337,12 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
                 allow_repeated_control_experiments=True,
             ),
             surface_discovery=start,
+            program_policy=ProgramPolicyView(
+                loopback_fixture=True,
+                max_response_bytes=4096,
+                timeout_ms=2000,
+                action_policy={},
+            ),
         )
         result = controller.run_bounded(command)
         self.assertIsNotNone(result.stop_reason)

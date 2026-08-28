@@ -38,9 +38,13 @@ from zest.application.execute_planned_experiment import (
     ResearchLoopStatus,
     _build_worker_request,
 )
+from zest.application.http_transaction_authorization import (
+    HTTP_SCOPE_CAPABILITIES,
+)
 from zest.application.identity import new_opaque_id
 from zest.application.plan_records import experiment_plan_from_record
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.program_research_context import ProgramPolicyView
 from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
@@ -142,6 +146,7 @@ class StartAutonomousResearchCommand:
     selection_budget: ResearchPolicyBudget | None = None
     surface_discovery: SurfaceDiscoveryStart | None = None
     compiled_scope: CompiledScope | None = None
+    program_policy: ProgramPolicyView | None = None
 
 
 @dataclass(frozen=True)
@@ -713,6 +718,7 @@ class AutonomousResearchController:
                 scope=command.scope,
                 approval=command.approval,
                 compiled_scope=command.compiled_scope,
+                program_policy=command.program_policy,
             ),
             persist_hook=_persist_attempt,
         )
@@ -875,6 +881,7 @@ class AutonomousResearchController:
             target_reference=command.target_reference,
             scope=command.scope,
             approval=command.approval,
+            program_policy=command.program_policy,
         )
         if result.stop_reason == "UNKNOWN_OUTCOME":
             return self._stop(
@@ -990,6 +997,20 @@ class AutonomousResearchController:
             capability_view = capability_view_for_plan(plan)
         except CapabilityBindingError:
             return self._stop(current, StopReason.CORE_BLOCKED, "capability_binding")
+        # The original network envelope is dispatch-time authority
+        # derived from the exact authorization/scope decision. ExecutionAttempt
+        # does not durably persist that envelope. Reconstructing it from current
+        # mutable scope/policy could silently widen an old authorization after a
+        # crash. Network-capable AUTHORIZED attempts therefore fail closed
+        # instead of being redispatched without the exact original envelope.
+        if plan.required_capability in HTTP_SCOPE_CAPABILITIES:
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "resume_network_envelope_not_durable",
+                experiment_id=experiment.experiment_id,
+            )
+
         dispatch = AuthorizedDispatch(
             experiment_id=experiment.experiment_id,
             hypothesis_id=experiment.hypothesis_id,
@@ -1499,6 +1520,7 @@ class AutonomousResearchController:
                 scope=command.scope,
                 approval=command.approval,
                 compiled_scope=command.compiled_scope,
+                program_policy=command.program_policy,
             ),
             persist_hook=_persist_attempt,
         )

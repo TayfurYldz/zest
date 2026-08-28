@@ -15,6 +15,7 @@ from zest.application.local_run_supervisor import (
     LocalRunSupervisor,
     LocalRunSupervisorRegistry,
 )
+from zest.application.program_research_context import ProgramPolicyView
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.errors import TerminalOrchestrationStateError
@@ -78,6 +79,12 @@ def _discovery_command() -> StartAutonomousResearchCommand:
         base,
         bounds=replace(base.bounds, max_cycles=2, max_experiments=2),
         target_reference=target,
+        program_policy=ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={},
+        ),
         surface_discovery=SurfaceDiscoveryStart(
             config=DiscoveryRunConfig(
                 research_run_id="run-1",
@@ -214,6 +221,30 @@ class LocalRunSupervisorTests(unittest.TestCase):
         self.assertEqual(first.state, OrchestrationState.FAILED_OPERATIONAL.value)
         self.assertEqual(second.state, OrchestrationState.FAILED_OPERATIONAL.value)
         self.assertEqual(len(worker.calls), 1)
+
+        dispatched = worker.calls[0]["request"]
+
+        self.assertIn("network_envelope", dispatched)
+        self.assertFalse(
+            dispatched["network_envelope"]["loopback_only"]
+        )
+        self.assertEqual(
+            dispatched["network_envelope"]["normalized_host"],
+            "127.0.0.1",
+        )
+        self.assertEqual(
+            dispatched["network_envelope"]["normalized_port"],
+            9,
+        )
+        self.assertEqual(
+            dispatched["network_envelope"]["normalized_scheme"],
+            "http",
+        )
+        self.assertEqual(
+            dispatched["max_attempted_requests"],
+            10,
+        )
+
         self.assertEqual(model.calls, [])
         self.assertEqual(len(store.worker_results), 0)
         self.assertEqual(len(store.observations), 0)

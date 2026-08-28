@@ -10,6 +10,7 @@ from zest.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
 )
 from zest.application.errors import OrchestrationIntegrityError
+from zest.application.program_research_context import ProgramPolicyView
 from zest.application.orchestration_config import (
     configuration_from_record,
     fingerprint_for_start,
@@ -17,6 +18,7 @@ from zest.application.orchestration_config import (
 )
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from zest.core.scope_compiler import CompiledScope, CompiledScopeRule
 from zest.data.records import (
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
@@ -28,6 +30,7 @@ from zest.data.records import (
 )
 from zest.research.orchestration import OrchestrationBounds, OrchestrationPhase, OrchestrationState
 from zest.research.planning import plan_diagnostic_echo
+from zest.research.browser_page import plan_browser_observe
 from zest.application.plan_records import experiment_plan_record_for
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -317,6 +320,159 @@ class CrashRecoveryTests(unittest.TestCase):
         self.assertEqual(len(store.execution_attempts), 1)
         self.assertEqual(len(store.experiments), 1)
 
+    def test_crash_after_browser_attempt_authorized_fails_closed_without_dispatch(
+        self,
+    ) -> None:
+        store = self._start()
+
+        hypothesis_id = self._plant_hypothesis(
+            store,
+            "hyp-browser-resume-1",
+        )
+
+        experiment_id = "exp-browser-resume-1"
+
+        experiment = ExperimentRecord(
+            experiment_id=experiment_id,
+            research_run_id="run-1",
+            hypothesis_id=hypothesis_id,
+            budget_id="budget-1",
+            execution_state="READY",
+            created_at=CREATED_AT,
+        )
+
+        store.experiments[
+            experiment_id
+        ] = experiment
+
+        plan = plan_browser_observe(
+            hypothesis_id,
+            budget_id="budget-1",
+            target_reference="https://example.com/",
+            authorized_origin="https://example.com",
+            path="/",
+        )
+
+        store.experiment_plans[
+            experiment_id
+        ] = experiment_plan_record_for(
+            experiment,
+            plan,
+            created_at=CREATED_AT,
+        )
+
+        attempt = ExecutionAttemptRecord(
+            attempt_id="ea-browser-resume-1",
+            request_id="req-browser-resume-1",
+            experiment_id=experiment_id,
+            research_run_id="run-1",
+            correlation_id="corr-browser-resume-1",
+            worker_capability="browser.page",
+            action="observe",
+            target_reference="https://example.com/",
+            budget_id="budget-1",
+            side_effect_level=0,
+            authorization_decision_reference=(
+                "ae-browser-resume-1"
+            ),
+            state="AUTHORIZED",
+            created_at=CREATED_AT,
+            authorized_at=CREATED_AT,
+        )
+
+        store.execution_attempts[
+            attempt.attempt_id
+        ] = attempt
+
+        store.execution_attempts_by_request[
+            attempt.request_id
+        ] = attempt.attempt_id
+
+        self._set_phase(
+            store,
+            OrchestrationPhase.ATTEMPT_AUTHORIZED.value,
+            last_hypothesis_id=hypothesis_id,
+            last_experiment_id=experiment_id,
+            last_attempt_id=attempt.attempt_id,
+        )
+
+        # Even if current scope/policy would allow a fresh dispatch,
+        # recovery must not synthesize a new envelope for an old
+        # authorization decision.
+        compiled_scope = CompiledScope(
+            rules=(
+                CompiledScopeRule(
+                    rule_id="rule-browser-allow",
+                    effect=ScopeRuleEffect.ALLOW,
+                    scheme="https",
+                    host="example.com",
+                    host_pattern=None,
+                    port=443,
+                    path_prefix=None,
+                    source_reference="scope-src",
+                    expires_at=None,
+                ),
+            )
+        )
+
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={},
+        )
+
+        restarted, port = _controller2(store)
+
+        result = restarted.step(
+            _command(
+                bounds=_bounds(max_cycles=2),
+                compiled_scope=compiled_scope,
+                program_policy=policy,
+            )
+        )
+
+        self.assertEqual(
+            result.state,
+            OrchestrationState.FAILED_OPERATIONAL.value,
+        )
+        self.assertEqual(
+            result.stop_reason,
+            "OPERATIONAL_FAILURE",
+        )
+        self.assertEqual(
+            result.last_phase,
+            "resume_network_envelope_not_durable",
+        )
+
+        # Critical invariant: no second dispatch.
+        self.assertEqual(
+            len(port.calls),
+            0,
+        )
+
+        # The historical attempt remains truthful: it was authorized,
+        # but there is no evidence that dispatch started.
+        self.assertEqual(
+            store.execution_attempts[
+                attempt.attempt_id
+            ].state,
+            "AUTHORIZED",
+        )
+
+        self.assertEqual(
+            len(store.worker_results),
+            0,
+        )
+        self.assertEqual(
+            len(store.observations),
+            0,
+        )
+        self.assertEqual(
+            len(store.evidence),
+            0,
+        )
+
     def test_dispatching_remains_unknown_outcome(self) -> None:
         store = self._start()
         experiment_id = self._plant_experiment(store)
@@ -395,6 +551,55 @@ class CrashRecoveryTests(unittest.TestCase):
         self.assertEqual(len(store.hypotheses), 1)
         self.assertEqual(len(store.experiments), 1)
         self.assertEqual(len(store.hypothesis_assessments), 1)
+
+
+    def test_crash_after_transition_b_does_not_redispatch(self) -> None:
+        store = self._start()
+        experiment_id = self._plant_experiment(store)
+
+        self._plant_attempt(
+            store,
+            "COMPLETED",
+            experiment_id,
+        )
+
+        self._set_phase(
+            store,
+            OrchestrationPhase.TRANSITION_B_COMPLETE.value,
+            last_hypothesis_id="hyp-resume-1",
+            last_experiment_id=experiment_id,
+            last_attempt_id="ea-resume-1",
+        )
+
+        restarted, port = _controller2(store)
+
+        result = restarted.step(
+            _command(
+                bounds=_bounds(max_cycles=2)
+            )
+        )
+
+        self.assertEqual(
+            len(port.calls),
+            0,
+            "TRANSITION_B_COMPLETE must never redispatch old work",
+        )
+        self.assertEqual(
+            len(store.experiments),
+            1,
+        )
+        self.assertEqual(
+            len(store.execution_attempts),
+            1,
+        )
+        self.assertIn(
+            result.state,
+            {
+                OrchestrationState.READY.value,
+                OrchestrationState.COMPLETED.value,
+            },
+        )
+
 
 
 if __name__ == "__main__":

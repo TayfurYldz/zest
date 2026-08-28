@@ -135,6 +135,7 @@ def reconstruct_start_command(
         research_question=research_question,
         surface_discovery=surface_discovery,
         compiled_scope=context.compiled_scope,
+        program_policy=policy,
     )
 
 
