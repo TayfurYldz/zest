@@ -63,8 +63,22 @@ NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
 
 def _healthy_worker() -> WorkerReadinessInput:
     return WorkerReadinessInput(
-        health=HealthCheck("worker", ComponentHealth.HEALTHY, "ok"),
-        available_capabilities=frozenset({"diagnostic.echo"}),
+        health=HealthCheck(
+            "worker",
+            ComponentHealth.HEALTHY,
+            "ok",
+        ),
+        available_capabilities=frozenset(
+            {
+                "diagnostic.echo",
+                "browser.page",
+            }
+        ),
+        browser_containment=HealthCheck(
+            "browser-containment",
+            ComponentHealth.HEALTHY,
+            "ready",
+        ),
     )
 
 

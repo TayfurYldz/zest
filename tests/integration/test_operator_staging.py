@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 _REPO = Path(__file__).resolve().parents[2]
 _SRC = _REPO / "src"
@@ -28,6 +29,7 @@ from zest.application.preflight import (
     WorkerReadinessInput,
 )
 from zest.application.zestd import ZestdRuntime
+from zest.application.local_run_supervisor import LocalRunSupervisor
 from zest.core.enums import ScopeRuleEffect
 from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
@@ -67,8 +69,22 @@ NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
 
 def _healthy_worker() -> WorkerReadinessInput:
     return WorkerReadinessInput(
-        health=HealthCheck("worker", ComponentHealth.HEALTHY, "ok"),
-        available_capabilities=frozenset({"diagnostic.echo"}),
+        health=HealthCheck(
+            "worker",
+            ComponentHealth.HEALTHY,
+            "ok",
+        ),
+        available_capabilities=frozenset(
+            {
+                "diagnostic.echo",
+                "browser.page",
+            }
+        ),
+        browser_containment=HealthCheck(
+            "browser-containment",
+            ComponentHealth.HEALTHY,
+            "ready",
+        ),
     )
 
 
@@ -319,8 +335,22 @@ class OperatorStagingPostgresTests(unittest.TestCase):
 
         def probe_worker() -> WorkerReadinessInput:
             return WorkerReadinessInput(
-                health=HealthCheck("worker", box["health"], "probe"),
-                available_capabilities=frozenset({"diagnostic.echo"}),
+                health=HealthCheck(
+                    "worker",
+                    box["health"],
+                    "probe",
+                ),
+                available_capabilities=frozenset(
+                    {
+                        "diagnostic.echo",
+                        "browser.page",
+                    }
+                ),
+                browser_containment=HealthCheck(
+                    "browser-containment",
+                    ComponentHealth.HEALTHY,
+                    "ready",
+                ),
             )
 
         _, base = self._start_runtime(probe_worker=probe_worker)
@@ -537,30 +567,103 @@ class OperatorStagingPostgresTests(unittest.TestCase):
             self._servers = []
 
     def test_dashboard_death_does_not_kill_run_and_reconnects(self) -> None:
-        runtime, base = self._start_runtime()
-        status, payload = _http(base, "POST", "/api/runs/run-1/start", {})
-        self.assertEqual(status, 200)
-        self.assertTrue(runtime.is_supervising("run-1"))
-        first = collect_dashboard_payload(
-            env={
-                "ZEST_URL": base,
-                TEST_DATABASE_URL_ENV: TEST_URL or "",
-                "ZEST_DATABASE_URL": TEST_URL or "",
-            }
-        )
-        self.assertTrue(first["client_only"])
-        self.assertEqual(first["database"]["operator_source"], "zestd")
-        self.assertTrue(runtime.is_supervising("run-1"))
-        second = collect_dashboard_payload(
-            env={
-                "ZEST_URL": base,
-                "ZEST_DATABASE_URL": TEST_URL or "",
-            }
-        )
-        first_state = first["database"]["runs"][0]["state"]
-        second_state = second["database"]["runs"][0]["state"]
-        self.assertEqual(first_state, second_state)
-        self.assertTrue(runtime.is_supervising("run-1"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _hold_supervisor_tick(
+            supervisor: LocalRunSupervisor,
+        ):
+            del supervisor
+
+            entered.set()
+
+            if not release.wait(timeout=15):
+                raise AssertionError(
+                    "dashboard lifetime fixture was not released"
+                )
+
+            return None
+
+        try:
+            with patch.object(
+                LocalRunSupervisor,
+                "tick",
+                new=_hold_supervisor_tick,
+            ):
+                runtime, base = self._start_runtime()
+
+                status, payload = _http(
+                    base,
+                    "POST",
+                    "/api/runs/run-1/start",
+                    {},
+                )
+
+                self.assertEqual(status, 200)
+
+                self.assertTrue(
+                    entered.wait(timeout=5),
+                    "supervisor did not enter controlled tick",
+                )
+
+                self.assertTrue(
+                    runtime.is_supervising("run-1")
+                )
+
+                first = collect_dashboard_payload(
+                    env={
+                        "ZEST_URL": base,
+                        TEST_DATABASE_URL_ENV:
+                            TEST_URL or "",
+                        "ZEST_DATABASE_URL":
+                            TEST_URL or "",
+                    }
+                )
+
+                self.assertTrue(first["client_only"])
+
+                self.assertEqual(
+                    first["database"]["operator_source"],
+                    "zestd",
+                )
+
+                self.assertTrue(
+                    runtime.is_supervising("run-1"),
+                    (
+                        "dashboard snapshot must not stop "
+                        "the daemon-owned supervisor"
+                    ),
+                )
+
+                second = collect_dashboard_payload(
+                    env={
+                        "ZEST_URL": base,
+                        "ZEST_DATABASE_URL":
+                            TEST_URL or "",
+                    }
+                )
+
+                first_state = (
+                    first["database"]["runs"][0]["state"]
+                )
+                second_state = (
+                    second["database"]["runs"][0]["state"]
+                )
+
+                self.assertEqual(
+                    first_state,
+                    second_state,
+                )
+
+                self.assertTrue(
+                    runtime.is_supervising("run-1"),
+                    (
+                        "dashboard reconnect must not stop "
+                        "the daemon-owned supervisor"
+                    ),
+                )
+        finally:
+            release.set()
 
     def test_reconciliation_visibility(self) -> None:
         runtime, base = self._start_runtime()

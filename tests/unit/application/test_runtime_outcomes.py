@@ -13,6 +13,7 @@ from zest.research.model_port import (
     ProviderAuthError,
     ProviderRateLimitError,
     ProviderTimeoutError,
+    RuntimeCancelledError,
     RuntimeProcessError,
     RuntimeUnavailableError,
 )
@@ -33,10 +34,33 @@ class RuntimeOutcomeMappingTests(unittest.TestCase):
         self.assertEqual(outcome, RuntimeOutcome.AUTH_FAILED)
         self.assertNotEqual(stop_reason_for_runtime_outcome(outcome), StopReason.CONTENT_POLICY_BLOCKED)
 
-    def test_rate_limit_is_not_policy_block(self) -> None:
-        outcome = runtime_outcome_from_exception(ProviderRateLimitError("rate"))
-        self.assertEqual(outcome, RuntimeOutcome.RATE_LIMITED)
-        self.assertNotEqual(stop_reason_for_runtime_outcome(outcome), StopReason.CONTENT_POLICY_BLOCKED)
+    def test_rate_limit_maps_exactly_to_rate_limited_stop(self) -> None:
+        outcome = runtime_outcome_from_exception(
+            ProviderRateLimitError("rate")
+        )
+
+        self.assertEqual(
+            outcome,
+            RuntimeOutcome.RATE_LIMITED,
+        )
+        self.assertEqual(
+            stop_reason_for_runtime_outcome(outcome),
+            StopReason.RATE_LIMITED,
+        )
+
+    def test_runtime_cancel_maps_exactly_to_cancelled_stop(self) -> None:
+        outcome = runtime_outcome_from_exception(
+            RuntimeCancelledError("cancelled")
+        )
+
+        self.assertEqual(
+            outcome,
+            RuntimeOutcome.CANCELLED,
+        )
+        self.assertEqual(
+            stop_reason_for_runtime_outcome(outcome),
+            StopReason.CANCELLED,
+        )
 
     def test_timeout_is_not_policy_block(self) -> None:
         outcome = runtime_outcome_from_exception(ProviderTimeoutError("timeout"))
