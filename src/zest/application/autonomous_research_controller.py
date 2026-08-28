@@ -22,6 +22,9 @@ from zest.application.orchestration_config import (
     fingerprint_for_start,
     scope_fingerprint,
 )
+from zest.application.orchestration_obligations import (
+    unresolved_control_obligations,
+)
 from zest.application.runtime_outcomes import stop_reason_for_runtime_outcome
 from zest.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
@@ -723,6 +726,15 @@ class AutonomousResearchController:
             persist_hook=_persist_attempt,
         )
         self._observability.increment("experiments_executed")
+        if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+            return self._stop(
+                current,
+                StopReason.REQUIRE_HUMAN_REVIEW,
+                "reauthorization_required",
+                hypothesis_id=proposed.hypothesis_id,
+                experiment_id=experiment_id,
+                current_phase=OrchestrationPhase.WORKER_RESULT_RECORDED,
+            )
         if loop.status is ResearchLoopStatus.DISPATCH_DENIED:
             return self._stop(
                 current,
@@ -752,7 +764,16 @@ class AutonomousResearchController:
             ResearchLoopStatus.OBSERVATION_PRODUCED,
             ResearchLoopStatus.NO_OBSERVATION,
             ResearchLoopStatus.INVOCATION_FAILED,
-        } and loop.experiment_id:
+        }:
+            if not loop.experiment_id:
+                return self._stop(
+                    current,
+                    StopReason.OPERATIONAL_FAILURE,
+                    "missing_experiment_id",
+                    hypothesis_id=proposed.hypothesis_id,
+                    experiment_id=experiment_id,
+                    current_phase=OrchestrationPhase.DISPATCHING,
+                )
             current = self._checkpoint(
                 current,
                 phase=OrchestrationPhase.WORKER_RESULT_RECORDED,
@@ -779,6 +800,15 @@ class AutonomousResearchController:
                 experiment_id=experiment_id,
                 hypothesis_id=proposed.hypothesis_id,
                 assessment_id=feedback.assessment_id,
+            )
+        else:
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "unhandled_research_loop_status",
+                hypothesis_id=proposed.hypothesis_id,
+                experiment_id=experiment_id,
+                current_phase=OrchestrationPhase.DISPATCHING,
             )
         self._observability.increment("orchestration_cycles")
         next_usage = self._usage(config, current)
@@ -1034,12 +1064,32 @@ class AutonomousResearchController:
             core_reason_code=ReasonCode.ALLOWED,
         )
         loop = self._execute.dispatch(dispatch)
+        if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+            return self._stop(
+                current,
+                StopReason.REQUIRE_HUMAN_REVIEW,
+                "reauthorization_required",
+                experiment_id=experiment.experiment_id,
+                current_phase=OrchestrationPhase.WORKER_RESULT_RECORDED,
+            )
         if loop.status is ResearchLoopStatus.UNKNOWN_OUTCOME:
             return self._stop(
                 current,
                 StopReason.OPERATIONAL_FAILURE,
                 "unknown_outcome",
                 experiment_id=experiment.experiment_id,
+            )
+        if loop.status not in {
+            ResearchLoopStatus.OBSERVATION_PRODUCED,
+            ResearchLoopStatus.NO_OBSERVATION,
+            ResearchLoopStatus.INVOCATION_FAILED,
+        }:
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "unhandled_research_loop_status",
+                experiment_id=experiment.experiment_id,
+                current_phase=OrchestrationPhase.DISPATCHING,
             )
         return self._complete_cycle(
             current,
@@ -1234,6 +1284,32 @@ class AutonomousResearchController:
         resolved_stop_reason = (
             stop_reason.value if isinstance(stop_reason, StopReason) else stop_reason
         )
+        natural_completion = next_state == OrchestrationState.COMPLETED.value and (
+            resolved_stop_reason
+            in {
+                StopReason.COMPLETED_NO_MORE_OPPORTUNITIES.value,
+                StopReason.MAX_CYCLES_REACHED.value,
+            }
+            or (
+                outcome is CycleOutcome.COMPLETE
+                and resolved_stop_reason != StopReason.OPERATOR_CANCELLED.value
+            )
+        )
+        if natural_completion:
+            obligations = self._control_obligations(current.research_run_id, current)
+            if obligations:
+                first = obligations[0]
+                reason = (
+                    StopReason.OPERATIONAL_FAILURE
+                    if first.code == "UNKNOWN_OUTCOME"
+                    else StopReason.REQUIRE_HUMAN_REVIEW
+                )
+                return self._stop(
+                    current,
+                    reason,
+                    f"completion_guard:{first.code.lower()}",
+                    current_phase=current_phase,
+                )
         updated = replace(
             current,
             state=next_state,
@@ -1524,6 +1600,14 @@ class AutonomousResearchController:
             ),
             persist_hook=_persist_attempt,
         )
+        if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+            return self._stop(
+                current,
+                StopReason.REQUIRE_HUMAN_REVIEW,
+                "reauthorization_required",
+                experiment_id=experiment_id,
+                current_phase=OrchestrationPhase.WORKER_RESULT_RECORDED,
+            )
         if loop.status is ResearchLoopStatus.UNKNOWN_OUTCOME:
             return self._stop(
                 current,
@@ -1538,7 +1622,19 @@ class AutonomousResearchController:
             return self._stop(
                 current, StopReason.REQUIRE_HUMAN_REVIEW, "human_review", experiment_id=experiment_id
             )
-        if loop.experiment_id and loop.status is not ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+        if loop.status not in {
+            ResearchLoopStatus.OBSERVATION_PRODUCED,
+            ResearchLoopStatus.NO_OBSERVATION,
+            ResearchLoopStatus.INVOCATION_FAILED,
+        }:
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "unhandled_research_loop_status",
+                experiment_id=experiment_id,
+                current_phase=OrchestrationPhase.DISPATCHING,
+            )
+        if loop.experiment_id:
             feedback = self._evaluate.execute(
                 EvaluateExperimentFeedbackCommand(experiment_id=loop.experiment_id)
             )
@@ -1693,6 +1789,21 @@ class AutonomousResearchController:
             }
             for item in attempts
         )
+
+    def _control_obligations(self, research_run_id: str, current=None):
+        with self._uow_factory.open() as uow:
+            obligations = unresolved_control_obligations(
+                attempts=uow.execution_attempts.list_for_research_run(research_run_id),
+                experiments=uow.experiments.list_for_research_run(research_run_id),
+                worker_results=uow.worker_results.list_for_research_run(research_run_id),
+                active_experiment_ids=(
+                    frozenset({current.last_experiment_id})
+                    if current is not None and current.last_experiment_id is not None
+                    else frozenset()
+                ),
+            )
+            uow.rollback()
+        return obligations
 
 
 def _result_from_record(

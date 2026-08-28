@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest import mock
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -42,6 +42,38 @@ class DemoRecord:
 
 
 class OperatorHqReadModelTests(unittest.TestCase):
+    def test_pending_reauthorization_is_visible_without_research_truth(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        store.experiments["exp-1"] = replace(
+            store.experiments["exp-1"],
+            execution_state="AUTHORIZATION_CHECK",
+        )
+        store.worker_results["wr-1"] = SimpleNamespace(
+            worker_result_id="wr-1",
+            experiment_id="exp-1",
+            research_run_id="run-1",
+            request_id="request-1",
+            correlation_id="correlation-1",
+            worker_capability="browser.page",
+            action="observe",
+            contract_version="v1",
+            worker_id="fixture-worker",
+            status="REAUTHORIZATION_REQUIRED",
+            received_at=CREATED_AT,
+            started_at=CREATED_AT,
+            completed_at=CREATED_AT,
+            parent_request_id=None,
+            control_signal=None,
+        )
+
+        payload = build_hq_run_analysis(FakeUnitOfWorkFactory(store), "run-1")
+
+        obligations = payload["truth"]["control_obligations"]
+        self.assertTrue(obligations["pending"])
+        self.assertEqual(obligations["items"][0]["code"], "REAUTHORIZATION_REQUIRED")
+        self.assertTrue(payload["truth"]["human_attention_required"])
+
     def test_failed_run_replay_is_authoritative_and_does_not_fabricate_evidence(self) -> None:
         store = _Store()
         seed_spine(store)

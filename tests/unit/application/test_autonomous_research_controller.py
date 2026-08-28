@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 
 import pathsetup  # noqa: F401
 
@@ -10,6 +11,7 @@ from zest.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
 )
 from zest.application.execute_planned_experiment import ResearchLoopStatus
+from zest.application.execute_planned_experiment import ResearchLoopOutcome
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.records import ExecutionAttemptRecord, IssuedBudgetRecord
@@ -26,7 +28,7 @@ from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.spine import CREATED_AT, seed_authorization_run
-from zest.platform.worker import InvocationStatus
+from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
 
 
 class FixedClock:
@@ -109,6 +111,71 @@ def _controller(store: _Store, *, worker=None, model=None):
 
 
 class AutonomousResearchControllerTests(unittest.TestCase):
+    def test_reauthorization_required_holds_run_without_false_completion(self) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+
+        def reauthorization(request):
+            return WorkerInvocationOutcome(
+                invocation_status=InvocationStatus.COMPLETED,
+                started_at=CREATED_AT,
+                completed_at=CREATED_AT,
+                worker_result={
+                    "contract_version": "v1",
+                    "correlation": dict(request["correlation"]),
+                    "worker_id": "fixture-worker",
+                    "status": "REAUTHORIZATION_REQUIRED",
+                    "started_at": "2026-08-16T21:00:00Z",
+                    "completed_at": "2026-08-16T21:00:01Z",
+                    "raw_result": {"stopped": True},
+                    "diagnostics": {
+                        "response_url": "https://example.test/",
+                        "raw_location": "https://other.test/next",
+                        "requires_core_re_evaluation": True,
+                    },
+                },
+                exit_code=0,
+            )
+
+        worker = RecordingWorkerPort(store=store, handler=reauthorization)
+        controller, _, _ = _controller(store, worker=worker)
+        controller.start(_command())
+
+        result = controller.step(_command())
+
+        self.assertEqual(result.state, OrchestrationState.WAITING_HUMAN.value)
+        self.assertEqual(result.stop_reason, StopReason.REQUIRE_HUMAN_REVIEW.value)
+        experiment = next(iter(store.experiments.values()))
+        self.assertEqual(experiment.execution_state, "AUTHORIZATION_CHECK")
+        self.assertEqual(len(store.observations), 0)
+        self.assertEqual(len(store.evidence), 0)
+        self.assertEqual(len(worker.calls), 1)
+
+        repeated = controller.step(_command())
+
+        self.assertEqual(repeated.state, OrchestrationState.WAITING_HUMAN.value)
+        self.assertEqual(repeated.stop_reason, StopReason.REQUIRE_HUMAN_REVIEW.value)
+        self.assertEqual(len(worker.calls), 1)
+
+    def test_unhandled_loop_status_fails_closed_without_completion(self) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+        controller.start(_command())
+        unknown = ResearchLoopOutcome(
+            status=object(),
+            hypothesis_id="hypothesis-unknown",
+            experiment_id="experiment-unknown",
+            experiment_execution_state="UNKNOWN",
+        )
+
+        with mock.patch.object(controller._execute, "execute", return_value=unknown):
+            result = controller.step(_command())
+
+        self.assertEqual(result.state, OrchestrationState.FAILED_OPERATIONAL.value)
+        self.assertEqual(result.stop_reason, StopReason.OPERATIONAL_FAILURE.value)
+        self.assertNotEqual(result.state, OrchestrationState.COMPLETED.value)
+
     def test_max_cycles_zero_executes_none(self) -> None:
         store = _Store()
         _seed_large_budget(store)

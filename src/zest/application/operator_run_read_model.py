@@ -10,6 +10,7 @@ from zest.application.observability import (
     activity_from_fault,
     project_effective_run_state,
 )
+from zest.application.orchestration_obligations import unresolved_control_obligations
 from zest.application.persist_preflight import preflight_record_to_mapping
 from zest.application.ports import UnitOfWorkFactory
 from zest.data.budget_ledger import ledger_totals
@@ -147,6 +148,8 @@ def build_run_detail(
         consumptions = uow.budget_consumptions.list_for_research_run(research_run_id)
         hypotheses = uow.hypotheses.list_for_research_run(research_run_id)
         experiments = uow.experiments.list_for_research_run(research_run_id)
+        attempts = uow.execution_attempts.list_for_research_run(research_run_id)
+        worker_results = uow.worker_results.list_for_research_run(research_run_id)
         observations = uow.observations.list_for_research_run(research_run_id)
         evidence = uow.evidence.list_for_research_run(research_run_id)
         candidates = uow.candidates.list_for_research_run(research_run_id)
@@ -182,6 +185,11 @@ def build_run_detail(
         }
         for item in pending_v3
     ]
+    control_obligations = unresolved_control_obligations(
+        attempts=attempts,
+        experiments=experiments,
+        worker_results=worker_results,
+    )
     issued = budgets[0] if budgets else None
     payload: dict[str, Any] = {
         "research_run_id": research_run_id,
@@ -262,6 +270,14 @@ def build_run_detail(
         "finding_count": len(findings),
         "pending_approval_count": len(pending_approvals),
         "pending_approvals": pending_approvals,
+        "control_obligations": [
+            {
+                "code": item.code,
+                "subject_id": item.subject_id,
+                "detail": item.detail,
+            }
+            for item in control_obligations
+        ],
         "reconciliation": _reconciliation(orchestration),
         "timeline": _timeline(audits, cycles),
         "started_at": _iso(run.started_at),

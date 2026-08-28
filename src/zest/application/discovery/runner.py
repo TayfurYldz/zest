@@ -303,6 +303,14 @@ class SurfaceDiscoveryRunner:
                     self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
             bound_stop = _bound_stop_reason(uow, start.config)
             uow.commit()
+        if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+            return SurfaceDiscoveryCycleResult(
+                research_run_id,
+                "REAUTHORIZATION_REQUIRED",
+                record.frontier_id,
+                experiment_id,
+                worker_invoked,
+            )
         if bound_stop is not None:
             return SurfaceDiscoveryCycleResult(
                 research_run_id, bound_stop, record.frontier_id, experiment_id, worker_invoked

@@ -15,6 +15,7 @@ from typing import Any
 
 from zest.application.operator_errors import OperatorError, OperatorErrorCode
 from zest.application.observability import activity_from_fault, project_effective_run_state
+from zest.application.orchestration_obligations import unresolved_control_obligations
 from zest.application.observer import build_fallback_brief, build_observer_context
 from zest.application.ports import UnitOfWorkFactory
 from zest.application.retry_policy import RetryClassification, classify_retry_semantics
@@ -879,6 +880,7 @@ def _truth_projection(
     runtime: Any,
     operational: Any,
     faults: Sequence[Any],
+    control_obligations: Sequence[Any],
     locally_supervised: bool,
     records: Sequence[Any],
 ) -> dict[str, Any]:
@@ -902,9 +904,25 @@ def _truth_projection(
         "supervisor_liveness": supervisor_liveness,
         "runtime": None if runtime is None else _summary(runtime, ("runtime_instance_id", "status", "last_seen_at", "stopped_at")),
         "active_unresolved_fatal_fault": _fault_summary(unresolved_fatal[-1]) if unresolved_fatal else None,
+        "control_obligations": {
+            "pending": bool(control_obligations),
+            "items": [
+                {
+                    "code": item.code,
+                    "subject_id": item.subject_id,
+                    "detail": item.detail,
+                }
+                for item in control_obligations
+            ],
+        },
         "current_phase": None if orchestration is None else orchestration.current_phase,
         "last_authoritative_activity_at": _safe_value(latest_activity),
-        "human_attention_required": bool(unresolved_fatal or operational.effective_state == "RUNTIME_FAULT" or persisted_state == "WAITING_HUMAN"),
+        "human_attention_required": bool(
+            unresolved_fatal
+            or control_obligations
+            or operational.effective_state == "RUNTIME_FAULT"
+            or persisted_state == "WAITING_HUMAN"
+        ),
     }
 
 
@@ -939,6 +957,11 @@ def build_hq_run_analysis(
         attempts = uow.execution_attempts.list_for_research_run(research_run_id)
         worker_results = uow.worker_results.list_for_research_run(research_run_id)
         observations = uow.observations.list_for_research_run(research_run_id)
+        control_obligations = unresolved_control_obligations(
+            attempts=attempts,
+            experiments=experiments,
+            worker_results=worker_results,
+        )
 
         reasoning = uow.research_reasoning.list_for_research_run(research_run_id)
         research_admissions = uow.research_admissions.list_for_research_run(
@@ -1115,6 +1138,7 @@ def build_hq_run_analysis(
         runtime=runtime,
         operational=operational,
         faults=run_faults,
+        control_obligations=control_obligations,
         locally_supervised=locally_supervised,
         records=truth_records,
     )
