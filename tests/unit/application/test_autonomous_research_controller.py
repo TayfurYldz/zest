@@ -12,6 +12,7 @@ from zest.application.autonomous_research_controller import (
 )
 from zest.application.execute_planned_experiment import ResearchLoopStatus
 from zest.application.execute_planned_experiment import ResearchLoopOutcome
+from zest.application.orchestration_obligations import unresolved_control_obligations
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.records import ExecutionAttemptRecord, IssuedBudgetRecord
@@ -139,23 +140,131 @@ class AutonomousResearchControllerTests(unittest.TestCase):
 
         worker = RecordingWorkerPort(store=store, handler=reauthorization)
         controller, _, _ = _controller(store, worker=worker)
-        controller.start(_command())
+        command = _command(
+            bounds=_bounds(
+                allow_repeated_control_experiments=False,
+            )
+        )
 
-        result = controller.step(_command())
+        controller.start(command)
 
-        self.assertEqual(result.state, OrchestrationState.WAITING_HUMAN.value)
-        self.assertEqual(result.stop_reason, StopReason.REQUIRE_HUMAN_REVIEW.value)
+        result = controller.step(command)
+
+        self.assertEqual(
+            result.state,
+            OrchestrationState.WAITING_HUMAN.value,
+        )
+        self.assertEqual(
+            result.stop_reason,
+            StopReason.REQUIRE_HUMAN_REVIEW.value,
+        )
+
         experiment = next(iter(store.experiments.values()))
-        self.assertEqual(experiment.execution_state, "AUTHORIZATION_CHECK")
+        self.assertEqual(
+            experiment.execution_state,
+            "AUTHORIZATION_CHECK",
+        )
         self.assertEqual(len(store.observations), 0)
         self.assertEqual(len(store.evidence), 0)
         self.assertEqual(len(worker.calls), 1)
 
-        repeated = controller.step(_command())
+        repeated = controller.step(command)
 
-        self.assertEqual(repeated.state, OrchestrationState.WAITING_HUMAN.value)
-        self.assertEqual(repeated.stop_reason, StopReason.REQUIRE_HUMAN_REVIEW.value)
+        self.assertEqual(
+            repeated.state,
+            OrchestrationState.WAITING_HUMAN.value,
+        )
+        self.assertEqual(
+            repeated.stop_reason,
+            StopReason.REQUIRE_HUMAN_REVIEW.value,
+        )
         self.assertEqual(len(worker.calls), 1)
+
+        worker_result_id = next(iter(store.worker_results))
+
+        denied = controller.deny_reauthorization(
+            "run-1",
+            worker_result_id=worker_result_id,
+            operator_id="operator-1",
+        )
+
+        self.assertEqual(
+            denied.state,
+            OrchestrationState.READY.value,
+        )
+        self.assertIsNone(denied.stop_reason)
+
+        blocked = next(iter(store.experiments.values()))
+        self.assertEqual(
+            blocked.execution_state,
+            "BLOCKED",
+        )
+
+        obligations = unresolved_control_obligations(
+            attempts=tuple(store.execution_attempts.values()),
+            experiments=tuple(store.experiments.values()),
+            worker_results=tuple(store.worker_results.values()),
+        )
+        self.assertEqual(obligations, ())
+
+        decisions = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type
+            == "REAUTHORIZATION_DENIED_BY_HUMAN"
+        ]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(
+            decisions[0].actor_type,
+            "HUMAN_OPERATOR",
+        )
+        self.assertFalse(
+            decisions[0].payload["scope_changed"]
+        )
+        self.assertFalse(
+            decisions[0].payload["new_authority_granted"]
+        )
+        self.assertFalse(
+            decisions[0].payload["redispatch_authorized"]
+        )
+
+        # The BLOCKED hypothesis must not be regenerated as an automatic
+        # follow-up. No second Worker dispatch is allowed.
+        finished = controller.step(command)
+
+        self.assertEqual(
+            finished.state,
+            OrchestrationState.COMPLETED.value,
+        )
+        self.assertEqual(
+            finished.stop_reason,
+            StopReason.COMPLETED_NO_MORE_OPPORTUNITIES.value,
+        )
+        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(len(store.observations), 0)
+        self.assertEqual(len(store.evidence), 0)
+
+        # Human decision is idempotent.
+        again = controller.deny_reauthorization(
+            "run-1",
+            worker_result_id=worker_result_id,
+            operator_id="operator-1",
+        )
+        self.assertEqual(
+            again.state,
+            OrchestrationState.COMPLETED.value,
+        )
+        self.assertEqual(
+            len(
+                [
+                    event
+                    for event in store.audit_events.values()
+                    if event.event_type
+                    == "REAUTHORIZATION_DENIED_BY_HUMAN"
+                ]
+            ),
+            1,
+        )
 
     def test_unhandled_loop_status_fails_closed_without_completion(self) -> None:
         store = _Store()

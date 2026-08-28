@@ -202,7 +202,15 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
             and parts[0] == "api"
             and parts[1] == "runs"
             and parts[2]
-            and parts[3] in {"start", "pause", "resume", "cancel", "preflight"}
+            and parts[3]
+            in {
+                "start",
+                "pause",
+                "resume",
+                "cancel",
+                "preflight",
+                "deny-reauthorization",
+            }
         ):
             self._send(*_json_bytes(
                 OperatorError(OperatorErrorCode.INVALID_INPUT, "not found").to_payload(),
@@ -212,12 +220,45 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
         research_run_id = unquote(parts[2])
         action = parts[3]
         try:
-            reject_authority_overrides(self._read_json_body())
+            body = self._read_json_body()
+            reject_authority_overrides(body)
+
             if action == "preflight":
                 payload = self.runtime.execute_preflight(research_run_id)
                 self._send(*_json_bytes({"ok": True, "result": payload}))
                 return
-            if action == "start":
+
+            if action == "deny-reauthorization":
+                unexpected = sorted(
+                    set(body) - {"worker_result_id", "operator_id"}
+                )
+                if unexpected:
+                    raise OperatorError(
+                        OperatorErrorCode.INVALID_INPUT,
+                        "unsupported reauthorization fields: "
+                        + ", ".join(unexpected),
+                    )
+
+                worker_result_id = body.get("worker_result_id")
+                operator_id = body.get("operator_id")
+
+                if (
+                    not isinstance(worker_result_id, str)
+                    or not worker_result_id.strip()
+                    or not isinstance(operator_id, str)
+                    or not operator_id.strip()
+                ):
+                    raise OperatorError(
+                        OperatorErrorCode.INVALID_INPUT,
+                        "worker_result_id and operator_id are required",
+                    )
+
+                result = self.runtime.deny_reauthorization(
+                    research_run_id,
+                    worker_result_id=worker_result_id.strip(),
+                    operator_id=operator_id.strip(),
+                )
+            elif action == "start":
                 result = self.runtime.start_run(research_run_id)
             elif action == "pause":
                 result = self.runtime.pause_run(research_run_id)

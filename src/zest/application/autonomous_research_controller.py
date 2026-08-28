@@ -81,8 +81,10 @@ from zest.data.budget_ledger import ledger_totals
 from zest.data.records import (
     AuditEventRecord,
     ExecutionAttemptState,
+    ExperimentExecutionState,
     ResearchCycleRecord,
     ResearchOrchestrationRecord,
+    WorkerResultStatus,
 )
 from zest.platform.observability import InMemoryObservability, ObservabilityPort, TelemetryEvent
 from zest.platform.secrets import CompositeSecretPort
@@ -368,6 +370,182 @@ class AutonomousResearchController:
             uow.research_orchestrations.save(updated)
             uow.commit()
         return _result_from_record(updated, CycleOutcome.CONTINUE)
+
+
+    def deny_reauthorization(
+        self,
+        research_run_id: str,
+        *,
+        worker_result_id: str,
+        operator_id: str,
+    ) -> OrchestrationTickResult:
+        """Resolve one reauthorization obligation without granting authority.
+
+        Human DENY closes only the blocked execution branch. It does not
+        mutate scope, authorization sources, budgets, or Worker authority.
+        """
+
+        if not isinstance(worker_result_id, str) or not worker_result_id.strip():
+            raise ApplicationError("worker_result_id is required")
+        if not isinstance(operator_id, str) or not operator_id.strip():
+            raise ApplicationError("operator_id is required")
+
+        worker_result_id = worker_result_id.strip()
+        operator_id = operator_id.strip()
+        now = self._clock.now()
+
+        with self._uow_factory.open() as uow:
+            current = uow.research_orchestrations.get(research_run_id)
+            if current is None:
+                raise ApplicationError("orchestration not found")
+
+            worker_result = uow.worker_results.get(worker_result_id)
+            if (
+                worker_result is None
+                or worker_result.research_run_id != research_run_id
+                or worker_result.status
+                != WorkerResultStatus.REAUTHORIZATION_REQUIRED.value
+            ):
+                uow.rollback()
+                raise ApplicationError(
+                    "worker result is not a reauthorization result for this run"
+                )
+
+            experiment = uow.experiments.get(worker_result.experiment_id)
+            if (
+                experiment is None
+                or experiment.research_run_id != research_run_id
+            ):
+                uow.rollback()
+                raise ApplicationError(
+                    "reauthorization experiment does not belong to this run"
+                )
+
+            prior_decisions = uow.audit_events.list_for_subject(
+                "research_run",
+                research_run_id,
+            )
+            already_resolved = any(
+                event.event_type == "REAUTHORIZATION_DENIED_BY_HUMAN"
+                and event.payload.get("worker_result_id") == worker_result_id
+                for event in prior_decisions
+            )
+            if already_resolved:
+                uow.rollback()
+                return _result_from_record(
+                    current,
+                    CycleOutcome.CONTINUE,
+                )
+
+            if (
+                current.state != OrchestrationState.WAITING_HUMAN.value
+                or current.stop_reason
+                != StopReason.REQUIRE_HUMAN_REVIEW.value
+            ):
+                uow.rollback()
+                raise ApplicationError(
+                    "run is not waiting for a reauthorization decision"
+                )
+
+            if uow.observations.list_for_worker_result(worker_result_id):
+                uow.rollback()
+                raise ApplicationError(
+                    "reauthorization result unexpectedly produced observations"
+                )
+
+            attempts = uow.execution_attempts.list_for_research_run(
+                research_run_id
+            )
+            experiments = uow.experiments.list_for_research_run(
+                research_run_id
+            )
+            worker_results = uow.worker_results.list_for_research_run(
+                research_run_id
+            )
+
+            obligations = unresolved_control_obligations(
+                attempts=attempts,
+                experiments=experiments,
+                worker_results=worker_results,
+            )
+
+            active_reauthorization = any(
+                item.code == "REAUTHORIZATION_REQUIRED"
+                and item.subject_id == worker_result_id
+                for item in obligations
+            )
+            if not active_reauthorization:
+                uow.rollback()
+                raise ApplicationError(
+                    "reauthorization obligation is no longer active"
+                )
+
+            # DENY means this branch cannot cross the requested authority
+            # boundary. It is terminal for this Experiment only.
+            uow.experiments.set_execution_state(
+                experiment.experiment_id,
+                ExperimentExecutionState.BLOCKED.value,
+            )
+
+            remaining = unresolved_control_obligations(
+                attempts=attempts,
+                experiments=uow.experiments.list_for_research_run(
+                    research_run_id
+                ),
+                worker_results=worker_results,
+            )
+
+            if any(item.code == "UNKNOWN_OUTCOME" for item in remaining):
+                next_state = OrchestrationState.FAILED_OPERATIONAL.value
+                next_stop_reason = StopReason.OPERATIONAL_FAILURE.value
+            elif remaining:
+                next_state = OrchestrationState.WAITING_HUMAN.value
+                next_stop_reason = StopReason.REQUIRE_HUMAN_REVIEW.value
+            else:
+                next_state = OrchestrationState.READY.value
+                next_stop_reason = None
+
+            updated = replace(
+                current,
+                state=next_state,
+                pause_reason=None,
+                stop_reason=next_stop_reason,
+                last_phase="reauthorization_denied",
+                current_phase=OrchestrationPhase.CYCLE_COMPLETE.value,
+                updated_at=now,
+                checkpoint_at=now,
+            )
+
+            uow.research_orchestrations.save(updated)
+
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id=operator_id,
+                    actor_type=ActorType.HUMAN_OPERATOR.value,
+                    event_type="REAUTHORIZATION_DENIED_BY_HUMAN",
+                    subject_type="research_run",
+                    subject_id=research_run_id,
+                    payload={
+                        "worker_result_id": worker_result_id,
+                        "experiment_id": experiment.experiment_id,
+                        "hypothesis_id": experiment.hypothesis_id,
+                        "decision": "DENY",
+                        "scope_changed": False,
+                        "new_authority_granted": False,
+                        "redispatch_authorized": False,
+                        "remaining_control_obligations": len(remaining),
+                    },
+                )
+            )
+
+            uow.commit()
+
+        return _result_from_record(
+            updated,
+            CycleOutcome.CONTINUE,
+        )
 
     def cancel(self, research_run_id: str) -> OrchestrationTickResult:
         return self._operator_state(

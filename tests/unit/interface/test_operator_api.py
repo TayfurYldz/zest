@@ -298,6 +298,63 @@ class OperatorApiPostgresOutageHandlerTests(unittest.TestCase):
         self.assertNotIn("postgresql+psycopg://", payload.get("detail", ""))
         runtime.start_run.assert_called_once()
 
+    def test_deny_reauthorization_is_explicit_operator_action(self) -> None:
+        runtime = mock.Mock()
+        runtime.deny_reauthorization.return_value = mock.Mock(
+            research_run_id="run-1",
+            state="READY",
+            cycle_number=2,
+            outcome="CONTINUE",
+            stop_reason=None,
+            last_phase="reauthorization_denied",
+            hypothesis_id="hyp-1",
+            experiment_id="exp-1",
+        )
+
+        server, host, port = self._serve(runtime)
+
+        import http.client
+
+        conn = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            body = json.dumps(
+                {
+                    "worker_result_id": "wr-1",
+                    "operator_id": "operator-1",
+                }
+            ).encode("utf-8")
+
+            conn.request(
+                "POST",
+                "/api/runs/run-1/deny-reauthorization",
+                body=body,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            response = conn.getresponse()
+            raw = response.read()
+            payload = json.loads(raw.decode("utf-8"))
+        finally:
+            conn.close()
+            server.shutdown()
+
+        self.assertEqual(response.status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            payload["result"]["state"],
+            "READY",
+        )
+        self.assertNotIn(b"Traceback", raw)
+
+        runtime.deny_reauthorization.assert_called_once_with(
+            "run-1",
+            worker_result_id="wr-1",
+            operator_id="operator-1",
+        )
+
     def test_health_does_not_leak_uncaught_traceback_or_dsn(self) -> None:
         runtime = mock.Mock()
         runtime.health.side_effect = RuntimeError(

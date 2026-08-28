@@ -118,6 +118,14 @@ class SelectResearchOpportunities:
             chains = uow.chain_hypotheses.list_for_research_run(command.research_run_id)
             changes = uow.change_events.list_for_research_run(command.research_run_id)
             hypotheses = uow.hypotheses.list_for_research_run(command.research_run_id)
+            experiments = uow.experiments.list_for_research_run(
+                command.research_run_id
+            )
+            blocked_hypothesis_ids = frozenset(
+                item.hypothesis_id
+                for item in experiments
+                if item.execution_state == "BLOCKED"
+            )
             assessments = uow.hypothesis_assessments.list_for_research_run(
                 command.research_run_id
             )
@@ -168,7 +176,11 @@ class SelectResearchOpportunities:
                     invariant_ids=tuple(item.invariant_id for item in invariants),
                     chain_ids=tuple(item.chain_id for item in chains),
                     change_event_ids=tuple(item.change_event_id for item in changes),
-                    hypothesis_ids=tuple(item.hypothesis_id for item in hypotheses),
+                    hypothesis_ids=tuple(
+                        item.hypothesis_id
+                        for item in hypotheses
+                        if item.hypothesis_id not in blocked_hypothesis_ids
+                    ),
                     negative_knowledge=tuple(negatives),
                 ),
                 id_prefix=new_opaque_id(),

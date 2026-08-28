@@ -310,6 +310,39 @@ class ZestdRuntime:
             self._attach_supervisor(research_run_id, recovery=True, command=command)
         return result
 
+
+    def deny_reauthorization(
+        self,
+        research_run_id: str,
+        *,
+        worker_result_id: str,
+        operator_id: str,
+    ) -> OrchestrationTickResult:
+        self._require_pg()
+
+        result = self._unfenced_controller.deny_reauthorization(
+            research_run_id,
+            worker_result_id=worker_result_id,
+            operator_id=operator_id,
+        )
+
+        if (
+            result.state == OrchestrationState.READY.value
+            and not self.is_supervising(research_run_id)
+        ):
+            command = reconstruct_start_command(
+                self._uow_factory,
+                research_run_id,
+                recovery=True,
+            )
+            self._attach_supervisor(
+                research_run_id,
+                recovery=True,
+                command=command,
+            )
+
+        return result
+
     def cancel_run(self, research_run_id: str) -> OrchestrationTickResult:
         self._require_pg()
         result = self._unfenced_controller.cancel(research_run_id)
