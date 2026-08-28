@@ -6,7 +6,7 @@ import inspect
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from .browser_engine import (
     REDIRECT_STATUSES,
@@ -453,9 +453,45 @@ class PlaywrightChromiumEngine:
             route.abort()
             return
         if int(response.status) in REDIRECT_STATUSES:
-            self._record_event(runtime, request, status_code=int(response.status), redirect=True, url=url)
-            self._mark_reauth(runtime, "REDIRECT", location or url, url)
-            route.abort()
+            self._record_event(
+                runtime,
+                request,
+                status_code=int(response.status),
+                redirect=True,
+                url=url,
+            )
+
+            # A redirect does not create new authority.  It may only proceed
+            # when the resolved destination is already inside the Core-issued
+            # network envelope.  Every subsequent hop is intercepted again,
+            # so redirect chains remain bounded by the same request budget.
+            if location:
+                redirect_target = urljoin(url, location)
+                redirect_allowed, redirect_reason = envelope_allows(
+                    runtime.envelope,
+                    redirect_target,
+                )
+                if not redirect_allowed:
+                    if (
+                        redirect_reason == UNSUPPORTED_SCHEME
+                        or not url_is_representable(redirect_target)
+                    ):
+                        runtime.pending_status = "BLOCKED"
+                        runtime.pending_error = redirect_reason
+                    else:
+                        self._mark_reauth(
+                            runtime,
+                            "REDIRECT",
+                            redirect_target,
+                            url,
+                        )
+                    route.abort()
+                    return
+
+            try:
+                route.fulfill(response=response)
+            except Exception:
+                route.abort()
             return
         self._record_event(runtime, request, status_code=int(response.status), redirect=False, url=url)
         try:

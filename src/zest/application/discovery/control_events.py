@@ -54,11 +54,33 @@ def _kind_for(channel: str, location: str, result: WorkerResultRecord) -> Contro
         return ControlEventKind.POPUP_BOUNDARY
     if channel == "IFRAME":
         return ControlEventKind.IFRAME_BOUNDARY
+
     parsed = urlsplit(location) if location else None
+
+    if channel in {"REDIRECT", "SPA"}:
+        diagnostics = (
+            result.diagnostics
+            if isinstance(result.diagnostics, Mapping)
+            else {}
+        )
+        response_url = str(diagnostics.get("response_url") or "")
+        response_parsed = urlsplit(response_url) if response_url else None
+
+        location_origin = _origin(parsed) if parsed else None
+        response_origin = _origin(response_parsed) if response_parsed else None
+
+        if (
+            location_origin is not None
+            and response_origin is not None
+            and location_origin != response_origin
+        ):
+            return ControlEventKind.NEW_ORIGIN_BOUNDARY
+
+        return ControlEventKind.REDIRECT_BOUNDARY
+
     if parsed and parsed.hostname:
         return ControlEventKind.NEW_ORIGIN_BOUNDARY
-    if channel in {"REDIRECT", "SPA"}:
-        return ControlEventKind.REDIRECT_BOUNDARY
+
     return ControlEventKind.REAUTHORIZATION_REQUIRED
 
 

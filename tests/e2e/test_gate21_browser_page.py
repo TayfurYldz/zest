@@ -149,14 +149,16 @@ class Gate21ChromiumLabTests(unittest.TestCase):
         self.assertIn(status, {"REAUTHORIZATION_REQUIRED", "BLOCKED"})
         self.assertFalse(diagnostics.get("self_authorized", True))
 
-    def test_05_same_origin_redirect_stopped(self) -> None:
-        status, _, diagnostics = self._run(
+    def test_05_same_origin_redirect_followed_inside_envelope(self) -> None:
+        status, raw, diagnostics = self._run(
             "navigate",
             {"authorized_origin": self.origin, "path": "/redirect-same"},
         )
-        self.assertEqual(status, "REAUTHORIZATION_REQUIRED")
-        self.assertEqual(diagnostics["channel"], "REDIRECT")
-        self.assertFalse(diagnostics["followed"])
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNone(diagnostics)
+        self.assertTrue(raw["normalized_url"].endswith("/app"))
+        self.assertIn("/redirect-same", self.lab.hits)
+        self.assertIn("/app", self.lab.hits)
 
     def test_06_cross_origin_redirect_stopped(self) -> None:
         status, _, diagnostics = self._run(
