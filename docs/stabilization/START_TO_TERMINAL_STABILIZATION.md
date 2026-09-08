@@ -8,6 +8,25 @@ Restore the existing Zest to a state where the real deployed START path performs
 
 This campaign is not a feature-development phase and does not claim vulnerability-detection quality. It proves the current product can execute its intended runtime path reliably enough to become a stable base for later security-quality work.
 
+## Non-dilution invariant
+
+Stabilization must not make Zest weaker merely to obtain a green run.
+
+The following are forbidden as stabilization shortcuts:
+
+- disabling or weakening scope enforcement,
+- bypassing Core authorization or approval boundaries,
+- lowering security-relevant evidence requirements,
+- converting failed or incomplete work into `COMPLETED`,
+- swallowing Worker, model, browser, persistence or orchestration errors,
+- replacing a required real Worker/model path with a fake path in the deployed acceptance run,
+- removing a capability because it is currently difficult to execute,
+- shrinking the scenario after a failure merely to make the result pass,
+- reducing the intended research loop to discovery-only while claiming research success,
+- broad refactors whose primary purpose is to avoid diagnosing the current failure.
+
+A simplification is allowed only when it removes test noise without changing product semantics, authority boundaries, required capabilities, or the acceptance contract. If the current product cannot perform a required step, record `CAPABILITY_MISSING`; do not hide the gap.
+
 ## Source candidate
 
 - Base branch: `campaign/canonical-mr5-mr6`
@@ -43,6 +62,84 @@ VDS-offline work may include:
 - static review of already-known planning/discovery blockers in the selected candidate.
 
 No local or source-only result may be reported as VDS-validated.
+
+## Current execution queue while VDS is offline
+
+Work is performed in this order. Later preparation may begin only when it does not require changing product behavior before evidence exists.
+
+### P1 — Candidate lifecycle audit
+
+Goal: establish exactly what the selected candidate already does before writing fixes.
+
+Tasks:
+
+1. Review the six post-master stabilization commits and map each change to the runtime failure class it addresses.
+2. Trace `START` from Operator API through `ZestdRuntime`, supervisor, ARC, discovery/research, Core authorization, Worker result, observation, assessment, promotion and terminal-state handling.
+3. Mark all points where an expected real run can stop, wait, fail or silently complete without required work.
+4. Do not change product code during this audit.
+
+Exit artifact: one source-backed lifecycle map plus a list of suspected blockers labelled `UNPROVEN` until reproduced.
+
+### P2 — Control-path contract
+
+Goal: define the exact external operations the VDS test will use, with no guessed endpoint or payload.
+
+Tasks:
+
+1. Confirm program/run creation path and required bootstrap fields.
+2. Confirm preflight, start, run-detail, analysis/events and cancel operations.
+3. Define the minimal safe bootstrap payload for the selected existing local target without lowering normal policy checks.
+4. Define what data the external runner may read and how timeout/cancel is handled.
+
+Exit artifact: a short create → preflight → start → observe → cancel runbook derived from current source.
+
+### P3 — Scenario acceptance contract
+
+Goal: decide before execution what counts as real work.
+
+Use the existing Gate 22 loopback target unless a deployment constraint later proves it unsuitable.
+
+Layer A — runtime/discovery evidence:
+
+- target receives a real request,
+- at least one reachable surface beyond the seed is discovered,
+- real Worker invocation and WorkerResult exist,
+- result processing reaches persisted observation/state transition,
+- run reaches an accepted end state with no orphaned active work.
+
+Layer B — research-coupling evidence:
+
+- discovered/observed target information is present in the research/model context when the chosen path requires a model,
+- a concrete supported experiment or equivalent actionable research step is produced,
+- that step is executed through the real Worker path,
+- the result reaches assessment/feedback and changes or closes research state.
+
+Layer A and Layer B are reported separately. Layer A success never substitutes for Layer B.
+
+Exit artifact: an evidence matrix mapping every acceptance condition to its authoritative observable source.
+
+### P4 — External runner specification
+
+Goal: prepare a small observer/driver without adding a new product subsystem.
+
+The runner may:
+
+- call existing bootstrap/control APIs,
+- poll existing run detail/analysis,
+- collect existing semantic events and errors,
+- enforce total runtime and no-progress limits,
+- call existing cancel operation on timeout,
+- classify the result using the stabilization result classes.
+
+The runner must not:
+
+- create alternate lifecycle logic,
+- mutate database state directly to advance a run,
+- bypass preflight or authorization,
+- fake model/Worker success in the deployed acceptance run,
+- reinterpret failure as success.
+
+Exit artifact: runner interface, inputs, stop conditions and result schema. Implementation may be prepared before VDS returns, but deployed execution waits for S1/S2 validation.
 
 ## Gates
 
