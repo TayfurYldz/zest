@@ -94,14 +94,23 @@ def validate_arguments(schema: Mapping[str, Any], arguments: object) -> str | No
         properties = schema.get("properties") or {}
         if not isinstance(properties, dict):
             return "SCHEMA_MISMATCH"
+        max_properties = schema.get("maxProperties")
+        if isinstance(max_properties, int) and len(arguments) > max_properties:
+            return "SCHEMA_MISMATCH"
         if schema.get("additionalProperties") is False:
             extra = set(arguments) - set(properties)
             if extra:
                 return "SCHEMA_MISMATCH"
+        additional = schema.get("additionalProperties")
         for key, value in arguments.items():
-            if key not in properties:
-                continue
-            issue = _validate_value(properties[key], value)
+            value_schema = properties.get(key)
+            if value_schema is None:
+                if not isinstance(additional, dict):
+                    continue
+                value_schema = additional
+            if not isinstance(value_schema, dict):
+                return "SCHEMA_MISMATCH"
+            issue = _validate_value(value_schema, value)
             if issue is not None:
                 return issue
     return None
@@ -116,6 +125,8 @@ def _validate_value(schema: Mapping[str, Any], value: object) -> str | None:
     if expected == "boolean" and type(value) is not bool:
         return "SCHEMA_MISMATCH"
     if expected == "object":
+        if not isinstance(value, dict):
+            return "SCHEMA_MISMATCH"
         return validate_arguments(schema, value)
     if expected == "array":
         if not isinstance(value, list):
@@ -131,5 +142,14 @@ def _validate_value(schema: Mapping[str, Any], value: object) -> str | None:
         return "SCHEMA_MISMATCH"
     min_length = schema.get("minLength")
     if isinstance(min_length, int) and isinstance(value, str) and len(value) < min_length:
+        return "SCHEMA_MISMATCH"
+    max_length = schema.get("maxLength")
+    if isinstance(max_length, int) and isinstance(value, str) and len(value) > max_length:
+        return "SCHEMA_MISMATCH"
+    minimum = schema.get("minimum")
+    if isinstance(minimum, int) and isinstance(value, int) and value < minimum:
+        return "SCHEMA_MISMATCH"
+    maximum = schema.get("maximum")
+    if isinstance(maximum, int) and isinstance(value, int) and value > maximum:
         return "SCHEMA_MISMATCH"
     return None

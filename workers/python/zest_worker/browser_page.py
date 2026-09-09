@@ -39,6 +39,10 @@ FORBIDDEN_VALUE_TOKENS = frozenset(
 )
 CRLF_MARKERS = ("\r", "\n", "\x00")
 MAX_ATTEMPTED_REQUESTS = 16
+MAX_OBSERVE_ATTEMPTED_REQUESTS = 64
+MAX_HEADER_COUNT = 8
+MAX_HEADER_NAME_LENGTH = 64
+MAX_HEADER_VALUE_LENGTH = 256
 
 _ENGINE: BrowserEngine | None = None
 _ENGINE_UNAVAILABLE = False
@@ -55,13 +59,13 @@ def execute_browser_page(
     envelope = parse_envelope(request.get("network_envelope"))
     if envelope is None:
         return _fail("EXECUTION_FAILED", "network_envelope is required")
+    action = request.get("action")
     max_attempted = request.get("max_attempted_requests")
     if not isinstance(max_attempted, int) or max_attempted < 1:
         return _fail("EXECUTION_FAILED", "max_attempted_requests is required")
-    max_attempted = min(max_attempted, MAX_ATTEMPTED_REQUESTS)
+    max_attempted = min(max_attempted, _max_attempted_for_action(action))
     origin = arguments.get("authorized_origin")
     path = arguments.get("path")
-    action = request.get("action")
     if not isinstance(origin, str) or not origin.strip():
         return _fail("EXECUTION_FAILED", "authorized_origin is required")
     if not isinstance(path, str):
@@ -282,7 +286,10 @@ def _binding_from_request(request: Mapping[str, Any], origin: str) -> dict[str, 
 def _limits_for(
     action: object, arguments: Mapping[str, Any], max_attempted: int
 ) -> BrowserRuntimeLimits:
-    limits = BrowserRuntimeLimits(max_attempted_network_requests_per_action=max_attempted)
+    limits = BrowserRuntimeLimits(
+        max_attempted_network_requests_per_action=max_attempted,
+        allow_partial_budget_snapshot=action == "observe",
+    )
     timeout_ms = arguments.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms < 1:
         return limits
@@ -293,6 +300,12 @@ def _limits_for(
             max_action_runtime_ms=min(timeout_ms, limits.max_action_runtime_ms),
         )
     return replace(limits, max_action_runtime_ms=min(timeout_ms, limits.max_action_runtime_ms))
+
+
+def _max_attempted_for_action(action: object) -> int:
+    if action == "observe":
+        return MAX_OBSERVE_ATTEMPTED_REQUESTS
+    return MAX_ATTEMPTED_REQUESTS
 
 
 def _session_cookie(
@@ -329,8 +342,10 @@ def _reject_caller_headers(arguments: Mapping[str, Any]) -> str | None:
         return None
     if not isinstance(headers, Mapping):
         return "headers must be an object"
+    if len(headers) > MAX_HEADER_COUNT:
+        return "header count exceeds bound"
     for name in headers:
-        if not isinstance(name, str):
+        if not isinstance(name, str) or not name.strip():
             return "header names must be strings"
         if name.lower() in FORBIDDEN_HEADERS:
             return f"header {name} is not allowed"
@@ -339,7 +354,8 @@ def _reject_caller_headers(arguments: Mapping[str, Any]) -> str | None:
             not isinstance(value, str)
             or not value.strip()
             or any(marker in value for marker in CRLF_MARKERS)
-            or len(value) > 256
+            or len(name) > MAX_HEADER_NAME_LENGTH
+            or len(value) > MAX_HEADER_VALUE_LENGTH
         ):
             return f"header {name} is invalid"
         if name.lower() == "user-agent" and len(value) > 128:

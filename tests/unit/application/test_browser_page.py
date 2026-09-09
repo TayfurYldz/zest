@@ -20,8 +20,11 @@ from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
 from zest.data.records import ExperimentRecord, IssuedBudgetRecord
 from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome
-from zest.research.browser_page import plan_browser_navigate
-from zest.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
+from zest.research.browser_page import plan_browser_navigate, plan_browser_observe
+from zest.tools.browser_page_policy import (
+    BROWSER_PAGE_MAX_NETWORK_REQUESTS,
+    BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS,
+)
 from zest.tools.registry import load_capability_registry
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort
@@ -178,6 +181,105 @@ class BrowserPageApplicationTests(unittest.TestCase):
         self.assertEqual(observations[0].observation_kind, BROWSER_PAGE_OBSERVATION_KIND)
         self.assertNotIn("cookie", str(observations[0].payload).lower())
 
+    def test_observe_reserves_moderate_browser_page_fanout(self) -> None:
+        use_case, _, port, store = _use_case(max_requests=150)
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=plan_browser_observe(
+                    "hyp-1",
+                    budget_id="budget-1",
+                    target_reference="https://www.dyson.tw/",
+                    authorized_origin="https://www.dyson.tw",
+                    path="/",
+                ),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope("https://www.dyson.tw", "/"),
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        self.assertEqual(
+            port.calls[0]["request"]["max_attempted_requests"],
+            BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS,
+        )
+        requests = [
+            item
+            for item in store.budget_consumptions.values()
+            if item.resource_type == "REQUEST"
+        ]
+        self.assertEqual(requests[0].amount, BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS)
+
+    def test_observe_fanout_lifecycle_produces_observation_not_no_observation(self) -> None:
+        def run_once(worker_result_factory):
+            store = _Store()
+            seed_spine(store)
+            store.issued_budgets["budget-1"] = IssuedBudgetRecord(
+                budget_id="budget-1",
+                research_run_id="run-1",
+                max_requests=150,
+                max_tool_calls=10,
+                max_runtime_ms=10_000,
+                max_concurrency=2,
+                issued_at=CREATED_AT,
+            )
+
+            def handler(request):
+                self.assertEqual(
+                    request["max_attempted_requests"],
+                    BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS,
+                )
+                return WorkerInvocationOutcome(
+                    invocation_status=InvocationStatus.COMPLETED,
+                    started_at=CREATED_AT,
+                    completed_at=CREATED_AT,
+                    worker_result=worker_result_factory(request),
+                    exit_code=0,
+                )
+
+            worker = RecordingWorkerPort(store=store, handler=handler)
+            use_case = ExecutePlannedExperiment(
+                FakeUnitOfWorkFactory(store=store), worker, clock=FixedClock()
+            )
+            outcome = use_case.execute(
+                ExecutePlannedExperimentCommand(
+                    experiment_id="exp-1",
+                    plan=plan_browser_observe(
+                        "hyp-1",
+                        budget_id="budget-1",
+                        target_reference="https://www.dyson.tw/",
+                        authorized_origin="https://www.dyson.tw",
+                        path="/",
+                    ),
+                    scope=_allow_scope(),
+                    compiled_scope=_compiled_scope("https://www.dyson.tw", "/"),
+                )
+            )
+            return outcome, store
+
+        outcome, store = run_once(lambda request: _snapshot_result(request, attempted=16))
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        self.assertNotEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        observation = next(iter(store.observations.values()))
+        self.assertEqual(observation.observation_kind, BROWSER_PAGE_OBSERVATION_KIND)
+        self.assertEqual(observation.payload["attempted_network_requests"], 16)
+        self.assertNotIn("partial", observation.payload)
+
+        def partial_result(request):
+            result = _snapshot_result(request, attempted=BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS)
+            result["raw_result"]["partial"] = True
+            result["raw_result"]["budget_exhausted"] = True
+            result["raw_result"]["capped_network_requests"] = BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS
+            result["raw_result"]["coverage_complete"] = False
+            return result
+
+        partial_outcome, partial_store = run_once(partial_result)
+        self.assertEqual(partial_outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        self.assertNotEqual(partial_outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        partial_observation = next(iter(partial_store.observations.values()))
+        self.assertTrue(partial_observation.payload["partial"])
+        self.assertTrue(partial_observation.payload["budget_exhausted"])
+        self.assertFalse(partial_observation.payload["coverage_complete"])
+
     def test_concurrent_reservation_cannot_overspend(self) -> None:
         store = _Store()
         use_case, _, port, store = _use_case(store, max_requests=16)
@@ -309,6 +411,24 @@ class BrowserPageApplicationTests(unittest.TestCase):
             },
         )
         self.assertEqual(drafts, ())
+
+    def test_normalizer_preserves_partial_budget_metadata(self) -> None:
+        normalizer = BrowserPageNormalizer("observe")
+        result = _snapshot_result({"correlation": {}}, attempted=64)
+        result["raw_result"]["partial"] = True
+        result["raw_result"]["budget_exhausted"] = True
+        result["raw_result"]["capped_network_requests"] = 64
+        result["raw_result"]["coverage_complete"] = False
+
+        drafts = normalizer.normalize({}, result)
+
+        self.assertEqual(len(drafts), 1)
+        payload = drafts[0].payload
+        self.assertTrue(payload["partial"])
+        self.assertTrue(payload["budget_exhausted"])
+        self.assertEqual(payload["capped_network_requests"], 64)
+        self.assertFalse(payload["coverage_complete"])
+        self.assertFalse(payload["page_complete"])
 
 
 if __name__ == "__main__":

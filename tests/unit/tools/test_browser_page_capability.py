@@ -4,11 +4,20 @@ import unittest
 
 import pathsetup  # noqa: F401
 
+from zest.application.discovery.compile_plan import compile_frontier_plan
+from zest.data.records import FrontierItemRecord
+from zest.research.discovery.types import SURFACE_DISCOVERY_STRATEGY_VERSION
 from zest.tools.browser_page_policy import (
     BROWSER_PAGE_MAX_NETWORK_REQUESTS,
+    BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS,
     validate_browser_page_arguments,
 )
 from zest.tools.registry import load_capability_registry
+from zest.worker_runtime.python.packaged_registry import (
+    load_packaged_capabilities,
+    validate_arguments as validate_worker_arguments,
+)
+from support.spine import CREATED_AT
 
 
 class BrowserPageCapabilityTests(unittest.TestCase):
@@ -30,7 +39,9 @@ class BrowserPageCapabilityTests(unittest.TestCase):
         self.assertEqual(navigate.maximum_side_effect_level, 0)
         self.assertEqual(interact.minimum_side_effect_level, 1)
         self.assertEqual(interact.maximum_side_effect_level, 1)
-        self.assertEqual(observe.network_policy["max_requests"], BROWSER_PAGE_MAX_NETWORK_REQUESTS)
+        self.assertEqual(observe.network_policy["max_requests"], BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS)
+        self.assertEqual(navigate.network_policy["max_requests"], BROWSER_PAGE_MAX_NETWORK_REQUESTS)
+        self.assertEqual(interact.network_policy["max_requests"], BROWSER_PAGE_MAX_NETWORK_REQUESTS)
         self.assertTrue(observe.network_policy["loopback_only"])
         self.assertEqual(observe.network_policy["redirect"], "STOP")
         self.assertEqual(observe.normalizer_reference, "browser.page.v1")
@@ -60,6 +71,50 @@ class BrowserPageCapabilityTests(unittest.TestCase):
             },
         )
         self.assertIsNotNone(issue)
+
+    def test_production_discovery_inspect_path_compiles_to_worker_valid_observe(self) -> None:
+        plan = compile_frontier_plan(
+            FrontierItemRecord(
+                frontier_id="front-1",
+                research_run_id="run-1",
+                strategy_version=SURFACE_DISCOVERY_STRATEGY_VERSION,
+                goal_kind="INSPECT_PATH",
+                candidate_origin="https://www.dyson.tw",
+                candidate_path="/",
+                identity_id="ANONYMOUS",
+                proposed_capability="browser.page",
+                proposed_action="observe",
+                expected_side_effect=0,
+                budget_class=0,
+                structural_signature="path:https://www.dyson.tw/",
+                dedupe_identity="path:https://www.dyson.tw/",
+                created_at=CREATED_AT,
+                attributes={},
+            ),
+            hypothesis_id="hyp-1",
+            budget_id="budget-1",
+            target_reference="https://www.dyson.tw/",
+        )
+
+        self.assertEqual(plan.required_capability, "browser.page")
+        self.assertEqual(plan.action, "observe")
+        self.assertEqual(
+            plan.arguments,
+            {"authorized_origin": "https://www.dyson.tw", "path": "/"},
+        )
+        self.assertIsNone(validate_browser_page_arguments(plan.action, plan.arguments))
+
+        packaged = load_packaged_capabilities()["browser.page"]
+        self.assertEqual(plan.capability_version, packaged.version)
+        self.assertEqual(
+            plan.capability_definition_fingerprint,
+            packaged.definition_fingerprint,
+        )
+        schema_issue = validate_worker_arguments(
+            packaged.actions["observe"].argument_schema,
+            plan.arguments,
+        )
+        self.assertIsNone(schema_issue)
 
 
 if __name__ == "__main__":

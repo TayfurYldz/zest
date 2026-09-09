@@ -10,6 +10,10 @@ from zest.tools.registry import ArgumentValidationIssue
 CRLF_MARKERS = ("\r", "\n", "\x00")
 INTERACT_KINDS = frozenset({"click", "fill", "select", "submit"})
 BROWSER_PAGE_MAX_NETWORK_REQUESTS = 16
+BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS = 64
+BROWSER_PAGE_MAX_HEADER_COUNT = 8
+BROWSER_PAGE_MAX_HEADER_NAME_LENGTH = 64
+BROWSER_PAGE_MAX_HEADER_VALUE_LENGTH = 256
 FORBIDDEN_VALUE_TOKENS = frozenset(
     {
         "cookie",
@@ -23,6 +27,12 @@ FORBIDDEN_VALUE_TOKENS = frozenset(
     }
 )
 FORBIDDEN_SELECTORS = ("css=", "xpath=", "//", ">>", "document.query", "javascript:")
+
+
+def browser_page_max_network_requests(action_id: str) -> int:
+    if action_id == "observe":
+        return BROWSER_PAGE_MAX_OBSERVE_NETWORK_REQUESTS
+    return BROWSER_PAGE_MAX_NETWORK_REQUESTS
 
 
 def validate_browser_page_arguments(
@@ -48,6 +58,9 @@ def validate_browser_page_arguments(
         return path_issue
     if any(key.lower() in {"selector", "css", "xpath", "javascript", "script"} for key in arguments):
         return ArgumentValidationIssue("UNEXPECTED_ARGUMENT", "arbitrary selector or JavaScript is not allowed")
+    header_issue = _header_issue(arguments)
+    if header_issue is not None:
+        return header_issue
     session_ref = arguments.get("session_context_reference")
     if session_ref is not None:
         if not isinstance(session_ref, str) or not session_ref.strip():
@@ -88,6 +101,34 @@ def _interact_issue(arguments: Mapping[str, object]) -> ArgumentValidationIssue 
             return ArgumentValidationIssue("UNEXPECTED_ARGUMENT", "arbitrary selector or JavaScript is not allowed")
     elif fill_value is not None:
         return ArgumentValidationIssue("UNEXPECTED_ARGUMENT", "click/submit must not include a value")
+    return None
+
+
+def _header_issue(arguments: Mapping[str, object]) -> ArgumentValidationIssue | None:
+    headers = arguments.get("headers")
+    if headers is None:
+        return None
+    if not isinstance(headers, Mapping):
+        return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "headers must be an object")
+    if len(headers) > BROWSER_PAGE_MAX_HEADER_COUNT:
+        return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "header count exceeds bound")
+    for name, value in headers.items():
+        if not isinstance(name, str) or not name.strip():
+            return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "header names must be strings")
+        if not isinstance(value, str) or not value.strip():
+            return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", f"header {name} is invalid")
+        if any(marker in name or marker in value for marker in CRLF_MARKERS):
+            return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "headers must not contain CRLF")
+        if (
+            len(name) > BROWSER_PAGE_MAX_HEADER_NAME_LENGTH
+            or len(value) > BROWSER_PAGE_MAX_HEADER_VALUE_LENGTH
+        ):
+            return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "header exceeds bound")
+        lowered = name.lower()
+        if lowered in FORBIDDEN_VALUE_TOKENS:
+            return ArgumentValidationIssue("UNEXPECTED_ARGUMENT", f"header {name} is not allowed")
+        if lowered == "user-agent" and len(value) > 128:
+            return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "User-Agent is invalid")
     return None
 
 
