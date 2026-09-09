@@ -14,7 +14,7 @@ from typing import Any
 
 STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v3"
 STRICT_TRANSPORT_SCHEMA_VERSION = "research.structured-output-transport.v4"
-GENERATOR_INSTRUCTION_VERSION = "research.generator.v4"
+GENERATOR_INSTRUCTION_VERSION = "research.generator.v5"
 FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v3"
 DIAGNOSTIC_INSTRUCTION_VERSION = "research.diagnostic-readiness.v2"
 

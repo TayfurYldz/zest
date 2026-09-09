@@ -33,6 +33,80 @@ from zest.research.types import ResearchInputError
 GENERATOR_INSTRUCTIONS = GENERATOR_CONTRACT.instructions()
 FALSIFIER_INSTRUCTIONS = FALSIFIER_CONTRACT.instructions()
 
+MODEL_EXECUTABLE_HTTP_TRANSACTION_CAPABILITY = "http.transaction"
+
+
+def _model_execution_catalog(context: ResearchContext) -> list[dict[str, object]]:
+    """Capabilities the model lane can bind deterministically from supplied context.
+
+    This catalog is advisory planning context, never execution authority.
+    """
+    source_ids: list[str] = []
+
+    for item in context.observations:
+        payload = dict(item.payload or {})
+        method = str(payload.get("method") or "").upper()
+        origin = payload.get("authorized_origin")
+        path = payload.get("path")
+
+        if (
+            item.epistemic_class is EpistemicClass.OBSERVATION
+            and method in {"GET", "HEAD", "OPTIONS"}
+            and isinstance(origin, str)
+            and origin.strip()
+            and isinstance(path, str)
+            and path.startswith("/")
+        ):
+            source_ids.append(item.item_id)
+
+    if not source_ids:
+        return []
+
+    return [
+        {
+            "capability_id": MODEL_EXECUTABLE_HTTP_TRANSACTION_CAPABILITY,
+            "action": "read",
+            "binding": (
+                "authorized_origin, method, and path are resolved "
+                "deterministically from one cited HTTP transaction observation"
+            ),
+            "eligible_source_reference_ids": sorted(source_ids),
+            "semantic_limits": (
+                "read-only target behavior/reproducibility only; "
+                "does not establish object ownership, cross-identity authorization, "
+                "or vulnerability truth"
+            ),
+            "not_authorization": True,
+        }
+    ]
+
+
+def _generator_instructions(context: ResearchContext) -> str:
+    catalog = _model_execution_catalog(context)
+
+    if not catalog:
+        return (
+            GENERATOR_INSTRUCTIONS
+            + " No model-executable target capability is currently bindable from "
+              "the supplied context. Do not invent capability ids."
+        )
+
+    ids = ", ".join(
+        str(item["capability_id"])
+        for item in catalog
+    )
+
+    return (
+        GENERATOR_INSTRUCTIONS
+        + " Execution capability contract: suggested_capability must exactly equal "
+          "one capability_id in research_context.model_execution_catalog. "
+          "Do not invent aliases, engine names, action names, or capability ids. "
+          "The capability suggestion is not authorization. "
+          "The proposed claim and disconfirming test must remain within the semantic "
+          "limits of the selected capability. "
+          f"Currently bindable capability ids: {ids}."
+    )
+
 
 def _item_payload(item) -> dict[str, object]:
     data: dict[str, object] = {
@@ -104,6 +178,7 @@ def context_model_payload(context: ResearchContext) -> dict[str, object]:
         "untrusted_external_content": [
             _item_payload(item) for item in context.untrusted_external_content
         ],
+        "model_execution_catalog": _model_execution_catalog(context),
     }
 
 
@@ -157,7 +232,7 @@ def generate_proposal(
 ) -> GeneratedProposal:
     request = _request(
         role=ModelRole.GENERATOR,
-        instructions=GENERATOR_INSTRUCTIONS,
+        instructions=_generator_instructions(context),
         context=context,
         correlation_id=correlation_id,
     )

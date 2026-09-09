@@ -16,12 +16,12 @@ from zest.research.output_contracts import (
 class S5gGeneratorAdmissionContractTests(
     unittest.TestCase
 ):
-    def test_generator_v4_exposes_required_side_effect_semantics(
+    def test_generator_v5_preserves_required_side_effect_semantics(
         self,
     ) -> None:
         self.assertEqual(
             GENERATOR_INSTRUCTION_VERSION,
-            "research.generator.v4",
+            "research.generator.v5",
         )
 
         instructions = (

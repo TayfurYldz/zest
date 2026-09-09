@@ -10,6 +10,11 @@ from zest.research.assessment import (
     HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
 )
 from zest.research.compiler import ExperimentIntent, compile_experiment_intent
+from zest.research.context import ResearchContext
+from zest.research.http_transaction import (
+    READ_METHODS,
+    plan_http_transaction_read,
+)
 from zest.research.proposals import HypothesisChallenge, HypothesisProposal
 from zest.research.types import ExperimentPlan, HypothesisDraft, ResearchInputError
 from zest.tools.capabilities import (
@@ -19,6 +24,7 @@ from zest.tools.capabilities import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
     HTTP_STATE_TRANSITION_ACTION,
     HTTP_STATE_TRANSITION_CAPABILITY,
+    HTTP_TRANSACTION_CAPABILITY,
 )
 from zest.tools.registry import WORKER_EXECUTOR_CLASS, load_capability_registry
 
@@ -165,9 +171,66 @@ def plan_admitted_hypothesis(
     budget_id: str,
     target_reference: str,
     message: str = "ping",
+    context: ResearchContext | None = None,
 ) -> ExperimentPlan:
     """Convert an admitted Hypothesis into a testable ExperimentPlan. Does not dispatch."""
     capability = proposal.suggested_capability
+
+    if capability == HTTP_TRANSACTION_CAPABILITY:
+        if context is None:
+            raise ResearchInputError(
+                "http.transaction model planning requires research context"
+            )
+
+        cited = set(proposal.source_references)
+
+        for source_id in proposal.source_references:
+            matched = next(
+                (
+                    item
+                    for item in context.observations
+                    if item.item_id == source_id
+                ),
+                None,
+            )
+
+            if matched is None:
+                continue
+
+            payload = dict(matched.payload or {})
+            method = str(payload.get("method") or "").upper()
+            authorized_origin = payload.get("authorized_origin")
+            path = payload.get("path")
+
+            if method not in READ_METHODS:
+                continue
+
+            if (
+                not isinstance(authorized_origin, str)
+                or not authorized_origin.strip()
+            ):
+                continue
+
+            if (
+                not isinstance(path, str)
+                or not path.startswith("/")
+            ):
+                continue
+
+            return plan_http_transaction_read(
+                hypothesis_id,
+                budget_id=budget_id,
+                target_reference=target_reference,
+                authorized_origin=authorized_origin,
+                path=path,
+                method=method,
+            )
+
+        raise ResearchInputError(
+            "http.transaction model planning requires a cited "
+            "read-only HTTP transaction observation"
+        )
+
     registry = load_capability_registry()
     definition = registry.get(capability)
     if definition is None or definition.executor_class != WORKER_EXECUTOR_CLASS:

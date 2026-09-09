@@ -499,6 +499,7 @@ class ProposeResearchHypothesis:
                     budget_id=command.budget_id,
                     target_reference=command.target_reference,
                     message=command.echo_message,
+                    context=context,
                 )
             except ResearchInputError:
                 plan = None
@@ -802,6 +803,7 @@ class ProposeResearchHypothesis:
                     budget_id=command.budget_id,
                     target_reference=command.target_reference,
                     message=command.echo_message,
+                    context=context,
                 )
             except ResearchInputError as exc:
                 # Model output is research input, never execution authority.

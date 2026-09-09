@@ -16,6 +16,7 @@ from zest.research.context import (
 from zest.research.cycle import (
     FALSIFIER_INSTRUCTIONS,
     GENERATOR_INSTRUCTIONS,
+    _generator_instructions,
     generate_challenge,
     generate_proposal,
     instructions_contain_untrusted,
@@ -106,7 +107,19 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
             self.context, self.model, correlation_id="corr-1"
         )
         self.assertFalse(instructions_contain_untrusted(generated.request, HOSTILE))
-        self.assertEqual(generated.request.instructions, GENERATOR_INSTRUCTIONS)
+        self.assertEqual(
+            generated.request.instructions,
+            _generator_instructions(self.context),
+        )
+        self.assertTrue(
+            generated.request.instructions.startswith(
+                GENERATOR_INSTRUCTIONS
+            )
+        )
+        self.assertIn(
+            "Do not invent capability ids",
+            generated.request.instructions,
+        )
         untrusted = generated.request.payload["research_context"][
             "untrusted_external_content"
         ]
