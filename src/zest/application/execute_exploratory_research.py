@@ -329,7 +329,7 @@ class ExecuteExploratoryResearch:
                 outcome=CycleOutcome.BLOCKED,
                 phase_label=OrchestrationPhase.CYCLE_COMPLETE.value,
                 state=OrchestrationState.FAILED_OPERATIONAL,
-                stop_reason_value=StopReason.OPERATIONAL_FAILURE.value,
+                stop_reason_value=StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW.value,
                 hypothesis_id=command.hypothesis_id,
                 experiment_id=experiment_id,
                 increment_cycle=True,

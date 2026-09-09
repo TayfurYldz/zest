@@ -135,7 +135,7 @@ class Gate21ChromiumLabTests(unittest.TestCase):
         self.assertGreaterEqual(raw["attempted_network_requests"], 2)
 
     def test_04_excluded_path_resource_stopped(self) -> None:
-        status, _, diagnostics = self._run(
+        status, raw, diagnostics = self._run(
             "navigate",
             {"authorized_origin": self.origin, "path": "/iframe-excluded"},
             network_envelope=_envelope(
@@ -146,8 +146,12 @@ class Gate21ChromiumLabTests(unittest.TestCase):
                 denied=["/excluded"],
             ),
         )
-        self.assertIn(status, {"REAUTHORIZATION_REQUIRED", "BLOCKED"})
-        self.assertFalse(diagnostics.get("self_authorized", True))
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertFalse(diagnostics["self_authorized"])
+        self.assertFalse(diagnostics["followed"])
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["egress_occurred"])
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["reauth_required"])
+        self.assertIn("snapshot_fingerprint", raw)
 
     def test_05_same_origin_redirect_followed_inside_envelope(self) -> None:
         status, raw, diagnostics = self._run(
@@ -258,7 +262,7 @@ class Gate21ChromiumLabTests(unittest.TestCase):
         self.assertEqual(diagnostics["channel"], "POPUP")
 
     def test_11_iframe_same_origin_excluded(self) -> None:
-        status, _, diagnostics = self._run(
+        status, raw, diagnostics = self._run(
             "navigate",
             {"authorized_origin": self.origin, "path": "/iframe-excluded"},
             network_envelope=_envelope(
@@ -269,14 +273,21 @@ class Gate21ChromiumLabTests(unittest.TestCase):
                 denied=["/excluded"],
             ),
         )
-        self.assertIn(status, {"REAUTHORIZATION_REQUIRED", "BLOCKED"})
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["reauth_required"])
+        self.assertEqual(diagnostics["blocked_boundaries"][0]["boundary_kind"], "EMBEDDED_SUBDOCUMENT")
+        self.assertIn("snapshot_fingerprint", raw)
 
     def test_12_iframe_cross_origin(self) -> None:
-        status, _, diagnostics = self._run(
+        status, raw, diagnostics = self._run(
             "navigate",
             {"authorized_origin": self.origin, "path": "/iframe-cross"},
         )
-        self.assertIn(status, {"REAUTHORIZATION_REQUIRED", "BLOCKED"})
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertFalse(diagnostics["self_authorized"])
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["egress_occurred"])
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["reauth_required"])
+        self.assertIn("snapshot_fingerprint", raw)
 
     def test_13_javascript_data_blob_file_blocked(self) -> None:
         status, raw, diagnostics = self._run(

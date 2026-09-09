@@ -132,6 +132,17 @@ class CompilePlanTests(unittest.TestCase):
         self.assertNotIn("auto_replay", plan.arguments)
         self.assertEqual(plan.arguments["path"], "/")
 
+    def test_unsupported_capability_is_rejected(self) -> None:
+        from zest.application.discovery.compile_plan import UnsupportedDiscoveryCapability
+
+        with self.assertRaises(UnsupportedDiscoveryCapability):
+            compile_frontier_plan(
+                _frontier(proposed_capability="oast.callback"),
+                hypothesis_id="hyp-1",
+                budget_id="budget-1",
+                target_reference="target-1",
+            )
+
 
 class ProjectionReceiptTests(unittest.TestCase):
     def test_missing_receipt_replays_without_worker(self) -> None:
@@ -238,6 +249,35 @@ class ProjectionReceiptTests(unittest.TestCase):
             uow.commit()
         self.assertEqual(first, second)
         self.assertGreater(len(sources), first)
+
+    def test_partial_browser_observation_is_not_complete_coverage(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        store.worker_results["wr-1"] = _worker_result()
+        observation = _observation()
+        observation.payload.update(
+            {
+                "partial": True,
+                "budget_exhausted": True,
+                "capped_network_requests": 64,
+                "coverage_complete": False,
+                "page_complete": False,
+            }
+        )
+        store.observations["obs-1"] = observation
+        factory = FakeUnitOfWorkFactory(store)
+        with factory.open() as uow:
+            project_observation(uow, observation, created_at=CREATED_AT)
+            page_facts = [
+                fact
+                for fact in uow.discovery_facts.list_for_research_run("run-1")
+                if fact.fact_kind == "PAGE_STATE"
+            ]
+            uow.commit()
+
+        self.assertEqual(len(page_facts), 1)
+        self.assertFalse(page_facts[0].attributes["coverage_complete"])
+        self.assertFalse(page_facts[0].attributes["page_complete"])
 
     def test_tx_b_rollback_replays_without_duplicate_or_worker(self) -> None:
         store = _Store()

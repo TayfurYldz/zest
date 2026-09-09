@@ -210,7 +210,7 @@ def rebuild_attack_surface_graph(
                 identity_ids=(fact.identity_id,),
                 provenance_refs=provenance,
                 scope_classification=scope_classification,
-                attributes=fact.attributes,
+                attributes=_node_attributes_from_fact(fact),
             )
         )
         if fact.identity_id:
@@ -530,6 +530,20 @@ def _hostname_from_attributes(attributes: Mapping[str, Any] | None) -> str | Non
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _node_attributes_from_fact(fact: DiscoveryFact) -> dict[str, Any] | None:
+    """Project SoR fact fields onto graph node attributes. Does not invent identities."""
+
+    attributes = dict(fact.attributes or {})
+    if fact.normalized_origin and not str(attributes.get("origin") or "").strip():
+        attributes["origin"] = fact.normalized_origin
+        attributes.setdefault("authorized_origin", fact.normalized_origin)
+    if fact.normalized_path and not str(attributes.get("path") or "").strip():
+        attributes["path"] = fact.normalized_path
+    if fact.http_method and not str(attributes.get("method") or "").strip():
+        attributes["method"] = fact.http_method
+    return attributes or None
 
 
 def _cert_key(fact: DiscoveryFact) -> str:

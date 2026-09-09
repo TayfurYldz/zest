@@ -60,6 +60,7 @@ from zest.data.records import (
     OastAdmissionRecord,
     OastCallbackDeliveryRecord,
     OastCorrelationRecord,
+    OastTokenRecord,
     ProgramPolicyRecord,
     ProgramRecord,
     PromotionRunRecord,
@@ -119,6 +120,7 @@ class _Store:
         self.worker_results: dict[str, WorkerResultRecord] = {}
         self.worker_results_by_request: dict[str, str] = {}
         self.observations: dict[str, ObservationRecord] = {}
+        self.oast_tokens: dict[str, OastTokenRecord] = {}
         self.oast_correlations: dict[str, OastCorrelationRecord] = {}
         self.oast_callback_deliveries: dict[str, OastCallbackDeliveryRecord] = {}
         self.oast_admissions: dict[str, OastAdmissionRecord] = {}
@@ -303,6 +305,19 @@ class _IssuedBudgetRepo(_Repo):
         ]
 
 
+class _OastTokenRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.oast_tokens)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastTokenRecord]:
+        return [
+            record
+            for record in self._root.oast_tokens.values()
+            if record.research_run_id == research_run_id
+        ]
+
+
 class _OastCorrelationRepo(_Repo):
     def __init__(self, store: _Store) -> None:
         super().__init__(store.oast_correlations)
@@ -448,6 +463,8 @@ def _id_of(record: Any) -> str:
         return record.observation_id
     if isinstance(record, SensorObservationRecord):
         return record.observation_id
+    if isinstance(record, OastTokenRecord):
+        return record.token_id
     if isinstance(record, OastCorrelationRecord):
         return record.correlation_id
     if isinstance(record, OastCallbackDeliveryRecord):
@@ -1783,7 +1800,7 @@ class _BudgetConsumptionRepo(_Repo):
         ]
 
 
-class _SessionContextRepo(_Repo):
+class _SessionContextRepo(_RunScopedRepo):
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
         super().__init__(store.session_contexts, fail_on_insert=fail_on_insert)
 
@@ -2123,6 +2140,7 @@ class FakeUnitOfWork:
         self.sensor_observations = _SensorObservationRepo(
             self._store, fail_on_insert=fail_on == "sensor_observations"
         )
+        self.oast_tokens = _OastTokenRepo(self._store)
         self.oast_correlations = _OastCorrelationRepo(self._store)
         self.oast_callback_deliveries = _OastCallbackDeliveryRepo(self._store)
         self.oast_admissions = _OastAdmissionRepo(self._store)
@@ -2314,6 +2332,8 @@ class FakeUnitOfWork:
         self._store.worker_results_by_request.update(snapshot.worker_results_by_request)
         self._store.observations.clear()
         self._store.observations.update(snapshot.observations)
+        self._store.oast_tokens.clear()
+        self._store.oast_tokens.update(snapshot.oast_tokens)
         self._store.oast_correlations.clear()
         self._store.oast_correlations.update(snapshot.oast_correlations)
         self._store.oast_callback_deliveries.clear()

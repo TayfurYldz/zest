@@ -63,7 +63,7 @@ class OrchestrationPolicyTests(unittest.TestCase):
             unknown_outcome_open=True,
         )
         self.assertEqual(action, NextCycleAction.STOP)
-        self.assertEqual(reason, StopReason.OPERATIONAL_FAILURE)
+        self.assertEqual(reason, StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW)
 
     def test_empty_run_bootstraps_diagnostic(self) -> None:
         action, reason = next_cycle_action(
@@ -84,8 +84,20 @@ class OrchestrationPolicyTests(unittest.TestCase):
             hypothesis_count=1,
             unknown_outcome_open=False,
         )
-        self.assertEqual(action, NextCycleAction.STOP)
-        self.assertEqual(reason, StopReason.COMPLETED_NO_MORE_OPPORTUNITIES)
+        self.assertEqual(action, NextCycleAction.NO_SELECTION_THIS_TICK)
+        self.assertIsNone(reason)
+
+    def test_runnable_discovery_frontier_is_not_exhaustion(self) -> None:
+        action, reason = next_cycle_action(
+            bounds=_bounds(),
+            usage=_usage(cycles_completed=1),
+            selected_count=0,
+            hypothesis_count=1,
+            unknown_outcome_open=False,
+            runnable_discovery_frontier_count=3,
+        )
+        self.assertEqual(action, NextCycleAction.CONTINUE_SURFACE_DISCOVERY)
+        self.assertIsNone(reason)
 
     def test_finding_is_not_an_orchestration_state(self) -> None:
         from zest.research.orchestration import OrchestrationState

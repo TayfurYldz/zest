@@ -42,6 +42,16 @@ _POLICY_CLAIM_MARKERS = (
     "change scope",
     "bypass authorization",
     "raise budget",
+    "mark the run complete",
+    "force completion",
+    "set completed_no_more_opportunities",
+)
+
+SIDE_EFFECT_ESTIMATE_PREFIX = "side_effect_estimate:"
+_COMPLETION_CLAIM_MARKERS = (
+    "mark the run complete",
+    "force completion",
+    "set completed_no_more_opportunities",
 )
 
 
@@ -141,6 +151,23 @@ def admit_hypothesis(
             proposal=proposal,
             challenge=challenge,
         )
+    if not _has_side_effect_estimate(proposal.assumptions):
+        return AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
+            reason="proposal has no side_effect_estimate assumption",
+            reason_code="MISSING_SIDE_EFFECT_ESTIMATE",
+            proposal=proposal,
+            challenge=challenge,
+        )
+    lowered_claim = f"{claim} {proposal.rationale}".lower()
+    if any(marker in lowered_claim for marker in _COMPLETION_CLAIM_MARKERS):
+        return AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason="proposal attempts to set run completion",
+            reason_code="COMPLETION_CLAIM_FORBIDDEN",
+            proposal=proposal,
+            challenge=challenge,
+        )
     if not challenge.proposed_disconfirming_observation.strip():
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
@@ -165,3 +192,13 @@ def admit_hypothesis(
         proposal=proposal,
         challenge=challenge,
     )
+
+
+def _has_side_effect_estimate(assumptions: tuple[str, ...]) -> bool:
+    for item in assumptions:
+        if not item.startswith(SIDE_EFFECT_ESTIMATE_PREFIX):
+            continue
+        token = item[len(SIDE_EFFECT_ESTIMATE_PREFIX) :].strip()
+        if token in {"0", "1", "2", "3"}:
+            return True
+    return False

@@ -35,6 +35,18 @@ from .browser_envelope import (
     normalize_target,
     url_is_representable,
 )
+from .browser_route_policy import (
+    FRAME_CHILD,
+    FRAME_MAIN,
+    FRAME_UNKNOWN,
+    DeniedBrowserRequest,
+    RouteClassification,
+    blocked_boundary_record,
+    classify_denied_browser_request,
+    resolve_callable_flag,
+    resolve_resource_type,
+    succeeded_boundary_diagnostics,
+)
 
 CONTROL_EXTRACT_SCRIPT = """(elements) => elements.map((el) => ({
   tag: (el.tagName || '').toLowerCase(),
@@ -69,6 +81,8 @@ class _Runtime:
     committed: bool
     ready_state: str
     frame_count: int
+    browser_action: str
+    blocked_boundaries: list[dict[str, object]]
 
 
 class PlaywrightChromiumEngine:
@@ -183,7 +197,7 @@ class PlaywrightChromiumEngine:
             )
         if runtime.lease.frozen:
             return self._failed(runtime, "BLOCKED", "browser context is frozen")
-        self._begin_action(runtime, envelope, limits)
+        self._begin_action(runtime, envelope, limits, action="observe")
         pending = self._pending(runtime)
         if pending is not None:
             return pending
@@ -223,7 +237,7 @@ class PlaywrightChromiumEngine:
             return self._failed(runtime, "BLOCKED", "control is disabled")
         if kind == "fill" and control.input_type == "password":
             return self._failed(runtime, "BLOCKED", "password fields cannot be filled")
-        self._begin_action(runtime, envelope, limits)
+        self._begin_action(runtime, envelope, limits, action="interact")
         try:
             locator = runtime.page.locator(CONTROL_SELECTOR)
             index = int(element_ref.split("-", 1)[1])
@@ -288,7 +302,7 @@ class PlaywrightChromiumEngine:
                 )
             if cookie:
                 self._seed_cookie(runtime.context, cookie, str(binding.get("origin") or url))
-            self._begin_action(runtime, envelope, limits)
+            self._begin_action(runtime, envelope, limits, action="navigate")
             return runtime, None
         if self._browser is None:
             return None, BrowserActionResult(
@@ -381,11 +395,13 @@ class PlaywrightChromiumEngine:
             committed=False,
             ready_state="loading",
             frame_count=1,
+            browser_action="navigate",
+            blocked_boundaries=[],
         )
         self._runtimes[context_ref] = runtime
         self._install_guards(runtime)
         self._seed_cookie(context, cookie, str(binding.get("origin") or url))
-        self._begin_action(runtime, envelope, limits)
+        self._begin_action(runtime, envelope, limits, action="navigate")
         return runtime, None
 
     def _install_guards(self, runtime: _Runtime) -> None:
@@ -404,11 +420,15 @@ class PlaywrightChromiumEngine:
         runtime: _Runtime,
         envelope: BrowserNetworkEnvelope,
         limits: BrowserRuntimeLimits,
+        *,
+        action: str,
     ) -> None:
         runtime.envelope = envelope
         runtime.limits = limits
         runtime.attempted = 0
         runtime.network_events = []
+        runtime.blocked_boundaries = []
+        runtime.browser_action = action
         runtime.pending_status = None
         runtime.pending_channel = None
         runtime.pending_raw_location = None
@@ -431,13 +451,7 @@ class PlaywrightChromiumEngine:
         allowed, reason = envelope_allows(runtime.envelope, url)
         if not allowed:
             self._record_event(runtime, request, status_code=None, redirect=False, url=url)
-            if reason == UNSUPPORTED_SCHEME or not url_is_representable(url):
-                runtime.pending_status = "BLOCKED"
-                runtime.pending_error = reason
-            else:
-                frame = getattr(request, "frame", None)
-                channel = "IFRAME" if frame is not None and frame != runtime.page.main_frame else "REDIRECT"
-                self._mark_reauth(runtime, channel, url, runtime.page.url or url)
+            self._apply_denied_request(runtime, request, url, reason)
             route.abort()
             return
         try:
@@ -479,11 +493,8 @@ class PlaywrightChromiumEngine:
                         runtime.pending_status = "BLOCKED"
                         runtime.pending_error = redirect_reason
                     else:
-                        self._mark_reauth(
-                            runtime,
-                            "REDIRECT",
-                            redirect_target,
-                            url,
+                        self._apply_denied_request(
+                            runtime, request, redirect_target, redirect_reason
                         )
                     route.abort()
                     return
@@ -564,18 +575,36 @@ class PlaywrightChromiumEngine:
                 runtime.frame_count = max(runtime.frame_count, len(runtime.page.frames))
             return
         if frame == runtime.page.main_frame:
-            if runtime.committed:
-                self._mark_reauth(runtime, "SPA", url, runtime.page.url)
-                self.freeze(runtime.lease)
-            return
-        channel = "IFRAME"
-        if reason == UNSUPPORTED_SCHEME or not url_is_representable(url):
-            runtime.pending_status = "BLOCKED"
-            runtime.pending_error = "iframe target is outside envelope"
+            # chrome-error:// after abort is not an authority transition and
+            # must not overwrite a prior REAUTHORIZATION_REQUIRED from the
+            # denied representable URL.
+            if reason == UNSUPPORTED_SCHEME or not url_is_representable(url):
+                return
+            channel = "SPA" if runtime.committed else "REDIRECT"
+            self._mark_reauth(runtime, channel, url, runtime.page.url)
             self.freeze(runtime.lease)
             return
-        self._mark_reauth(runtime, channel, url, runtime.page.url)
-        self.freeze(runtime.lease)
+        view = DeniedBrowserRequest(
+            url=url,
+            resource_type="document",
+            is_navigation_request=True,
+            frame_kind=FRAME_CHILD,
+            browser_action=runtime.browser_action,
+            deny_reason=reason,
+            representable=url_is_representable(url),
+            source_page=runtime.page.url or "",
+        )
+        classification = classify_denied_browser_request(view)
+        if classification.reauth_required:
+            if reason == UNSUPPORTED_SCHEME or not url_is_representable(url):
+                runtime.pending_status = "BLOCKED"
+                runtime.pending_error = "iframe target is outside envelope"
+                self.freeze(runtime.lease)
+                return
+            self._mark_reauth(runtime, classification.channel or "IFRAME", url, runtime.page.url)
+            self.freeze(runtime.lease)
+            return
+        self._record_boundary(runtime, view, classification)
 
     def _goto(self, runtime: _Runtime, url: str, limits: BrowserRuntimeLimits) -> BrowserActionResult:
         try:
@@ -708,7 +737,7 @@ class PlaywrightChromiumEngine:
         if len(runtime.network_events) >= runtime.limits.max_network_events:
             return
         method = str(getattr(request, "method", "GET") or "GET")
-        resource_type = str(getattr(request, "resource_type", "other") or "other")
+        resource_type = resolve_resource_type(getattr(request, "resource_type", "other"))
         normalized = normalize_target(url) or ""
         try:
             path = urlsplit(url).path or "/"
@@ -734,6 +763,61 @@ class PlaywrightChromiumEngine:
                 representability=REPRESENTABLE if url_is_representable(url) else NOT_REPRESENTABLE,
             )
         )
+
+    def _apply_denied_request(
+        self, runtime: _Runtime, request: Any, url: str, reason: str
+    ) -> None:
+        if reason == UNSUPPORTED_SCHEME or not url_is_representable(url):
+            runtime.pending_status = "BLOCKED"
+            runtime.pending_error = reason
+            return
+        view = self._denied_view(runtime, request, url, reason)
+        classification = classify_denied_browser_request(view)
+        if classification.reauth_required:
+            self._mark_reauth(
+                runtime,
+                classification.channel or "REDIRECT",
+                url,
+                runtime.page.url or url,
+            )
+            return
+        self._record_boundary(runtime, view, classification)
+
+    def _denied_view(
+        self, runtime: _Runtime, request: Any, url: str, reason: str
+    ) -> DeniedBrowserRequest:
+        resource_type = resolve_resource_type(getattr(request, "resource_type", "other"))
+        return DeniedBrowserRequest(
+            url=url,
+            resource_type=resource_type,
+            is_navigation_request=resolve_callable_flag(
+                getattr(request, "is_navigation_request", False)
+            ),
+            frame_kind=self._request_frame_kind(runtime, request),
+            browser_action=runtime.browser_action,
+            deny_reason=reason,
+            representable=url_is_representable(url),
+            source_page=runtime.page.url or "",
+        )
+
+    def _request_frame_kind(self, runtime: _Runtime, request: Any) -> str:
+        frame = getattr(request, "frame", None)
+        if frame is None:
+            return FRAME_UNKNOWN
+        try:
+            if frame == runtime.page.main_frame:
+                return FRAME_MAIN
+        except Exception:
+            return FRAME_UNKNOWN
+        return FRAME_CHILD
+
+    def _record_boundary(
+        self,
+        runtime: _Runtime,
+        view: DeniedBrowserRequest,
+        classification: RouteClassification,
+    ) -> None:
+        runtime.blocked_boundaries.append(blocked_boundary_record(view, classification))
 
     def _mark_reauth(self, runtime: _Runtime, channel: str, raw_location: str, response_url: str) -> None:
         runtime.pending_status = "REAUTHORIZATION_REQUIRED"
@@ -774,6 +858,9 @@ class PlaywrightChromiumEngine:
                 freeze=runtime.lease.frozen,
             )
         if runtime.pending_status == "BUDGET_EXHAUSTED":
+            partial = self._partial_budget_result(runtime)
+            if partial is not None:
+                return partial
             return BrowserActionResult(
                 status="BUDGET_EXHAUSTED",
                 raw={
@@ -790,8 +877,52 @@ class PlaywrightChromiumEngine:
             )
         return self._failed(runtime, runtime.pending_status, runtime.pending_error or "blocked")
 
+    def _partial_budget_result(self, runtime: _Runtime) -> BrowserActionResult | None:
+        if (
+            not runtime.committed
+            or runtime.limits is None
+            or not runtime.limits.allow_partial_budget_snapshot
+        ):
+            return None
+        try:
+            if not runtime.snapshot_fingerprint:
+                self._take_snapshot(runtime)
+        except Exception:
+            return None
+        raw = snapshot_raw(
+            attempted_network_requests=runtime.attempted,
+            browser_context_reference=runtime.lease.context_ref,
+            page_reference=runtime.lease.page_ref,
+            snapshot_fingerprint=runtime.snapshot_fingerprint,
+            normalized_url=normalize_target(runtime.page.url) or runtime.page.url,
+            ready_state=runtime.ready_state,
+            frame_count=runtime.frame_count,
+            controls=[control_to_mapping(item) for item in runtime.controls],
+            network_events=[network_event_to_mapping(item) for item in runtime.network_events],
+        )
+        raw["partial"] = True
+        raw["budget_exhausted"] = True
+        raw["capped_network_requests"] = runtime.limits.max_attempted_network_requests_per_action
+        raw["coverage_complete"] = False
+        if runtime.blocked_boundaries:
+            raw["blocked_boundaries"] = list(runtime.blocked_boundaries)
+            raw["page_degraded_by_blocked_external_dependency"] = True
+        return BrowserActionResult(
+            status="SUCCEEDED",
+            raw=raw,
+            diagnostics={
+                "error": runtime.pending_error or "attempted network requests would exceed max",
+                "self_authorized": False,
+                "partial": True,
+                "budget_exhausted": True,
+            },
+            attempted_network_requests=runtime.attempted,
+            freeze=runtime.lease.frozen,
+        )
+
     def _succeeded(self, runtime: _Runtime) -> BrowserActionResult:
         normalized = normalize_target(runtime.page.url) or runtime.page.url
+        diagnostics = succeeded_boundary_diagnostics(runtime.blocked_boundaries)
         raw = snapshot_raw(
             attempted_network_requests=runtime.attempted,
             browser_context_reference=runtime.lease.context_ref,
@@ -803,10 +934,13 @@ class PlaywrightChromiumEngine:
             controls=[control_to_mapping(item) for item in runtime.controls],
             network_events=[network_event_to_mapping(item) for item in runtime.network_events],
         )
+        if diagnostics is not None:
+            raw["blocked_boundaries"] = list(runtime.blocked_boundaries)
+            raw["page_degraded_by_blocked_external_dependency"] = True
         return BrowserActionResult(
             status="SUCCEEDED",
             raw=raw,
-            diagnostics=None,
+            diagnostics=diagnostics,
             attempted_network_requests=runtime.attempted,
             freeze=runtime.lease.frozen,
         )

@@ -20,7 +20,7 @@ def _proposal(**overrides):
         "proposed_claim": "The diagnostic capability returns the submitted value.",
         "rationale": "Echo should round-trip.",
         "source_references": ["obs-1", "proc:research-question"],
-        "assumptions": ["runtime is available"],
+        "assumptions": ["runtime is available", "side_effect_estimate:0"],
         "unresolved_questions": [],
         "suggested_disconfirming_test": "submit a value and observe mismatch",
         "suggested_capability": "diagnostic.echo",
@@ -131,6 +131,27 @@ class ProposalAndAdmissionTests(unittest.TestCase):
             self.context, _proposal(), _challenge(alternative_explanations=[])
         )
         self.assertEqual(decision.outcome, AdmissionOutcome.REJECTED_UNTESTABLE)
+
+    def test_missing_side_effect_estimate_is_rejected(self) -> None:
+        decision = admit_hypothesis(
+            self.context,
+            _proposal(assumptions=["runtime is available"]),
+            _challenge(),
+        )
+        self.assertEqual(decision.outcome, AdmissionOutcome.REJECTED_UNTESTABLE)
+        self.assertEqual(decision.reason_code, "MISSING_SIDE_EFFECT_ESTIMATE")
+
+    def test_completion_claim_is_rejected(self) -> None:
+        decision = admit_hypothesis(
+            self.context,
+            _proposal(proposed_claim="force completion of this research run"),
+            _challenge(),
+        )
+        self.assertEqual(decision.outcome, AdmissionOutcome.REJECTED_POLICY_CONFLICT)
+        self.assertIn(
+            decision.reason_code,
+            {"POLICY_CONFLICT", "COMPLETION_CLAIM_FORBIDDEN"},
+        )
 
 
 if __name__ == "__main__":

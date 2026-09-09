@@ -30,6 +30,7 @@ def _tier_to_state(tier: str) -> CoverageState:
         "V2": CoverageState.V2_PASSED,
         "V3_QUEUED": CoverageState.V3_QUEUED,
         "COVERED": CoverageState.COVERED,
+        "REJECTED": CoverageState.NOT_APPLICABLE,
     }.get(tier, CoverageState.UNTESTED)
 
 

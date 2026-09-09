@@ -15,6 +15,8 @@ from zest.tools.capabilities import (
     BROWSER_PAGE_CAPABILITY,
     HTTP_AUTHENTICATION_CAPABILITY,
     HTTP_AUTHENTICATION_LOGIN_ACTION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_STATE_TRANSITION_CAPABILITY,
     HTTP_TRANSACTION_CAPABILITY,
 )
 
@@ -48,7 +50,12 @@ def bind_identity_session(
             profile=profile,
             secret_port=secret_port,
         )
-    if plan.required_capability in {HTTP_TRANSACTION_CAPABILITY, BROWSER_PAGE_CAPABILITY}:
+    if plan.required_capability in {
+        HTTP_TRANSACTION_CAPABILITY,
+        BROWSER_PAGE_CAPABILITY,
+        HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+        HTTP_STATE_TRANSITION_CAPABILITY,
+    }:
         session_ref = plan.arguments.get("session_context_reference")
         if session_ref is None:
             return SessionBindingDecision(accepted=True)
@@ -75,6 +82,12 @@ def normalized_origin(origin: str) -> str:
 
 def origins_match(left: str, right: str) -> bool:
     return _origin_key(left) == _origin_key(right)
+
+
+def _same_research_target(left: str, right: str) -> bool:
+    """Trailing-slash equivalent targets. Not host-only origin matching."""
+
+    return normalized_origin(left) == normalized_origin(right)
 
 
 def _bind_login(
@@ -121,7 +134,7 @@ def _bind_login(
             reason_code=ReasonCode.SCHEMA_MISMATCH,
             message="identity is not bound to this authentication profile",
         )
-    if identity.target_reference != plan.target_reference:
+    if not _same_research_target(identity.target_reference, plan.target_reference):
         return SessionBindingDecision(
             accepted=False,
             input_rejected=True,
@@ -228,7 +241,7 @@ def _bind_existing_session(
             reason_code=ReasonCode.SCHEMA_MISMATCH,
             message="session is bound to a different research run",
         )
-    if identity.target_reference != plan.target_reference:
+    if not _same_research_target(identity.target_reference, plan.target_reference):
         return SessionBindingDecision(
             accepted=False,
             input_rejected=True,

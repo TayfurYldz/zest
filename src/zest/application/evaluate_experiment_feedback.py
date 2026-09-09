@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
+from zest.application.oast_source import OAST_CALLBACK_EVALUATION_STRATEGY
+from zest.application.oast_timeout import OAST_NO_CALLBACK_TIMEOUT
 from zest.application.plan_records import experiment_plan_from_record
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from zest.data.records import (
@@ -26,6 +28,10 @@ from zest.research.assessment import (
     default_evaluator_registry,
 )
 from zest.research.feedback import ExperimentFeedback, ObservedFact
+from zest.research.evaluators.oast_callback import (
+    OAST_CALLBACK_OBSERVATION_KIND,
+    OAST_NO_CALLBACK_OBSERVATION_KIND,
+)
 from zest.research.types import ExperimentPlan
 
 
@@ -92,6 +98,23 @@ class EvaluateExperimentFeedback:
                 attempt_state=command.attempt_state,
                 experiment_execution_state=command.experiment_execution_state,
             )
+            if plan.evaluation_strategy == OAST_CALLBACK_EVALUATION_STRATEGY and attempt is not None:
+                extra = _oast_observed_facts(uow, attempt)
+                if extra:
+                    feedback = ExperimentFeedback(
+                        hypothesis_id=feedback.hypothesis_id,
+                        experiment_id=feedback.experiment_id,
+                        research_run_id=feedback.research_run_id,
+                        expected_observation=feedback.expected_observation,
+                        disconfirming_observation=feedback.disconfirming_observation,
+                        evaluation_strategy=feedback.evaluation_strategy,
+                        execution_outcome=feedback.execution_outcome,
+                        observations=feedback.observations + extra,
+                        submitted_value=feedback.submitted_value,
+                        invocation_status=feedback.invocation_status,
+                        experiment_execution_state=feedback.experiment_execution_state,
+                        attempt_state=feedback.attempt_state,
+                    )
             evaluator = self._registry.get(plan.evaluation_strategy)
             assessment = evaluator.evaluate(plan, feedback)
             assessment_id = new_opaque_id()
@@ -189,3 +212,47 @@ def _derive_execution_outcome(
     if experiment_state == "EXECUTION_FAILED":
         return "INVOCATION_FAILED"
     return experiment_state
+
+
+def _oast_observed_facts(uow, attempt) -> tuple[ObservedFact, ...]:
+    correlation = uow.oast_correlations.get_by_attempt_id(attempt.attempt_id)
+    if correlation is None:
+        return ()
+    facts: list[ObservedFact] = []
+    admission = uow.oast_admissions.get_by_correlation(correlation.correlation_id)
+    if admission is not None:
+        deliveries = uow.oast_callback_deliveries.list_for_correlation(correlation.correlation_id)
+        digest = deliveries[0].normalized_digest if deliveries else ""
+        channel = "http"
+        if deliveries:
+            payload = dict(deliveries[0].normalized_payload or {})
+            if payload.get("callback_channel"):
+                channel = str(payload.get("callback_channel"))
+        facts.append(
+            ObservedFact(
+                observation_id=admission.sensor_observation_id,
+                observation_kind=OAST_CALLBACK_OBSERVATION_KIND,
+                payload={
+                    "correlation_id": correlation.correlation_id,
+                    "normalized_digest": digest,
+                    "callback_channel": channel,
+                    "correlation_status": "CORRELATED",
+                },
+            )
+        )
+        return tuple(facts)
+    audits = uow.audit_events.list_for_subject("research_run", attempt.research_run_id)
+    timed_out = any(
+        item.event_type == OAST_NO_CALLBACK_TIMEOUT
+        and (item.payload or {}).get("correlation_id") == correlation.correlation_id
+        for item in audits
+    )
+    if timed_out:
+        facts.append(
+            ObservedFact(
+                observation_id=f"oast-timeout:{correlation.correlation_id}",
+                observation_kind=OAST_NO_CALLBACK_OBSERVATION_KIND,
+                payload={"correlation_status": "NO_CALLBACK_TIMEOUT"},
+            )
+        )
+    return tuple(facts)

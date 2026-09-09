@@ -60,6 +60,7 @@ COMPILER_STATE_TRANSITION = "state_transition.v1"
 COMPILER_MUTATION_MATRIX_CELL = "mutation_matrix_cell.v1"
 COMPILER_MUTATION_VARIANT = "mutation_variant.v1"
 COMPILER_PROTOCOL_STEP = "protocol_step.v1"
+COMPILER_OAST_INTERACTION = "oast.interaction.v1"
 COMPILER_GENERIC_PLANNER = "generic_planner.v1"
 
 FAMILY_OBJECT_AUTHORIZATION = "OBJECT_AUTHORIZATION"
@@ -531,6 +532,59 @@ class ProtocolStepCompiler:
         return _compiled(self.compiler_id, plan, family_name=request.family_name)
 
 
+class OastInteractionCompiler:
+    """Compile an armed OAST delivery onto http.transaction. Does not fake callbacks."""
+
+    compiler_id = COMPILER_OAST_INTERACTION
+
+    def compile(self, request: CompilerRequest) -> CompilerResult:
+        from zest.application.oast_source import OAST_CALLBACK_EVALUATION_STRATEGY
+
+        arguments = request.arguments
+        action = _text_arg(arguments, "action")
+        if action not in {"read", "mutate"}:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "OAST_REQUIRES_HTTP_TRANSACTION_ACTION",
+                family_name=request.family_name,
+            )
+        http_arguments = {
+            key: arguments[key] for key in HTTP_TRANSACTION_ARG_KEYS if key in arguments
+        }
+        try:
+            plan = compile_experiment_intent(
+                ExperimentIntent(
+                    hypothesis_id=request.hypothesis_id,
+                    capability_id=HTTP_TRANSACTION_CAPABILITY,
+                    action=action,
+                    target_reference=request.target_reference,
+                    arguments=http_arguments,
+                    requested_budget_id=request.budget_id,
+                    expected_observation=(
+                        _text_arg(arguments, "expected_observation")
+                        or "correlated callback observed for the armed sink"
+                    ),
+                    disconfirming_observation=(
+                        _text_arg(arguments, "disconfirming_observation")
+                        or "no correlated callback before deadline"
+                    ),
+                    evaluation_strategy=OAST_CALLBACK_EVALUATION_STRATEGY,
+                    requested_side_effect=request.requested_side_effect,
+                )
+            )
+        except ExperimentCompileError as exc:
+            outcome = (
+                CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY
+                if exc.reason_code == "UNKNOWN_CAPABILITY"
+                else CompilerOutcome.BLOCKED_INVALID_INPUT
+            )
+            return _blocked(
+                self.compiler_id, outcome, exc.reason_code, family_name=request.family_name
+            )
+        return _compiled(self.compiler_id, plan, family_name=request.family_name)
+
+
 class GenericPlannerCompiler:
     """Fallback for registry-external / exploratory work only.
 
@@ -680,6 +734,11 @@ def default_family_compilers() -> dict[str, ExperimentCompiler]:
     protocol = ProtocolStepCompiler()
     for name in PROTOCOL_FAMILIES:
         compilers[name] = protocol
+    from zest.application.oast_source import OAST_EXECUTABLE_FAMILIES
+
+    oast = OastInteractionCompiler()
+    for name in OAST_EXECUTABLE_FAMILIES:
+        compilers[name] = oast
     return compilers
 
 
@@ -708,6 +767,10 @@ class ExperimentCompilerRegistry:
             return self._by_family_name[family_name].compile(request)
         if request.arguments.get("mutation_rule_id"):
             return self._mutation_variant.compile(request)
+        from zest.application.oast_source import OAST_EXECUTABLE_FAMILIES
+
+        if family_name in OAST_EXECUTABLE_FAMILIES or request.arguments.get("oast_family"):
+            return OastInteractionCompiler().compile(request)
         return self._generic.compile(request)
 
 

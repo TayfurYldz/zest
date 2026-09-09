@@ -92,6 +92,23 @@ class ValidateHuntTiers:
             if hypothesis.research_run_id != command.research_run_id:
                 raise HuntValidationTierError("hypothesis does not belong to run")
 
+            existing_queue = [
+                item
+                for item in uow.hunt_v3_queue.list_for_research_run(command.research_run_id)
+                if item.hypothesis_id == command.hypothesis_id
+            ]
+            if existing_queue:
+                queued = existing_queue[0]
+                uow.rollback()
+                return _result(
+                    command,
+                    v1_passed=True,
+                    v2_passed=True,
+                    v3_queued=True,
+                    queue_id=queued.queue_id,
+                    reason_code="V3_ALREADY_QUEUED",
+                )
+
             node = next(
                 (item for item in command.graph.nodes if item.node_id == command.node_id), None
             )
@@ -249,7 +266,9 @@ class ValidateHuntTiers:
         return queue_id
 
 
-def _side_effect_for_family(family_name: str) -> int:
+def side_effect_for_family(family_name: str) -> int:
+    """Native side-effect class for a Hunter family name. Not an orchestration ceiling."""
+
     if family_name in {
         "HTTP_REQUEST_SMUGGLING_DESYNC",
         "HTTP_CACHE_POISONING_DECEPTION",
@@ -258,6 +277,10 @@ def _side_effect_for_family(family_name: str) -> int:
     if family_name == "WORKFLOW_STATE_TRANSITION":
         return 1
     return 0
+
+
+def _side_effect_for_family(family_name: str) -> int:
+    return side_effect_for_family(family_name)
 
 
 def _v3_arguments_for_family(

@@ -82,6 +82,25 @@ class AdmitOastCallback:
         with self._uow_factory.open() as uow:
             correlation = uow.oast_correlations.get(delivery.correlation_id)
             if correlation is None:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=new_opaque_id(),
+                        occurred_at=delivery.received_at,
+                        actor_id="control-plane:oast-admitter",
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type="OAST_CALLBACK_UNKNOWN_TOKEN",
+                        subject_type="OAST_CALLBACK",
+                        subject_id=delivery.delivery_id,
+                        correlation_id=delivery.correlation_id,
+                        payload={
+                            "reason_code": "OAST_CORRELATION_NOT_FOUND",
+                            "correlation_status": "UNKNOWN_TOKEN",
+                            "normalized_digest": delivery.normalized_digest,
+                            "not_evidence": True,
+                        },
+                    )
+                )
+                uow.commit()
                 return self._rejected("OAST_CORRELATION_NOT_FOUND")
 
             attempt = uow.execution_attempts.get(correlation.attempt_id)
@@ -91,7 +110,62 @@ class AdmitOastCallback:
             reason = self._validate_binding(
                 delivery.received_at, correlation, attempt, plan, run, hypothesis
             )
+            if reason == "OAST_CORRELATION_EXPIRED":
+                try:
+                    uow.oast_callback_deliveries.insert(
+                        OastCallbackDeliveryRecord(
+                            delivery_id=delivery.delivery_id,
+                            correlation_id=delivery.correlation_id,
+                            provider_adapter_id=delivery.provider_adapter_id,
+                            provider_event_id=delivery.provider_event_id,
+                            received_at=delivery.received_at,
+                            normalized_payload=delivery.normalized_payload,
+                            normalized_digest=delivery.normalized_digest,
+                        )
+                    )
+                except PersistenceConflictError:
+                    pass
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=new_opaque_id(),
+                        occurred_at=delivery.received_at,
+                        actor_id="control-plane:oast-admitter",
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type="OAST_CALLBACK_EXPIRED",
+                        subject_type="research_run",
+                        subject_id=correlation.research_run_id,
+                        correlation_id=correlation.correlation_id,
+                        payload={
+                            "reason_code": reason,
+                            "correlation_id": correlation.correlation_id,
+                            "normalized_digest": delivery.normalized_digest,
+                            "not_evidence": True,
+                        },
+                    )
+                )
+                uow.commit()
+                return self._rejected(reason)
             if reason is not None:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=new_opaque_id(),
+                        occurred_at=delivery.received_at,
+                        actor_id="control-plane:oast-admitter",
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type="OAST_CALLBACK_REJECTED",
+                        subject_type="research_run",
+                        subject_id=correlation.research_run_id,
+                        correlation_id=correlation.correlation_id,
+                        payload={
+                            "reason_code": reason,
+                            "correlation_id": correlation.correlation_id,
+                            "normalized_digest": delivery.normalized_digest,
+                            "not_evidence": True,
+                            "cross_run_rejected": reason.endswith("RUN_MISMATCH"),
+                        },
+                    )
+                )
+                uow.commit()
                 return self._rejected(reason)
 
             delivery_record = OastCallbackDeliveryRecord(
@@ -182,6 +256,26 @@ class AdmitOastCallback:
                     created_at=delivery.received_at,
                 )
                 uow.oast_admissions.insert(admission_record)
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=new_opaque_id(),
+                        occurred_at=delivery.received_at,
+                        actor_id="control-plane:oast-admitter",
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type="OAST_CALLBACK_ADMITTED",
+                        subject_type="research_run",
+                        subject_id=correlation.research_run_id,
+                        correlation_id=correlation.correlation_id,
+                        payload={
+                            "reason_code": "OAST_CALLBACK_ADMITTED",
+                            "correlation_id": correlation.correlation_id,
+                            "observation_id": admission_record.sensor_observation_id,
+                            "fact_id": admission_record.discovery_fact_id,
+                            "normalized_digest": delivery.normalized_digest,
+                            "not_evidence": True,
+                        },
+                    )
+                )
             except PersistenceConflictError:
                 existing_admission = uow.oast_admissions.get_by_correlation(
                     correlation.correlation_id

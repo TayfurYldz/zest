@@ -261,11 +261,18 @@ def claim_from_template(
     if extra_context is not None:
         attributes.update(extra_context)
     try:
-        return family.claim_template.format(**attributes)
+        return family.claim_template.format_map(_ClaimContext(attributes))
     except KeyError as exc:
         raise ResearchInputError(
             f"claim template for {family.family_id} missing placeholder {exc}"
         ) from exc
+
+
+class _ClaimContext(dict):
+    """Fill unknown template fields from SoR attributes without inventing facts."""
+
+    def __missing__(self, key: str) -> str:
+        return ""
 
 
 def lifecycle_from_assessments(

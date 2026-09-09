@@ -397,6 +397,7 @@ def identity_anomaly_proposal_and_challenge(
             "The source record is a durable same-run observation or differential.",
             "HunterFamily matching did not claim this identity anomaly.",
             "Opportunity selection is not Core authorization.",
+            "side_effect_estimate:1",
         ),
         unresolved_questions=(IDENTITY_ANOMALY_QUESTION,),
         suggested_disconfirming_test=HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,

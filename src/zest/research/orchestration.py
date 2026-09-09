@@ -44,6 +44,9 @@ class StopReason(Enum):
     """Explicit stop. Finding creation is not an automatic stop unless policy says so."""
 
     COMPLETED_NO_MORE_OPPORTUNITIES = "COMPLETED_NO_MORE_OPPORTUNITIES"
+    COMPLETED_UNDER_CURRENT_AUTHORITY_WITH_BLOCKED_WORK = (
+        "COMPLETED_UNDER_CURRENT_AUTHORITY_WITH_BLOCKED_WORK"
+    )
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
     MAX_CYCLES_REACHED = "MAX_CYCLES_REACHED"
     MAX_DURATION_REACHED = "MAX_DURATION_REACHED"
@@ -53,6 +56,7 @@ class StopReason(Enum):
     OPERATOR_PAUSED = "OPERATOR_PAUSED"
     OPERATOR_CANCELLED = "OPERATOR_CANCELLED"
     OPERATIONAL_FAILURE = "OPERATIONAL_FAILURE"
+    UNKNOWN_OUTCOME_REQUIRES_REVIEW = "UNKNOWN_OUTCOME_REQUIRES_REVIEW"
     CONTENT_POLICY_BLOCKED = "CONTENT_POLICY_BLOCKED"
     AUTH_REQUIRED = "AUTH_REQUIRED"
     RATE_LIMITED = "RATE_LIMITED"
@@ -95,6 +99,8 @@ class NextCycleAction(Enum):
     STOP = "STOP"
     BOOTSTRAP_DIAGNOSTIC = "BOOTSTRAP_DIAGNOSTIC"
     USE_SELECTED_OPPORTUNITY = "USE_SELECTED_OPPORTUNITY"
+    CONTINUE_SURFACE_DISCOVERY = "CONTINUE_SURFACE_DISCOVERY"
+    NO_SELECTION_THIS_TICK = "NO_SELECTION_THIS_TICK"
 
 
 def _require_non_negative(name: str, value: int) -> int:
@@ -201,14 +207,22 @@ def next_cycle_action(
     selected_count: int,
     hypothesis_count: int,
     unknown_outcome_open: bool,
+    runnable_discovery_frontier_count: int = 0,
 ) -> tuple[NextCycleAction, StopReason | None]:
-    """Choose the next bounded action. Does not dispatch a Worker."""
+    """Choose the next bounded action. Does not dispatch a Worker.
+
+    `selected_count == 0` is no selection this tick, not research exhaustion.
+    Runnable discovery frontier remains discovery-owned work.
+    Global exhaustion is decided by the work inventory, not this function.
+    """
 
     if unknown_outcome_open:
-        return NextCycleAction.STOP, StopReason.OPERATIONAL_FAILURE
+        return NextCycleAction.STOP, StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW
     bound = check_orchestration_bounds(bounds, usage)
     if not bound.allowed:
         return NextCycleAction.STOP, bound.stop_reason
+    if runnable_discovery_frontier_count > 0:
+        return NextCycleAction.CONTINUE_SURFACE_DISCOVERY, None
     if selected_count > 0:
         if selected_count > bounds.max_selected_opportunities:
             return NextCycleAction.STOP, StopReason.BUDGET_EXHAUSTED
@@ -217,7 +231,7 @@ def next_cycle_action(
         return NextCycleAction.BOOTSTRAP_DIAGNOSTIC, None
     if bounds.allow_repeated_control_experiments:
         return NextCycleAction.BOOTSTRAP_DIAGNOSTIC, None
-    return NextCycleAction.STOP, StopReason.COMPLETED_NO_MORE_OPPORTUNITIES
+    return NextCycleAction.NO_SELECTION_THIS_TICK, None
 
 
 def cycle_outcome_for_stop(reason: StopReason) -> CycleOutcome:
@@ -232,6 +246,7 @@ def cycle_outcome_for_stop(reason: StopReason) -> CycleOutcome:
         StopReason.NO_COMPATIBLE_RUNTIME,
         StopReason.CONTENT_POLICY_BLOCKED,
         StopReason.OPERATIONAL_FAILURE,
+        StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW,
         StopReason.AUTH_REQUIRED,
         StopReason.RATE_LIMITED,
     }:
@@ -246,7 +261,10 @@ def orchestration_state_for_stop(reason: StopReason) -> OrchestrationState:
         return OrchestrationState.WAITING_HUMAN
     if reason is StopReason.OPERATOR_PAUSED:
         return OrchestrationState.PAUSED
-    if reason is StopReason.OPERATIONAL_FAILURE:
+    if reason in {
+        StopReason.OPERATIONAL_FAILURE,
+        StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW,
+    }:
         return OrchestrationState.FAILED_OPERATIONAL
     if reason is StopReason.CANCELLED:
         return OrchestrationState.COMPLETED

@@ -1195,7 +1195,7 @@ opportunity_selection_candidate = Table(
     Column("resulting_opportunity_id", Text, nullable=True),
     Column("decided_at", DateTime(timezone=True), nullable=True),
     CheckConstraint(
-        "source_system IN ('HUNTER_COVERAGE', 'REGISTRY_EXTERNAL_ANOMALY')",
+        "source_system IN ('HUNTER_COVERAGE', 'REGISTRY_EXTERNAL_ANOMALY', 'DISCOVERY_HANDOFF', 'AUTHENTICATION', 'AUTHORIZATION', 'WORKFLOW', 'MUTATION', 'PROTOCOL', 'OAST', 'DIFFERENTIAL', 'INVARIANT', 'CHAIN')",
         name="ck_opportunity_selection_candidate_source_system",
     ),
     CheckConstraint(

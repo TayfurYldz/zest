@@ -86,7 +86,7 @@ def exploratory_proposal_and_challenge(
         proposed_claim=draft.hypothesis_claim or DIAGNOSTIC_CLAIM,
         rationale=draft.proposed_family_rationale,
         source_references=draft.source_refs,
-        assumptions=("exploratory draft is not a HunterFamily",),
+        assumptions=("exploratory draft is not a HunterFamily", "side_effect_estimate:0"),
         unresolved_questions=("does the diagnostic control loop round-trip?",),
         suggested_disconfirming_test="submit a value and observe mismatch",
         suggested_capability=DIAGNOSTIC_ECHO_CAPABILITY,

@@ -212,6 +212,11 @@ class FrontierTransitionTests(unittest.TestCase):
         self.assertTrue(
             legal_frontier_transition(FrontierEventKind.ELIGIBLE, FrontierEventKind.SELECTED)
         )
+        self.assertTrue(
+            legal_frontier_transition(
+                FrontierEventKind.ELIGIBLE, FrontierEventKind.DEFERRED_TO_RESEARCH
+            )
+        )
 
     def test_selection_generation_increments(self) -> None:
         events = (
@@ -389,6 +394,50 @@ class ProjectionAndGraphTests(unittest.TestCase):
         self.assertIn("CHARACTERIZE_HTTP_OPERATION", goals)
         attrs = [item.attributes for item in delta.frontier_items if item.attributes]
         self.assertTrue(any(item.get("auto_replay") is False for item in attrs))
+
+    def test_off_origin_network_event_is_boundary_not_characterization(self) -> None:
+        view = ObservationView(
+            observation_id="obs-1",
+            research_run_id="run-1",
+            observation_kind="BROWSER_PAGE_STATE",
+            identity_id=ANONYMOUS_IDENTITY_ID,
+            target_reference="http://127.0.0.1:1/",
+            normalized_origin="http://127.0.0.1:1",
+            normalized_path="/",
+            worker_result_id="wr-1",
+            snapshot_fingerprint="fp-1",
+            containment_degraded=True,
+            blocked_external_dependency_count=1,
+            network_events=(
+                NetworkEventView(
+                    event_id="ne-cdn",
+                    method="GET",
+                    path="/gtm.js",
+                    normalized_target="https://www.googletagmanager.com/gtm.js",
+                    redirect=False,
+                    representability="NOT_REPRESENTABLE",
+                ),
+            ),
+        )
+        delta = project_observation_view(
+            view,
+            existing_canonical_keys=frozenset(),
+            fact_id_for_key={},
+            allocate_id=_ids(),
+        )
+        goals = {item.goal_kind.value for item in delta.frontier_items}
+        self.assertNotIn("CHARACTERIZE_HTTP_OPERATION", goals)
+        kinds = {item.fact.fact_kind for item in delta.facts}
+        self.assertIn(DiscoveryFactKind.SCOPE_BOUNDARY_CANDIDATE, kinds)
+        page = next(
+            item.fact
+            for item in delta.facts
+            if item.fact.fact_kind is DiscoveryFactKind.PAGE_STATE
+        )
+        self.assertTrue(page.attributes["containment_degraded"])
+        self.assertEqual(page.attributes["blocked_external_dependency_count"], 1)
+        self.assertTrue(page.attributes["main_observation_present"])
+        self.assertFalse(page.attributes["page_complete"])
 
     def test_same_path_network_event_does_not_duplicate_exact_path(self) -> None:
         view = ObservationView(

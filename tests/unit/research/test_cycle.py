@@ -168,6 +168,7 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
             [
                 "ext:doc-1",
                 "obs:1",
+                "proc:model-not-completion-authority",
                 "proc:research-question",
                 "run:run-1",
             ],
@@ -198,7 +199,7 @@ class GeneratorFalsifierCycleTests(unittest.TestCase):
         second_payload = second_request.payload["research_context"]
         self.assertEqual(
             first_payload["allowed_source_reference_ids"],
-            ["obs:a", "obs:b", "proc:research-question", "run:run-z"],
+            ["obs:a", "obs:b", "proc:model-not-completion-authority", "proc:research-question", "run:run-z"],
         )
         self.assertEqual(
             first_payload["allowed_source_reference_ids"],

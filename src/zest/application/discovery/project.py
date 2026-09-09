@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Mapping
 from urllib.parse import urlsplit
@@ -227,7 +228,21 @@ def observation_view(
         controls=controls,
         network_events=events,
         form_known=any(item.tag.lower() == "form" or item.input_type == "submit" for item in controls),
+        main_observation_present=True,
+        containment_degraded=bool(payload.get("page_degraded_by_blocked_external_dependency")),
+        blocked_external_dependency_count=_blocked_dependency_count(payload),
+        coverage_complete=payload.get("coverage_complete") is not False,
     )
+
+
+def _blocked_dependency_count(payload: Mapping[str, Any]) -> int:
+    explicit = payload.get("blocked_external_dependency_count")
+    if isinstance(explicit, int) and not isinstance(explicit, bool) and explicit >= 0:
+        return explicit
+    boundaries = payload.get("blocked_boundaries")
+    if isinstance(boundaries, list):
+        return len(boundaries)
+    return 0
 
 
 def _identity_for(uow: UnitOfWork, observation: ObservationRecord, fallback: str) -> str:
@@ -365,6 +380,7 @@ def _persist_delta(
                 source_inference_id=source.source_inference_id,
             )
         )
+    superseded_new: set[str] = set()
     for item in delta.frontier_items:
         existing_items = [
             row
@@ -372,6 +388,45 @@ def _persist_delta(
             if row.dedupe_identity == item.dedupe_identity
         ]
         if existing_items:
+            if any(row.frontier_id == item.frontier_id for row in existing_items):
+                continue
+            canonical_id = sorted(existing_items, key=lambda row: row.frontier_id)[0].frontier_id
+            record = _frontier_record(item, created_at)
+            uow.frontier_items.insert(
+                replace(record, current_state="SUPERSEDED", state_version=2)
+            )
+            uow.frontier_sources.insert(
+                FrontierSourceRecord(
+                    source_row_id=new_opaque_id(),
+                    research_run_id=item.research_run_id,
+                    frontier_id=item.frontier_id,
+                    created_at=created_at,
+                    observation_id=observation_id,
+                    control_event_id=control_event_id,
+                )
+            )
+            uow.frontier_events.insert(
+                FrontierEventRecord(
+                    event_id=new_opaque_id(),
+                    frontier_id=item.frontier_id,
+                    research_run_id=item.research_run_id,
+                    event_kind="CREATED",
+                    sequence=1,
+                    created_at=created_at,
+                )
+            )
+            uow.frontier_events.insert(
+                FrontierEventRecord(
+                    event_id=new_opaque_id(),
+                    frontier_id=item.frontier_id,
+                    research_run_id=item.research_run_id,
+                    event_kind="SUPERSEDED",
+                    sequence=2,
+                    created_at=created_at,
+                    reason_code=f"DEDUPLICATED:{canonical_id}",
+                )
+            )
+            superseded_new.add(item.frontier_id)
             continue
         uow.frontier_items.insert(_frontier_record(item, created_at))
         uow.frontier_sources.insert(
@@ -385,6 +440,8 @@ def _persist_delta(
             )
         )
     for event in delta.frontier_events:
+        if event.frontier_id in superseded_new:
+            continue
         existing = uow.frontier_events.list_for_frontier(event.frontier_id)
         if any(row.event_kind == event.event_kind.value and row.sequence == event.sequence for row in existing):
             continue

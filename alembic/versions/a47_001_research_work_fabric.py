@@ -1,0 +1,48 @@
+"""Admit DISCOVERY_HANDOFF into the shared opportunity candidate pool.
+
+Revision ID: a47_001_research_work_fabric
+Revises: a46_001_frontier_exit_kinds
+Create Date: 2026-08-29
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+
+revision: str = "a47_001_research_work_fabric"
+down_revision: Union[str, Sequence[str], None] = "a46_001_frontier_exit_kinds"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+NEW_SYSTEMS = (
+    "HUNTER_COVERAGE",
+    "REGISTRY_EXTERNAL_ANOMALY",
+    "DISCOVERY_HANDOFF",
+)
+LEGACY_SYSTEMS = NEW_SYSTEMS[:-1]
+
+
+def upgrade() -> None:
+    op.drop_constraint(
+        "ck_opportunity_selection_candidate_source_system",
+        "opportunity_selection_candidate",
+        type_="check",
+    )
+    op.create_check_constraint(
+        "ck_opportunity_selection_candidate_source_system",
+        "opportunity_selection_candidate",
+        "source_system IN (" + ", ".join(f"'{item}'" for item in NEW_SYSTEMS) + ")",
+    )
+
+
+def downgrade() -> None:
+    op.drop_constraint(
+        "ck_opportunity_selection_candidate_source_system",
+        "opportunity_selection_candidate",
+        type_="check",
+    )
+    op.create_check_constraint(
+        "ck_opportunity_selection_candidate_source_system",
+        "opportunity_selection_candidate",
+        "source_system IN (" + ", ".join(f"'{item}'" for item in LEGACY_SYSTEMS) + ")",
+    )

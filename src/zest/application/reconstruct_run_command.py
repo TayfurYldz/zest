@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from zest.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
 )
+from zest.application.discovery.lifecycle import (
+    discovery_can_exit,
+    surface_discovery_start_from_persisted,
+)
 from zest.application.discovery.runner import SurfaceDiscoveryStart
 from zest.application.errors import ApplicationError
 from zest.application.http_transaction_authorization import (
@@ -46,6 +50,14 @@ def reconstruct_start_command(
         context = load_program_research_context(uow, run.program_id)
         policy = context.policy if context is not None else None
         budgets = uow.issued_budgets.list_for_research_run(research_run_id)
+        persisted_discovery = surface_discovery_start_from_persisted(
+            uow,
+            research_run_id,
+            compiled_scope=context.compiled_scope if context is not None else None,
+        )
+        discovery_open = persisted_discovery is not None and not discovery_can_exit(
+            uow, research_run_id
+        )
         uow.rollback()
     if context is None or policy is None:
         raise ApplicationError("program research context is unavailable")
@@ -126,6 +138,8 @@ def reconstruct_start_command(
             ),
             compiled_scope=context.compiled_scope,
         )
+    elif discovery_open:
+        surface_discovery = persisted_discovery
     return StartAutonomousResearchCommand(
         research_run_id=research_run_id,
         budget_id=budget_id,

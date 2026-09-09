@@ -146,6 +146,7 @@ def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
     from zest.research.evaluators.http_authentication import HttpAuthenticationEvaluator
     from zest.research.evaluators.http_transaction import HttpTransactionEvaluator
     from zest.research.evaluators.mutation_matrix import MutationMatrixEvaluator
+    from zest.research.evaluators.oast_callback import OastCallbackEvaluator
     from zest.research.evaluators.protocol_step import ProtocolStepEvaluator
     from zest.research.evaluators.state_transition import HttpStateTransitionEvaluator
 
@@ -157,6 +158,7 @@ def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
     registry.register(HttpAuthenticationEvaluator())
     registry.register(MutationMatrixEvaluator())
     registry.register(ProtocolStepEvaluator())
+    registry.register(OastCallbackEvaluator())
     return registry
 
 

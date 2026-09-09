@@ -125,7 +125,11 @@ def compile_experiment_intent(
             raise ExperimentCompileError(
                 "RISK_EXCEEDS_CAPABILITY", "requested side effect exceeds action maximum"
             )
-    effective = action.minimum_side_effect_level
+    effective = (
+        intent.requested_side_effect
+        if intent.requested_side_effect is not None
+        else action.minimum_side_effect_level
+    )
     return ExperimentPlan(
         hypothesis_id=intent.hypothesis_id,
         required_capability=definition.capability_id,

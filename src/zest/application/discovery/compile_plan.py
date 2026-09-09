@@ -16,6 +16,7 @@ from zest.research.discovery.control_resolve import (
     LiveControlView,
     resolve_control_ref,
 )
+from zest.research.discovery.frontier import DISCOVERY_EXECUTABLE_CAPABILITIES
 from zest.research.discovery.types import ANONYMOUS_IDENTITY_ID, DiscoveryGoalKind
 from zest.research.http_transaction import HttpRequestTemplate, plan_http_transaction
 from zest.research.types import ExperimentPlan
@@ -24,6 +25,10 @@ from zest.tools.capabilities import BROWSER_PAGE_INTERACT_ACTION
 
 class ReobserveRequired(ApplicationError):
     """Stale or ambiguous control mapping. Do not click."""
+
+
+class UnsupportedDiscoveryCapability(ApplicationError):
+    """Discovery cannot compile or execute this capability."""
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,10 @@ def compile_frontier_plan(
     live_page: LivePageSnapshot | None = None,
     process_generation_changed: bool = False,
 ) -> ExperimentPlan:
+    if item.proposed_capability not in DISCOVERY_EXECUTABLE_CAPABILITIES:
+        raise UnsupportedDiscoveryCapability(
+            f"discovery cannot execute capability {item.proposed_capability}"
+        )
     goal = DiscoveryGoalKind(item.goal_kind)
     identity_id = None if item.identity_id == ANONYMOUS_IDENTITY_ID else item.identity_id
     if goal in {

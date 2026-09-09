@@ -77,7 +77,7 @@ from zest.platform.contract_validation import ContractValidator
 from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome, WorkerPort
 from zest.research.identity_session import HttpFormLoginProfile, Identity
 from zest.research.types import ExperimentPlan
-from zest.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
+from zest.tools.browser_page_policy import browser_page_max_network_requests
 from zest.tools.capabilities import BROWSER_PAGE_CAPABILITY, HTTP_RAW_EXCHANGE_CAPABILITY
 
 WORKER_CONTRACT_VERSION = "v1"
@@ -567,16 +567,26 @@ class ExecutePlannedExperiment:
             reserved_requests = request_amount
             worker_capability = attempt.worker_capability
             uow.commit()
-        invocation = self._worker.invoke(
-            _request_with_resolved_secrets(
-                authorized.worker_request,
-                authorized.resolved_secret_values,
-                max_attempted_requests=(
-                    reserved_requests if worker_capability == BROWSER_PAGE_CAPABILITY else None
+        try:
+            invocation = self._worker.invoke(
+                _request_with_resolved_secrets(
+                    authorized.worker_request,
+                    authorized.resolved_secret_values,
+                    max_attempted_requests=(
+                        reserved_requests if worker_capability == BROWSER_PAGE_CAPABILITY else None
+                    ),
                 ),
-            ),
-            timeout_ms=authorized.timeout_ms,
-        )
+                timeout_ms=authorized.timeout_ms,
+            )
+        except Exception:
+            with self._uow_factory.open() as uow:
+                experiment = uow.experiments.get(authorized.experiment_id)
+                attempt = uow.execution_attempts.get(authorized.attempt_id)
+                if experiment is None or attempt is None:
+                    raise
+                return self._mark_unknown(
+                    uow, experiment, attempt, authorized.hypothesis_id
+                )
         return self._record_outcome(authorized, invocation)
 
     def _fail_closed_existing(self, experiment_id: str) -> ResearchLoopOutcome | None:
@@ -1294,7 +1304,9 @@ def _request_consumption_amount(
     remaining = remaining_for_resource(issued, usage, "REQUEST")
     if remaining < 1:
         raise BudgetOverspendError("consumption would exceed issued allowance")
-    return min(remaining, BROWSER_PAGE_MAX_NETWORK_REQUESTS)
+    plan = uow.experiment_plans.get(attempt.experiment_id)
+    action_id = plan.action if plan is not None else attempt.action
+    return min(remaining, browser_page_max_network_requests(action_id))
 
 
 def _record_dispatch_consumption(

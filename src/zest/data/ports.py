@@ -492,6 +492,9 @@ class SessionContextRepository(Protocol):
         expires_at: datetime | None = None,
         updated_at: datetime,
     ) -> None: ...
+    def list_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[SessionContextRecord]: ...
 
 
 class DiscoveryRunConfigRepository(Protocol):

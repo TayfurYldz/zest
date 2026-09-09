@@ -81,13 +81,12 @@ class HunterCoverageOpportunitySourceTests(unittest.TestCase):
         # candidate is not itself coverage reduction.
         self.assertEqual(len(store.research_opportunities), 0)
 
-    def test_covered_and_not_applicable_and_v3_queued_cells_are_ineligible(self) -> None:
+    def test_covered_and_not_applicable_cells_are_ineligible(self) -> None:
         store = self._store()
         source = HunterCoverageOpportunitySource(FakeUnitOfWorkFactory(store), clock=FixedClock())
         cells = (
             _scored(identity="i1", state=CoverageState.COVERED),
             _scored(identity="i2", state=CoverageState.NOT_APPLICABLE),
-            _scored(identity="i3", state=CoverageState.V3_QUEUED),
             _scored(identity="i4", state=CoverageState.V1_PASSED),
             _scored(identity="i5", state=CoverageState.V2_PASSED),
         )
@@ -95,8 +94,20 @@ class HunterCoverageOpportunitySourceTests(unittest.TestCase):
             HunterCoverageOpportunitySourceCommand(research_run_id="run-1", scored_cells=cells)
         )
         self.assertEqual(result.candidates_created, 0)
-        self.assertEqual(result.skipped_ineligible_state, 5)
+        self.assertEqual(result.skipped_ineligible_state, 4)
         self.assertEqual(len(store.opportunity_selection_candidates), 0)
+
+    def test_v3_queued_cell_produces_pending_candidate(self) -> None:
+        store = self._store()
+        source = HunterCoverageOpportunitySource(FakeUnitOfWorkFactory(store), clock=FixedClock())
+        result = source.execute(
+            HunterCoverageOpportunitySourceCommand(
+                research_run_id="run-1",
+                scored_cells=(_scored(state=CoverageState.V3_QUEUED),),
+            )
+        )
+        self.assertEqual(result.candidates_created, 1)
+        self.assertEqual(result.skipped_ineligible_state, 0)
 
     def test_hypothesized_cell_is_eligible(self) -> None:
         store = self._store()

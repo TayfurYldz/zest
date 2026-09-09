@@ -46,6 +46,8 @@ from zest.research.orchestration import (
 STOP_REASON_QA = {
     StopReason.COMPLETED_NO_MORE_OPPORTUNITIES.value:
         "bounded research exhausts eligible work",
+    StopReason.COMPLETED_UNDER_CURRENT_AUTHORITY_WITH_BLOCKED_WORK.value:
+        "authority-blocked work remains blocked, uncovered, and non-executed",
     StopReason.BUDGET_EXHAUSTED.value:
         "experiment/model/worker hard bound exhaustion",
     StopReason.MAX_CYCLES_REACHED.value:
@@ -64,6 +66,8 @@ STOP_REASON_QA = {
         "operator cancels non-terminal orchestration",
     StopReason.OPERATIONAL_FAILURE.value:
         "unknown outcome/runtime/supervisor operational failure",
+    StopReason.UNKNOWN_OUTCOME_REQUIRES_REVIEW.value:
+        "dispatch or result lost; fail-closed, no auto-retry, not coverage",
     StopReason.CONTENT_POLICY_BLOCKED.value:
         "model/provider content-policy block",
     StopReason.AUTH_REQUIRED.value:

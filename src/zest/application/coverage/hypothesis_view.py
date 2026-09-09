@@ -15,9 +15,10 @@ from zest.research.coverage.types import CoverageHypothesisView
 
 # Event types emitted by hunt_validation.py for tier decisions.
 _TIER_PASS_EVENTS = {
-    "HYPOTHESIS_TIER_V1_PASSED": "V1",
-    "HYPOTHESIS_TIER_V2_PASSED": "V2",
-    "HYPOTHESIS_TIER_V3_QUEUED": "V3_QUEUED",
+    "HUNT_TIER_V1_PASSED": "V1",
+    "HUNT_TIER_V2_PASSED": "V2",
+    "HUNT_TIER_V3_QUEUED": "V3_QUEUED",
+    "HUNT_CELL_COVERED": "COVERED",
 }
 _REJECT_EVENTS = {
     "HUNT_TIER_V1_REJECTED",
@@ -54,6 +55,11 @@ def build_coverage_hypothesis_view(
         hypothesis_id = event.subject_id
         audit_by_hypothesis.setdefault(hypothesis_id, []).append(event)
 
+    assessments = uow.hypothesis_assessments.list_for_research_run(research_run_id)
+    latest_assessment: dict[str, str] = {}
+    for assessment in sorted(assessments, key=lambda item: item.created_at):
+        latest_assessment[assessment.hypothesis_id] = assessment.assessment_outcome
+
     views: list[CoverageHypothesisView] = []
     for hypothesis in hypotheses:
         events = audit_by_hypothesis.get(hypothesis.hypothesis_id, [])
@@ -62,8 +68,15 @@ def build_coverage_hypothesis_view(
         if node_key is None or family_id is None:
             # No audit metadata yet: still hypothesized but unbound to a cell.
             continue
-        # SD-G9 precedence: explicit HypothesisRecord identity wins over audit
-        # payload identity (which may be missing for older records).
+        if _v2_family_terminal(events, tier):
+            tier = "COVERED"
+        outcome = latest_assessment.get(hypothesis.hypothesis_id)
+        if outcome in {
+            "CONSISTENT_WITH_PREDICTION",
+            "CONTRADICTS_PREDICTION",
+            "INCONCLUSIVE",
+        }:
+            tier = "COVERED"
         identity_id = hypothesis.identity_id if hypothesis.identity_id is not None else audit_identity_id
         views.append(
             CoverageHypothesisView(
@@ -81,12 +94,26 @@ def _highest_tier_from_events(events: list[AuditEventRecord]) -> str:
     """Highest passed tier reached, or UNTESTED if no pass event exists."""
 
     highest = "UNTESTED"
-    rank = {"UNTESTED": 0, "V1": 1, "V2": 2, "V3_QUEUED": 3, "COVERED": 4}
+    rank = {"UNTESTED": 0, "REJECTED": 0, "V1": 1, "V2": 2, "V3_QUEUED": 3, "COVERED": 4}
     for event in sorted(events, key=lambda item: item.occurred_at):
+        if event.event_type in _REJECT_EVENTS:
+            if rank.get(highest, 0) < 1:
+                highest = "REJECTED"
+            continue
         tier = _TIER_PASS_EVENTS.get(event.event_type)
         if tier is not None and rank.get(tier, 0) > rank.get(highest, 0):
             highest = tier
     return highest
+
+
+def _v2_family_terminal(events: list[AuditEventRecord], tier: str) -> bool:
+    if tier != "V2":
+        return False
+    for event in events:
+        payload = event.payload or {}
+        if payload.get("validation_tier") == "V2":
+            return True
+    return False
 
 
 def _node_family_identity_from_events(

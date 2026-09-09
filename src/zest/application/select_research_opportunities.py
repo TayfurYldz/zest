@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.produce_hunter_coverage_work import ProduceHunterCoverageWork
 from zest.application.registry_external_anomaly_source import (
     admit_registry_external_anomaly_candidates,
 )
+from zest.application.research_work_sources import default_research_work_sources
 from zest.core.enums import ActorType
 from zest.data.errors import PersistenceConflictError
 from zest.data.records import (
@@ -31,6 +33,12 @@ from zest.research.exploration import (
     OpportunityKind,
     propose_diagnostic_opportunities,
     select_research_opportunities,
+)
+from zest.research.scheduler.fairness import (
+    DurableSelectEvent,
+    build_fairness_cycle_audit,
+    engine_label,
+    kind_starvation_ages,
 )
 
 # Only outcomes that will not change on a later cycle (the candidate row's own
@@ -107,15 +115,30 @@ class SelectResearchOpportunities:
     def execute(
         self, command: SelectResearchOpportunitiesCommand
     ) -> SelectResearchOpportunitiesResult:
+        ProduceHunterCoverageWork(self._uow_factory, clock=self._clock).execute(
+            command.research_run_id
+        )
         with self._uow_factory.open() as uow:
             run = uow.research_runs.get(command.research_run_id)
             if run is None:
                 raise ApplicationError("research run not found")
-            differentials = uow.differential_observations.list_for_research_run(
-                command.research_run_id
-            )
-            invariants = uow.invariant_hypotheses.list_for_research_run(command.research_run_id)
-            chains = uow.chain_hypotheses.list_for_research_run(command.research_run_id)
+            differentials = [
+                item
+                for item in uow.differential_observations.list_for_research_run(
+                    command.research_run_id
+                )
+                if item.strategy_version.startswith("differential.diagnostic")
+            ]
+            invariants = [
+                item
+                for item in uow.invariant_hypotheses.list_for_research_run(command.research_run_id)
+                if item.strategy_version.startswith("invariant.diagnostic")
+            ]
+            chains = [
+                item
+                for item in uow.chain_hypotheses.list_for_research_run(command.research_run_id)
+                if item.strategy_version.startswith("chain.diagnostic")
+            ]
             changes = uow.change_events.list_for_research_run(command.research_run_id)
             hypotheses = uow.hypotheses.list_for_research_run(command.research_run_id)
             experiments = uow.experiments.list_for_research_run(
@@ -158,6 +181,13 @@ class SelectResearchOpportunities:
                 )
             )
             now = self._clock.now()
+            for source in default_research_work_sources():
+                source.harvest(
+                    uow, research_run_id=command.research_run_id, now=now
+                )
+            recently_selected_kinds = _recent_selected_kinds(
+                uow, command.research_run_id
+            )
             anomaly_result = admit_registry_external_anomaly_candidates(
                 uow,
                 research_run_id=command.research_run_id,
@@ -185,13 +215,6 @@ class SelectResearchOpportunities:
                 ),
                 id_prefix=new_opaque_id(),
             )
-            # MR-1 (Slice 3): additive union of Hunter/Coverage-sourced, still-
-            # PENDING candidates alongside the freshly generated diagnostics.
-            # `select_research_opportunities()` itself is completely
-            # unmodified; diagnostics are listed first in the input tuple so
-            # they retain first claim on shared budget slots exactly as
-            # before this change, and candidates only fill remaining
-            # capacity.
             pending_candidates = [
                 item
                 for item in uow.opportunity_selection_candidates.list_for_research_run(
@@ -205,12 +228,27 @@ class SelectResearchOpportunities:
             candidate_opportunities = tuple(
                 _opportunity_from_candidate(item) for item in pending_candidates
             )
+            pool = generated + candidate_opportunities
+            eligibility_blockers: dict[str, tuple[str, ...]] = {}
+            pending_kind_first_seen = _pending_kind_first_seen(
+                pending_candidates=pending_candidates,
+                generated=generated,
+                now=now,
+                ineligible_ids=frozenset(eligibility_blockers),
+            )
+            ages = kind_starvation_ages(
+                pending_kind_first_seen=pending_kind_first_seen,
+                select_events=_durable_select_events(uow, command.research_run_id),
+            )
             decisions = select_research_opportunities(
-                generated + candidate_opportunities,
+                pool,
                 research_run_id=command.research_run_id,
                 budget=command.budget,
                 negative_knowledge=tuple(negatives),
                 previously_selected_identities=previously,
+                recently_selected_kinds=recently_selected_kinds,
+                kind_starvation_ages=ages,
+                eligibility_blockers=eligibility_blockers,
             )
             for decision in decisions:
                 opportunity = decision.opportunity
@@ -273,6 +311,49 @@ class SelectResearchOpportunities:
                             ),
                             decided_at=now,
                         )
+            selected_items = [item for item in decisions if item.selected]
+            rejected = [
+                {
+                    "id": item.opportunity.opportunity_id,
+                    "engine": engine_label(item.opportunity.opportunity_kind),
+                    "reason": list(item.reason_codes),
+                }
+                for item in decisions
+                if not item.selected
+            ]
+            eligible_pool = tuple(
+                item
+                for item in pool
+                if item.opportunity_id not in eligibility_blockers
+                and item.structural_identity not in previously
+            )
+            ineligible_pool = tuple(
+                (item, eligibility_blockers[item.opportunity_id])
+                for item in pool
+                if item.opportunity_id in eligibility_blockers
+            )
+            fairness_audit = build_fairness_cycle_audit(
+                eligible=eligible_pool,
+                ineligible=ineligible_pool,
+                recently_selected_kinds=recently_selected_kinds,
+                ages=ages,
+                selected_opportunity_id=(
+                    selected_items[0].opportunity.opportunity_id if selected_items else None
+                ),
+                selection_reason=(
+                    tuple(selected_items[0].reason_codes)
+                    if selected_items
+                    else ("NO_SELECTION_THIS_TICK",)
+                ),
+            )
+            selected_candidate_audit = next(
+                (
+                    item
+                    for item in fairness_audit.candidates
+                    if item.opportunity_id == fairness_audit.selected_opportunity_id
+                ),
+                None,
+            )
             uow.audit_events.insert(
                 AuditEventRecord(
                     audit_event_id=new_opaque_id(),
@@ -283,11 +364,173 @@ class SelectResearchOpportunities:
                     subject_type="research_run",
                     subject_id=command.research_run_id,
                     payload={
-                        "selected": sum(1 for item in decisions if item.selected),
+                        "selected": len(selected_items),
                         "not_authorization": True,
                         "not_a_vulnerability": True,
                     },
                 )
             )
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id=self._actor_id,
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type="RESEARCH_SELECTION_TRACE",
+                    subject_type="research_run",
+                    subject_id=command.research_run_id,
+                    payload={
+                        "candidate_count": len(decisions),
+                        "candidate_engines": sorted(
+                            {
+                                item.opportunity.opportunity_kind.value
+                                for item in decisions
+                            }
+                        ),
+                        "candidate_engine_labels": sorted(
+                            {
+                                engine_label(item.opportunity.opportunity_kind)
+                                for item in decisions
+                            }
+                        ),
+                        "candidate_kinds": sorted(
+                            {
+                                item.opportunity.opportunity_kind.value
+                                for item in decisions
+                            }
+                        ),
+                        "candidate_ids": [
+                            item.opportunity.opportunity_id for item in decisions
+                        ],
+                        "fairness_candidates": [
+                            {
+                                "opportunity_id": item.opportunity_id,
+                                "candidate_kind": item.candidate_kind,
+                                "engine": item.engine,
+                                "eligible": item.eligible,
+                                "ineligible_reason_codes": list(
+                                    item.ineligible_reason_codes
+                                ),
+                                "rank_before_fairness": item.rank_before_fairness,
+                                "rank_after_fairness": item.rank_after_fairness,
+                                "fairness_boost_applied": item.fairness_boost_applied,
+                                "starvation_age": item.starvation_age,
+                                "pending_cycles": item.pending_cycles,
+                            }
+                            for item in fairness_audit.candidates
+                        ],
+                        "last_selected_kind": fairness_audit.last_selected_kind,
+                        "starvation_bound": fairness_audit.starvation_bound,
+                        "fairness_boost_applied": (
+                            False
+                            if selected_candidate_audit is None
+                            else selected_candidate_audit.fairness_boost_applied
+                        ),
+                        "starvation_age": (
+                            None
+                            if selected_candidate_audit is None
+                            else selected_candidate_audit.starvation_age
+                        ),
+                        "pending_cycles": (
+                            None
+                            if selected_candidate_audit is None
+                            else selected_candidate_audit.pending_cycles
+                        ),
+                        "rank_before_fairness": (
+                            None
+                            if selected_candidate_audit is None
+                            else selected_candidate_audit.rank_before_fairness
+                        ),
+                        "rank_after_fairness": (
+                            None
+                            if selected_candidate_audit is None
+                            else selected_candidate_audit.rank_after_fairness
+                        ),
+                        "rejected_candidates": rejected,
+                        "selected_work_id": (
+                            selected_items[0].opportunity.opportunity_id
+                            if selected_items
+                            else None
+                        ),
+                        "selected_engine": (
+                            engine_label(selected_items[0].opportunity.opportunity_kind)
+                            if selected_items
+                            else None
+                        ),
+                        "candidate_kind": (
+                            selected_items[0].opportunity.opportunity_kind.value
+                            if selected_items
+                            else None
+                        ),
+                        "selection_reason": (
+                            list(selected_items[0].reason_codes)
+                            if selected_items
+                            else ["NO_SELECTION_THIS_TICK"]
+                        ),
+                        "why_selected": fairness_audit.why_selected,
+                        "not_authorization": True,
+                    },
+                )
+            )
             uow.commit()
         return SelectResearchOpportunitiesResult(decisions=decisions)
+
+
+def _kind_for_selection(uow, item) -> str | None:
+    opportunity = uow.research_opportunities.get(item.opportunity_id)
+    if opportunity is not None:
+        return opportunity.opportunity_kind
+    candidate = uow.opportunity_selection_candidates.get(item.opportunity_id)
+    if candidate is not None:
+        return candidate.opportunity_kind
+    return None
+
+
+def _durable_select_events(uow, research_run_id: str) -> tuple[DurableSelectEvent, ...]:
+    events: list[DurableSelectEvent] = []
+    for item in uow.research_selections.list_for_research_run(research_run_id):
+        if item.outcome != SelectionOutcome.SELECT.value:
+            continue
+        kind = _kind_for_selection(uow, item)
+        if not kind:
+            continue
+        events.append(
+            DurableSelectEvent(
+                kind=kind,
+                created_at=item.created_at,
+                selection_id=item.selection_id,
+            )
+        )
+    return tuple(events)
+
+
+def _pending_kind_first_seen(
+    *,
+    pending_candidates,
+    generated: tuple[ResearchOpportunity, ...],
+    now,
+    ineligible_ids: frozenset[str],
+) -> dict[str, object]:
+    first_seen: dict[str, object] = {}
+    for record in pending_candidates:
+        if record.candidate_id in ineligible_ids:
+            continue
+        kind = record.opportunity_kind
+        created = record.created_at
+        previous = first_seen.get(kind)
+        if previous is None or created < previous:
+            first_seen[kind] = created
+    for opportunity in generated:
+        if opportunity.opportunity_id in ineligible_ids:
+            continue
+        kind = opportunity.opportunity_kind.value
+        first_seen.setdefault(kind, now)
+    return first_seen
+
+
+def _recent_selected_kinds(uow, research_run_id: str) -> tuple[str, ...]:
+    events = sorted(
+        _durable_select_events(uow, research_run_id),
+        key=lambda item: (item.created_at, item.selection_id),
+    )
+    return tuple(item.kind for item in events)

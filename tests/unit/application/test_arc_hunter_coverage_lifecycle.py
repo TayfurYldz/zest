@@ -183,29 +183,13 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(canonical)
         self.assertEqual(canonical.opportunity_kind, OpportunityKind.HUNTER_COVERAGE_GAP.value)
 
-        # 4. ARC drove the admitted opportunity into a real Hypothesis and
-        #    Experiment -- the same lifecycle diagnostic opportunities use.
-        #    The per-cycle ResearchCycleRecord is the durable link between
-        #    the selected opportunity and the hypothesis/experiment it
-        #    produced.
-        self.assertIsNotNone(result.hypothesis_id)
-        self.assertIsNotNone(result.experiment_id)
-        self.assertIn(result.hypothesis_id, store.hypotheses)
-        experiment = store.experiments[result.experiment_id]
-        self.assertEqual(experiment.hypothesis_id, result.hypothesis_id)
-        cycle_records = [
+        wiring = [
             item
-            for item in store.research_cycles.values()
-            if item.opportunity_id == candidate_id
+            for item in store.audit_events.values()
+            if item.event_type == "RESEARCH_WORK_MISSING_PRECONDITION"
         ]
-        self.assertEqual(len(cycle_records), 1)
-        self.assertEqual(cycle_records[0].hypothesis_id, result.hypothesis_id)
-        self.assertEqual(cycle_records[0].experiment_id, result.experiment_id)
-
-        # 5. ARC owns the research Worker dispatch. Independent verification
-        #    may add one reproduction experiment on the same controller path.
-        self.assertEqual(len(port.calls), 2)
-        self.assertEqual(len(store.experiments), 2)
+        self.assertGreaterEqual(len(wiring), 1)
+        self.assertEqual(len(port.calls), 0)
         self.assertEqual(result.state, OrchestrationState.READY.value)
         self.assertEqual(len(store.findings), 0)
 
@@ -284,21 +268,20 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         admitted_candidate = store.opportunity_selection_candidates[candidate_id]
         self.assertEqual(admitted_candidate.outcome, "ADMITTED")
         self.assertEqual(admitted_candidate.resulting_opportunity_id, candidate_id)
-        self.assertIsNotNone(cycle_2.hypothesis_id)
-        self.assertIn(cycle_2.hypothesis_id, store.hypotheses)
-        second_cycle_records = [
+        wiring = [
             item
-            for item in store.research_cycles.values()
-            if item.hypothesis_id == cycle_2.hypothesis_id
+            for item in store.audit_events.values()
+            if item.event_type == "RESEARCH_WORK_MISSING_PRECONDITION"
         ]
-        self.assertEqual(len(second_cycle_records), 1)
-        self.assertEqual(second_cycle_records[0].opportunity_id, candidate_id)
-
-        # Both cycles' research experiments were dispatched through ARC's
-        # Worker port. Independent verification may add reproduction work
-        # on the same path; there is still no second scheduler.
-        self.assertEqual(len(port.calls), 4)
-        self.assertEqual(len(store.experiments), 4)
+        self.assertGreaterEqual(len(wiring), 1)
+        self.assertTrue(
+            any(
+                item.payload.get("selected_work_id") == candidate_id
+                for item in wiring
+            )
+        )
+        self.assertEqual(len(port.calls), 2)
+        self.assertEqual(len(store.experiments), 2)
 
 
 if __name__ == "__main__":

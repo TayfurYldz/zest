@@ -297,12 +297,35 @@ ALLOWED_OPPORTUNITY_KINDS = frozenset(
         "SURFACE_DISCOVERY",
         "HUNTER_COVERAGE_GAP",
         "REGISTRY_EXTERNAL_EXPLORATORY",
+        "DISCOVERY_HANDOFF",
+        "AUTHENTICATION",
+        "AUTHORIZATION_DIFFERENTIAL",
+        "WORKFLOW_STATE_TRANSITION",
+        "MUTATION_VARIANT",
+        "PROTOCOL_STEP",
+        "OAST_INTERACTION",
+        "DIFFERENTIAL",
+        "INVARIANT",
+        "CHAIN",
         "OTHER",
     }
 )
 ALLOWED_OPPORTUNITY_MODES = frozenset({"EXPLORATION", "EXPLOITATION"})
 ALLOWED_CANDIDATE_SOURCE_SYSTEMS = frozenset(
-    {"HUNTER_COVERAGE", "REGISTRY_EXTERNAL_ANOMALY"}
+    {
+        "HUNTER_COVERAGE",
+        "REGISTRY_EXTERNAL_ANOMALY",
+        "DISCOVERY_HANDOFF",
+        "AUTHENTICATION",
+        "AUTHORIZATION",
+        "WORKFLOW",
+        "MUTATION",
+        "PROTOCOL",
+        "OAST",
+        "DIFFERENTIAL",
+        "INVARIANT",
+        "CHAIN",
+    }
 )
 ALLOWED_CANDIDATE_OUTCOMES = frozenset({"PENDING", "ADMITTED", "NOT_ADMITTED"})
 ALLOWED_SELECTION_OUTCOMES = frozenset(
@@ -1728,6 +1751,49 @@ class ChainHypothesisRecord:
         object.__setattr__(self, "falsification_points", tuple(self.falsification_points))
 
 
+ALLOWED_OPPORTUNITY_KINDS = frozenset(
+    {
+        "HYPOTHESIS_FOLLOWUP",
+        "DIFFERENTIAL_FOLLOWUP",
+        "INVARIANT_CHALLENGE",
+        "CHAIN_EXTENSION",
+        "NEGATIVE_KNOWLEDGE_REVISIT",
+        "UNRESOLVED_TARGET_RELATION",
+        "CONTROL_EXPERIMENT",
+        "SURFACE_DISCOVERY",
+        "HUNTER_COVERAGE_GAP",
+        "REGISTRY_EXTERNAL_EXPLORATORY",
+        "DISCOVERY_HANDOFF",
+        "AUTHENTICATION",
+        "AUTHORIZATION_DIFFERENTIAL",
+        "WORKFLOW_STATE_TRANSITION",
+        "MUTATION_VARIANT",
+        "PROTOCOL_STEP",
+        "OAST_INTERACTION",
+        "DIFFERENTIAL",
+        "INVARIANT",
+        "CHAIN",
+        "OTHER",
+    }
+)
+ALLOWED_CANDIDATE_SOURCE_SYSTEMS = frozenset(
+    {
+        "HUNTER_COVERAGE",
+        "REGISTRY_EXTERNAL_ANOMALY",
+        "DISCOVERY_HANDOFF",
+        "AUTHENTICATION",
+        "AUTHORIZATION",
+        "WORKFLOW",
+        "MUTATION",
+        "PROTOCOL",
+        "OAST",
+        "DIFFERENTIAL",
+        "INVARIANT",
+        "CHAIN",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ResearchOpportunityRecord:
     """Selected or considered research direction. Not Hypothesis truth and not authorization."""
@@ -2704,6 +2770,8 @@ ALLOWED_FRONTIER_EVENT_KINDS = frozenset(
         "FAILED_TRANSIENT",
         "FAILED_TERMINAL",
         "SUPERSEDED",
+        "DEFERRED_TO_RESEARCH",
+        "UNSUPPORTED",
     }
 )
 DISCOVERY_STRATEGY_VERSION = "surface.discovery.v1"

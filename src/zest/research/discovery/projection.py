@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from zest.research.discovery.canonical import (
     canonical_key,
@@ -76,6 +77,10 @@ class ObservationView:
     controls: tuple[ControlView, ...] = ()
     network_events: tuple[NetworkEventView, ...] = ()
     form_known: bool = False
+    main_observation_present: bool = True
+    containment_degraded: bool = False
+    blocked_external_dependency_count: int = 0
+    coverage_complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -246,9 +251,7 @@ def project_observation_view(
                 epistemic=TargetEpistemicStatus.OBSERVED,
                 origin=view.normalized_origin,
                 path=view.normalized_path,
-                attributes={"snapshot_fingerprint": view.snapshot_fingerprint}
-                if view.snapshot_fingerprint
-                else None,
+                attributes=_page_state_attributes(view),
             )
         )
         workflow_key = canonical_key(
@@ -352,6 +355,33 @@ def project_observation_view(
                 )
             )
         for event in view.network_events:
+            if not _network_event_same_origin(view.normalized_origin, event.normalized_target):
+                boundary_origin = _origin_of_target(event.normalized_target)
+                boundary_key = canonical_key(
+                    "SCOPE_BOUNDARY_CANDIDATE",
+                    "OFF_ORIGIN_NETWORK_EVENT",
+                    boundary_origin or event.normalized_target or event.path,
+                    event.method,
+                    event.path,
+                    event.event_id,
+                )
+                _offer(
+                    _fact(
+                        DiscoveryFactKind.SCOPE_BOUNDARY_CANDIDATE,
+                        boundary_key,
+                        epistemic=TargetEpistemicStatus.DERIVED,
+                        origin=boundary_origin,
+                        path=event.path,
+                        method=event.method,
+                        attributes={
+                            "not_observed": True,
+                            "source": "off_origin_network_event",
+                            "main_observation_preserved": True,
+                            "event_id": event.event_id,
+                        },
+                    )
+                )
+                continue
             op_key = canonical_key(
                 "HTTP_OPERATION", view.normalized_origin, event.method, event.path
             )
@@ -634,3 +664,37 @@ def _workflow_complete(binding: WorkflowCausalBinding, view: ObservationView) ->
         and bool(binding.experiment_plan_id)
         and bool(binding.execution_attempt_id)
     )
+
+
+def _page_state_attributes(view: ObservationView) -> dict[str, Any] | None:
+    attributes: dict[str, Any] = {
+        "main_observation_present": view.main_observation_present,
+    }
+    if view.snapshot_fingerprint:
+        attributes["snapshot_fingerprint"] = view.snapshot_fingerprint
+    if view.containment_degraded or view.blocked_external_dependency_count:
+        attributes["containment_degraded"] = True
+        attributes["blocked_external_dependency_count"] = view.blocked_external_dependency_count
+        attributes["page_complete"] = False
+    if not view.coverage_complete:
+        attributes["coverage_complete"] = False
+        attributes["page_complete"] = False
+    return attributes
+
+
+def _origin_of_target(normalized_target: str) -> str | None:
+    parsed = urlsplit(normalized_target or "")
+    if not parsed.scheme or not parsed.hostname:
+        return None
+    default = 80 if parsed.scheme == "http" else 443
+    origin = f"{parsed.scheme}://{parsed.hostname}"
+    if parsed.port not in (None, default):
+        origin += f":{parsed.port}"
+    return origin
+
+
+def _network_event_same_origin(page_origin: str, normalized_target: str) -> bool:
+    event_origin = _origin_of_target(normalized_target)
+    if event_origin is None:
+        return False
+    return event_origin.rstrip("/") == page_origin.rstrip("/")

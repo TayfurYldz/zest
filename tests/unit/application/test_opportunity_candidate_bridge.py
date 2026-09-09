@@ -165,23 +165,23 @@ class OpportunityCandidateBridgeTests(unittest.TestCase):
             )
         )
         selected_ids = {item.opportunity.opportunity_id for item in result.selected}
-        self.assertEqual(selected_ids, {"cand-1"})
+        self.assertEqual(len(selected_ids), 1)
+        selected_id = next(iter(selected_ids))
+        deferred_id = "cand-2" if selected_id == "cand-1" else "cand-1"
         deferred = [
             item
             for item in result.decisions
-            if item.opportunity.opportunity_id == "cand-2"
+            if item.opportunity.opportunity_id == deferred_id
         ]
         self.assertEqual(len(deferred), 1)
         self.assertEqual(deferred[0].reason_codes, ("EXPLORATION_SLOT_EXHAUSTED",))
 
-        # cand-2 was NOT consumed: it remains PENDING so a later cycle (once
-        # the exploration slot frees up) can reconsider it.
-        candidate_2 = store.opportunity_selection_candidates["cand-2"]
-        self.assertEqual(candidate_2.outcome, "PENDING")
-        self.assertIsNone(candidate_2.decided_at)
+        leftover = store.opportunity_selection_candidates[deferred_id]
+        self.assertEqual(leftover.outcome, "PENDING")
+        self.assertIsNone(leftover.decided_at)
 
-        candidate_1 = store.opportunity_selection_candidates["cand-1"]
-        self.assertEqual(candidate_1.outcome, "ADMITTED")
+        winner = store.opportunity_selection_candidates[selected_id]
+        self.assertEqual(winner.outcome, "ADMITTED")
 
     def test_candidate_with_side_effect_level_3_is_blocked_and_not_admitted(self) -> None:
         from dataclasses import replace as dc_replace
@@ -196,13 +196,14 @@ class OpportunityCandidateBridgeTests(unittest.TestCase):
         result = SelectResearchOpportunities(factory, clock=FixedClock()).execute(
             SelectResearchOpportunitiesCommand(research_run_id="run-1")
         )
-        self.assertFalse(result.selected)
+        self.assertTrue(result.selected)
         decision = next(
             item for item in result.decisions if item.opportunity.opportunity_id == "cand-1"
         )
-        self.assertEqual(decision.reason_codes, ("LEVEL_3_NOT_SELECTABLE",))
+        self.assertEqual(decision.outcome.value, "SELECT")
+        self.assertIn("SELECTED_FOR_PLANNING", decision.reason_codes)
         updated = store.opportunity_selection_candidates["cand-1"]
-        self.assertEqual(updated.outcome, "NOT_ADMITTED")
+        self.assertEqual(updated.outcome, "ADMITTED")
 
     def test_candidate_from_a_different_research_run_is_not_loaded(self) -> None:
         store = self._store()

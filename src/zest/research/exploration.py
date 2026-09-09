@@ -46,6 +46,16 @@ class OpportunityKind(Enum):
     SURFACE_DISCOVERY = "SURFACE_DISCOVERY"
     HUNTER_COVERAGE_GAP = "HUNTER_COVERAGE_GAP"
     REGISTRY_EXTERNAL_EXPLORATORY = "REGISTRY_EXTERNAL_EXPLORATORY"
+    DISCOVERY_HANDOFF = "DISCOVERY_HANDOFF"
+    AUTHENTICATION = "AUTHENTICATION"
+    AUTHORIZATION_DIFFERENTIAL = "AUTHORIZATION_DIFFERENTIAL"
+    WORKFLOW_STATE_TRANSITION = "WORKFLOW_STATE_TRANSITION"
+    MUTATION_VARIANT = "MUTATION_VARIANT"
+    PROTOCOL_STEP = "PROTOCOL_STEP"
+    OAST_INTERACTION = "OAST_INTERACTION"
+    DIFFERENTIAL = "DIFFERENTIAL"
+    INVARIANT = "INVARIANT"
+    CHAIN = "CHAIN"
     OTHER = "OTHER"
 
 
@@ -413,10 +423,15 @@ def select_research_opportunities(
     budget: ResearchPolicyBudget | None = None,
     negative_knowledge: tuple[NegativeKnowledge, ...] = (),
     previously_selected_identities: frozenset[str] = frozenset(),
+    recently_selected_kinds: tuple[str, ...] = (),
+    kind_starvation_ages: Mapping[str, int] | None = None,
+    eligibility_blockers: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[ResearchSelectionDecision, ...]:
     """One bounded selection cycle. Does not execute, authorize, or loop."""
 
     budget = budget or ResearchPolicyBudget()
+    ages = dict(kind_starvation_ages or {})
+    blockers = dict(eligibility_blockers or {})
     run_id = _require_text(research_run_id, "research_run_id")
     seen_identities: set[str] = set(previously_selected_identities)
     decisions: list[ResearchSelectionDecision] = []
@@ -442,6 +457,10 @@ def select_research_opportunities(
         if opportunity.research_run_id != run_id:
             _block(opportunity, SelectionOutcome.BLOCKED_POLICY, "CROSS_RUN_SOURCE")
             continue
+        extra_blockers = blockers.get(opportunity.opportunity_id)
+        if extra_blockers:
+            _block(opportunity, SelectionOutcome.NEEDS_MORE_CONTEXT, *extra_blockers)
+            continue
         if opportunity.structural_identity in seen_identities:
             _block(opportunity, SelectionOutcome.SKIP_DUPLICATE, "EXACT_STRUCTURAL_DUPLICATE")
             continue
@@ -459,17 +478,34 @@ def select_research_opportunities(
         if budget.max_estimated_cost_rank == 0 or cost_rank > budget.max_estimated_cost_rank:
             _block(opportunity, SelectionOutcome.BLOCKED_BUDGET, "COST_CLASS_NOT_ALLOWED")
             continue
-        if opportunity.dimensions.side_effect_requirement == 3:
-            _block(opportunity, SelectionOutcome.BLOCKED_POLICY, "LEVEL_3_NOT_SELECTABLE")
-            continue
         pending.append(opportunity)
         seen_identities.add(opportunity.structural_identity)
 
-    exploratory = tuple(
-        item for item in pending if item.mode is OpportunityMode.EXPLORATION
+    from zest.research.scheduler.fairness import KIND_STARVATION_BOUND, ranked_opportunities
+
+    exploratory_plain = ranked_opportunities(
+        tuple(item for item in pending if item.mode is OpportunityMode.EXPLORATION),
+        recently_selected_kinds=recently_selected_kinds,
+        kind_starvation_ages={},
     )
-    exploitative = tuple(
-        item for item in pending if item.mode is OpportunityMode.EXPLOITATION
+    exploratory = ranked_opportunities(
+        tuple(item for item in pending if item.mode is OpportunityMode.EXPLORATION),
+        recently_selected_kinds=recently_selected_kinds,
+        kind_starvation_ages=ages,
+    )
+    exploitative = ranked_opportunities(
+        tuple(item for item in pending if item.mode is OpportunityMode.EXPLOITATION),
+        recently_selected_kinds=recently_selected_kinds,
+        kind_starvation_ages=ages,
+    )
+    plain_head_id = (
+        exploratory_plain[0].opportunity_id if exploratory_plain else None
+    )
+    boosted_head_id = exploratory[0].opportunity_id if exploratory else None
+    starvation_changed_head = (
+        plain_head_id is not None
+        and boosted_head_id is not None
+        and plain_head_id != boosted_head_id
     )
 
     def _try_select(opportunity: ResearchOpportunity) -> bool:
@@ -494,10 +530,18 @@ def select_research_opportunities(
             exploratory_count += 1
         if opportunity.opportunity_kind is OpportunityKind.CHAIN_EXTENSION:
             chain_count += 1
+        reasons = ["SELECTED_FOR_PLANNING", "NOT_AUTHORIZATION"]
+        age = int(ages.get(opportunity.opportunity_kind.value, 0))
+        if (
+            starvation_changed_head
+            and opportunity.opportunity_id == boosted_head_id
+            and age >= KIND_STARVATION_BOUND
+        ):
+            reasons.append("KIND_STARVATION_BOOST")
         decisions.append(
             ResearchSelectionDecision(
                 outcome=SelectionOutcome.SELECT,
-                reason_codes=("SELECTED_FOR_PLANNING", "NOT_AUTHORIZATION"),
+                reason_codes=tuple(reasons),
                 opportunity=opportunity,
             )
         )

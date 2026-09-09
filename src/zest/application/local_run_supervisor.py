@@ -16,6 +16,7 @@ from zest.application.autonomous_research_controller import (
     OrchestrationTickResult,
     StartAutonomousResearchCommand,
 )
+from zest.application.discovery.lifecycle import discovery_is_exhausted
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.orchestration_lease import LeaseConfig
@@ -216,11 +217,12 @@ class LocalRunSupervisor:
         else:
             result = _result_from_persisted(record)
         self._last_result = result
-        if (
-            self.command.surface_discovery is not None
-            and result.state in {OrchestrationState.READY.value, OrchestrationState.RUNNING.value}
-        ):
-            self.command = replace(self.command, surface_discovery=None)
+        if self.command.surface_discovery is not None:
+            with self.uow_factory.open() as uow:
+                exhausted = discovery_is_exhausted(uow, self.research_run_id)
+                uow.rollback()
+            if exhausted:
+                self.command = replace(self.command, surface_discovery=None)
         if result.state in _TERMINAL_STATES:
             self._stop_event.set()
         return result

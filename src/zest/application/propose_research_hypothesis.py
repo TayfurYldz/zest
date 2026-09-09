@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.pack_research_reasoning_context import pack_research_reasoning_context
 from zest.application.registry_external_anomaly_source import (
     load_identity_anomaly_context,
 )
@@ -56,6 +57,8 @@ from zest.research.proposals import (
     HypothesisChallenge,
     HypothesisProposal,
     ProposalAuthorityError,
+    parse_hypothesis_challenge,
+    parse_hypothesis_proposal,
 )
 from zest.research.types import ExperimentPlan, ResearchInputError
 
@@ -134,6 +137,7 @@ class ProposeResearchHypothesis:
     def _execute_body(
         self, command: ProposeResearchHypothesisCommand
     ) -> ProposeResearchHypothesisResult:
+        exploratory_opportunity = None
         with self._uow_factory.open() as uow:
             run = uow.research_runs.get(command.research_run_id)
             if run is None:
@@ -141,105 +145,6 @@ class ProposeResearchHypothesis:
             budget = uow.issued_budgets.get(command.budget_id)
             if budget is None or budget.research_run_id != command.research_run_id:
                 raise ApplicationError("issued budget not found for research run")
-            observation_sources = tuple(
-                ObservationSource(
-                    observation_id=record.observation_id,
-                    observation_kind=record.observation_kind,
-                    payload=dict(record.payload),
-                )
-                for record in uow.observations.list_for_research_run(command.research_run_id)
-            )
-            hypothesis_sources = tuple(
-                HypothesisSource(hypothesis_id=record.hypothesis_id, claim=record.claim)
-                for record in uow.hypotheses.list_for_research_run(command.research_run_id)
-            )
-            experiment_sources = tuple(
-                ExperimentSource(
-                    experiment_id=record.experiment_id,
-                    hypothesis_id=record.hypothesis_id,
-                    execution_state=record.execution_state,
-                )
-                for record in uow.experiments.list_for_research_run(command.research_run_id)
-            )
-            inference_sources = tuple(
-                InferenceSource(
-                    inference_id=record.inference_id,
-                    statement=record.statement,
-                    source_references=record.source_refs,
-                )
-                for record in uow.target_inferences.list_for_research_run(
-                    command.research_run_id
-                )
-            )
-            differential_sources: tuple[DifferentialContextSource, ...] = ()
-            if command.differential_id is not None:
-                differential = uow.differential_observations.get(command.differential_id)
-                if differential is None:
-                    raise ApplicationError("differential observation not found")
-                if differential.research_run_id != command.research_run_id:
-                    raise ApplicationError("differential observation is cross-run")
-                differential_sources = (
-                    DifferentialContextSource(
-                        differential_id=differential.differential_id,
-                        statement=(
-                            "Diagnostic differential comparison. Difference is not a "
-                            "vulnerability and not Evidence."
-                        ),
-                        source_references=differential.source_refs,
-                        interpretation=differential.interpretation,
-                        payload={
-                            "changed_dimensions": list(differential.changed_dimensions),
-                            "common_dimensions": list(differential.common_dimensions),
-                            "observed_differences": dict(differential.observed_differences),
-                            "observed_similarities": dict(
-                                differential.observed_similarities
-                            ),
-                        },
-                    ),
-                )
-            invariant_sources: tuple[InvariantContextSource, ...] = ()
-            if command.invariant_id is not None:
-                invariant = uow.invariant_hypotheses.get(command.invariant_id)
-                if invariant is None:
-                    raise ApplicationError("invariant hypothesis not found")
-                if invariant.research_run_id != command.research_run_id:
-                    raise ApplicationError("invariant hypothesis is cross-run")
-                invariant_sources = (
-                    InvariantContextSource(
-                        invariant_id=invariant.invariant_id,
-                        statement=invariant.expected_behavior,
-                        source_references=invariant.source_refs,
-                        payload={
-                            "status": invariant.status,
-                            "kind": invariant.invariant_kind,
-                            "counterexample_refs": list(invariant.counterexample_refs),
-                        },
-                    ),
-                )
-            chain_sources: tuple[ChainContextSource, ...] = ()
-            if command.chain_id is not None:
-                chain = uow.chain_hypotheses.get(command.chain_id)
-                if chain is None:
-                    raise ApplicationError("chain hypothesis not found")
-                if chain.research_run_id != command.research_run_id:
-                    raise ApplicationError("chain hypothesis is cross-run")
-                chain_sources = (
-                    ChainContextSource(
-                        chain_id=chain.chain_id,
-                        statement=(
-                            "Diagnostic chain hypothesis. Sequence is not causality "
-                            "and not an exploit."
-                        ),
-                        source_references=chain.source_refs,
-                        payload={
-                            "depth": len(chain.steps) - 1,
-                            "structural_identity": chain.structural_identity,
-                            "descriptive_features": dict(chain.descriptive_features),
-                        },
-                    ),
-                )
-            opportunity_sources: tuple[OpportunityContextSource, ...] = ()
-            exploratory_opportunity = None
             if command.opportunity_id is not None:
                 opportunity = uow.research_opportunities.get(command.opportunity_id)
                 if opportunity is None:
@@ -251,61 +156,45 @@ class ProposeResearchHypothesis:
                     == OpportunityKind.REGISTRY_EXTERNAL_EXPLORATORY.value
                 ):
                     exploratory_opportunity = opportunity
-                opportunity_sources = (
-                    OpportunityContextSource(
-                        opportunity_id=opportunity.opportunity_id,
-                        statement=(
-                            "Selected diagnostic research opportunity. Selection is not "
-                            "Hypothesis truth and not Core authorization."
-                        ),
-                        source_references=opportunity.source_refs,
-                        payload={
-                            "opportunity_kind": opportunity.opportunity_kind,
-                            "mode": opportunity.mode,
-                            "structural_identity": opportunity.structural_identity,
-                        },
-                    ),
+            if exploratory_opportunity is not None:
+                uow.rollback()
+            else:
+                self._require_pinned_context(uow, command)
+                packed = pack_research_reasoning_context(
+                    uow,
+                    research_run_id=command.research_run_id,
+                    research_question=command.research_question,
+                    extra_unresolved=command.unresolved_questions,
+                    opportunity_id=command.opportunity_id,
+                    differential_id=command.differential_id,
+                    invariant_id=command.invariant_id,
+                    chain_id=command.chain_id,
+                    change_event_id=command.change_event_id,
                 )
-            change_sources: tuple[ChangeEventContextSource, ...] = ()
-            if command.change_event_id is not None:
-                change = uow.change_events.get(command.change_event_id)
-                if change is None:
-                    raise ApplicationError("change event not found")
-                if change.research_run_id != command.research_run_id:
-                    raise ApplicationError("change event is cross-run")
-                change_sources = (
-                    ChangeEventContextSource(
-                        change_event_id=change.change_event_id,
-                        statement=change.statement,
-                        source_references=change.source_refs,
-                        payload={
-                            "category": change.category,
-                            "baseline_snapshot_id": change.baseline_snapshot_id,
-                            "variant_snapshot_id": change.variant_snapshot_id,
-                        },
-                    ),
+                context = self._builder.build(
+                    research_run_id=command.research_run_id,
+                    research_question=command.research_question,
+                    observations=packed.observations,
+                    prior_hypotheses=packed.prior_hypotheses,
+                    experiments=packed.experiments,
+                    untrusted_external=command.untrusted_external,
+                    inferences=packed.inferences,
+                    differentials=packed.differentials,
+                    invariant_hypotheses=packed.invariant_hypotheses,
+                    chain_hypotheses=packed.chain_hypotheses,
+                    research_opportunities=packed.research_opportunities,
+                    change_events=packed.change_events,
+                    engine_signals=packed.engine_signals,
+                    unresolved_questions=packed.unresolved_questions,
+                    budget=command.context_budget,
                 )
-            uow.rollback()
+                replayed = self._replay_matching_fingerprint(uow, command, context)
+                uow.rollback()
+                if replayed is not None:
+                    return replayed
 
         if exploratory_opportunity is not None:
             return self._admit_registry_external(command, exploratory_opportunity)
-
-        context = self._builder.build(
-            research_run_id=command.research_run_id,
-            research_question=command.research_question,
-            observations=observation_sources,
-            prior_hypotheses=hypothesis_sources,
-            experiments=experiment_sources,
-            untrusted_external=command.untrusted_external,
-            inferences=inference_sources,
-            differentials=differential_sources,
-            invariant_hypotheses=invariant_sources,
-            chain_hypotheses=chain_sources,
-            research_opportunities=opportunity_sources,
-            change_events=change_sources,
-            unresolved_questions=command.unresolved_questions,
-            budget=command.context_budget,
-        )
 
         proposal: HypothesisProposal | None = None
         challenge: HypothesisChallenge | None = None
@@ -512,6 +401,118 @@ class ProposeResearchHypothesis:
             falsifier_structured=challenge.to_mapping() if challenge is not None else None,
             generator_calls=generator_calls,
             falsifier_calls=falsifier_calls,
+        )
+
+    def _require_pinned_context(self, uow, command: ProposeResearchHypothesisCommand) -> None:
+        if command.differential_id is not None:
+            differential = uow.differential_observations.get(command.differential_id)
+            if differential is None:
+                raise ApplicationError("differential observation not found")
+            if differential.research_run_id != command.research_run_id:
+                raise ApplicationError("differential observation is cross-run")
+        if command.invariant_id is not None:
+            invariant = uow.invariant_hypotheses.get(command.invariant_id)
+            if invariant is None:
+                raise ApplicationError("invariant hypothesis not found")
+            if invariant.research_run_id != command.research_run_id:
+                raise ApplicationError("invariant hypothesis is cross-run")
+        if command.chain_id is not None:
+            chain = uow.chain_hypotheses.get(command.chain_id)
+            if chain is None:
+                raise ApplicationError("chain hypothesis not found")
+            if chain.research_run_id != command.research_run_id:
+                raise ApplicationError("chain hypothesis is cross-run")
+        if command.change_event_id is not None:
+            change = uow.change_events.get(command.change_event_id)
+            if change is None:
+                raise ApplicationError("change event not found")
+            if change.research_run_id != command.research_run_id:
+                raise ApplicationError("change event is cross-run")
+
+    def _replay_matching_fingerprint(
+        self,
+        uow: UnitOfWork,
+        command: ProposeResearchHypothesisCommand,
+        context: ResearchContext,
+    ) -> ProposeResearchHypothesisResult | None:
+        matches = [
+            item
+            for item in uow.research_admissions.list_for_research_run(command.research_run_id)
+            if item.context_fingerprint == context.fingerprint
+        ]
+        if not matches:
+            by_correlation = [
+                item
+                for item in uow.research_reasoning.list_for_research_run(command.research_run_id)
+                if item.correlation_id == command.correlation_id
+            ]
+            if by_correlation:
+                linked = {
+                    item.reasoning_record_id for item in by_correlation
+                }
+                matches = [
+                    item
+                    for item in uow.research_admissions.list_for_research_run(
+                        command.research_run_id
+                    )
+                    if item.generator_reasoning_record_id in linked
+                    or item.falsifier_reasoning_record_id in linked
+                ]
+        if not matches:
+            return None
+        record = sorted(matches, key=lambda item: item.created_at)[-1]
+        proposal = None
+        challenge = None
+        if record.generator_reasoning_record_id is not None:
+            generated = uow.research_reasoning.get(record.generator_reasoning_record_id)
+            if generated is not None:
+                try:
+                    proposal = parse_hypothesis_proposal(generated.structured_output)
+                except (ResearchInputError, ProposalAuthorityError):
+                    proposal = None
+        if record.falsifier_reasoning_record_id is not None:
+            challenged = uow.research_reasoning.get(record.falsifier_reasoning_record_id)
+            if challenged is not None:
+                try:
+                    challenge = parse_hypothesis_challenge(challenged.structured_output)
+                except (ResearchInputError, ProposalAuthorityError):
+                    challenge = None
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome(record.outcome),
+            reason=record.reason,
+            reason_code=record.reason_code,
+            proposal=proposal,
+            challenge=challenge,
+        )
+        plan = None
+        if (
+            admission.admitted
+            and proposal is not None
+            and challenge is not None
+            and record.admitted_hypothesis_id is not None
+        ):
+            try:
+                plan = plan_admitted_hypothesis(
+                    record.admitted_hypothesis_id,
+                    proposal,
+                    challenge,
+                    budget_id=command.budget_id,
+                    target_reference=command.target_reference,
+                    message=command.echo_message,
+                )
+            except ResearchInputError:
+                plan = None
+        return ProposeResearchHypothesisResult(
+            admission=admission,
+            context=context,
+            experiment_plan=plan,
+            hypothesis_id=record.admitted_hypothesis_id,
+            generator_reasoning_id=record.generator_reasoning_record_id,
+            falsifier_reasoning_id=record.falsifier_reasoning_record_id,
+            admission_record_id=record.admission_record_id,
+            generator_calls=0,
+            falsifier_calls=0,
+            reason_code=admission.reason_code,
         )
 
     def _admit_registry_external(

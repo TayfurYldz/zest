@@ -170,6 +170,13 @@ class GenerateHuntHypotheses:
             family,
             extra_context={"identity_id": identity_id},
         )
+        for existing in uow.hypotheses.list_for_research_run(command.research_run_id):
+            if (
+                existing.origin_reference == family.family_id
+                and existing.identity_id == identity_id
+                and existing.claim == claim
+            ):
+                return
         hypothesis_id = new_opaque_id()
         hypothesis_ids.append(hypothesis_id)
         hypothesis_sources.append(

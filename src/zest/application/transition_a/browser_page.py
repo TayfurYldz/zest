@@ -175,6 +175,28 @@ def _factual_payload(raw_result: Mapping[str, Any]) -> dict[str, Any]:
         "controls": _controls(raw_result.get("controls")),
         "network_events": _network_events(raw_result.get("network_events")),
     }
+    if raw_result.get("partial") is True:
+        payload["partial"] = True
+    if raw_result.get("budget_exhausted") is True:
+        payload["budget_exhausted"] = True
+    capped = raw_result.get("capped_network_requests")
+    if isinstance(capped, int) and not isinstance(capped, bool) and capped >= 0:
+        payload["capped_network_requests"] = capped
+    if raw_result.get("coverage_complete") is False:
+        payload["coverage_complete"] = False
+        payload["page_complete"] = False
+    if raw_result.get("page_degraded_by_blocked_external_dependency") is True:
+        payload["page_degraded_by_blocked_external_dependency"] = True
+        boundaries = raw_result.get("blocked_boundaries")
+        count = 0
+        if isinstance(boundaries, list):
+            count = len(boundaries)
+        explicit = raw_result.get("blocked_external_dependency_count")
+        if isinstance(explicit, int) and not isinstance(explicit, bool) and explicit >= 0:
+            count = explicit
+        payload["blocked_external_dependency_count"] = count
+        payload["main_observation_present"] = True
+        payload["page_complete"] = False
     return payload
 
 

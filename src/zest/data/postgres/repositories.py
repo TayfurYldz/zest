@@ -3223,6 +3223,23 @@ class PostgresSessionContextRepository:
         if result.rowcount != 1:
             raise PersistenceError("session_context not found for state update")
 
+    def list_for_research_run(
+        self, research_run_id: str, *, limit: int | None = None
+    ) -> list[SessionContextRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                _apply_read_limit(
+                    select(tables.session_context)
+                    .where(tables.session_context.c.research_run_id == research_run_id)
+                    .order_by(tables.session_context.c.session_context_id),
+                    limit,
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.session_context_from_row(row) for row in rows]
+
 
 class PostgresHunterFamilyRepository:
     def __init__(self, connection: Connection) -> None:

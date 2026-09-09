@@ -18,6 +18,14 @@ from .browser_envelope import (
     normalize_target,
     url_is_representable,
 )
+from .browser_route_policy import (
+    FRAME_CHILD,
+    FRAME_MAIN,
+    DeniedBrowserRequest,
+    blocked_boundary_record,
+    classify_denied_browser_request,
+    succeeded_boundary_diagnostics,
+)
 
 PROCESS_GENERATION = uuid.uuid4().hex
 SNAPSHOT_SCHEMA_VERSION = "browser.page.snapshot.v1"
@@ -61,6 +69,7 @@ class BrowserRuntimeLimits:
     max_control_refs: int = 32
     max_action_runtime_ms: int = 8000
     max_navigation_runtime_ms: int = 5000
+    allow_partial_budget_snapshot: bool = False
     max_stdout_bytes: int = 65536
     max_descendant_processes: int = 32
     max_descendant_tasks: int = 256
@@ -304,6 +313,8 @@ class _PageState:
     ready_state: str
     frame_count: int
     snapshot_fingerprint: str
+    browser_action: str = "navigate"
+    blocked_boundaries: list[dict[str, object]] = field(default_factory=list)
 
 
 class InMemoryBrowserEngine:
@@ -431,6 +442,8 @@ class InMemoryBrowserEngine:
         assert state is not None
         if state.lease.frozen:
             return self._failed(state, "BLOCKED", "browser context is frozen")
+        state.browser_action = "navigate"
+        state.blocked_boundaries = []
         return self._load(state, url, envelope, limits, created=created)
 
     def observe(
@@ -450,6 +463,8 @@ class InMemoryBrowserEngine:
             )
         if state.lease.frozen:
             return self._failed(state, "BLOCKED", "browser context is frozen")
+        state.browser_action = "observe"
+        state.blocked_boundaries = []
         allowed, reason = envelope_allows(envelope, state.url)
         if not allowed:
             self.freeze(state.lease)
@@ -494,6 +509,8 @@ class InMemoryBrowserEngine:
             return self._failed(state, "BLOCKED", "interact kind is not allowed")
         if kind == "fill" and control.input_type == "password":
             return self._failed(state, "BLOCKED", "password fields cannot be filled")
+        state.browser_action = "interact"
+        state.blocked_boundaries = []
         seeded = self._pages.get(state.url)
         next_url = None
         if kind == "click":
@@ -644,9 +661,15 @@ class InMemoryBrowserEngine:
                 raw_location=seeded.location,
                 force=True,
             )
+        state.url = url
+        state.html = seeded.html
+        state.ready_state = "interactive"
         for resource in seeded.resources:
             if state.attempted >= limits.max_attempted_network_requests_per_action:
-                return self._exhausted(state)
+                if not limits.allow_partial_budget_snapshot:
+                    return self._exhausted(state)
+                self._refresh_snapshot(state, envelope, limits, record_document=False)
+                return self._partial_exhausted(state, limits)
             resource_url = str(resource.get("url") or url)
             allowed, reason = envelope_allows(envelope, resource_url)
             state.attempted += 1
@@ -660,10 +683,30 @@ class InMemoryBrowserEngine:
                 limits=limits,
             )
             if not allowed:
-                self.freeze(state.lease)
-                return self._deny_url(
-                    resource_url, reason, attempted=state.attempted, freeze=True, lease=state.lease, limits=limits
+                view = DeniedBrowserRequest(
+                    url=resource_url,
+                    resource_type=str(resource.get("resource_type") or "other"),
+                    is_navigation_request=False,
+                    frame_kind=FRAME_MAIN,
+                    browser_action=state.browser_action,
+                    deny_reason=reason,
+                    representable=url_is_representable(resource_url),
+                    source_page=state.url,
                 )
+                classification = classify_denied_browser_request(view)
+                if classification.reauth_required:
+                    self.freeze(state.lease)
+                    return self._deny_url(
+                        resource_url,
+                        reason,
+                        attempted=state.attempted,
+                        freeze=True,
+                        lease=state.lease,
+                        limits=limits,
+                        channel=classification.channel,
+                    )
+                state.blocked_boundaries.append(blocked_boundary_record(view, classification))
+                continue
         state.url = url
         state.html = seeded.html
         state.ready_state = "complete"
@@ -702,10 +745,21 @@ class InMemoryBrowserEngine:
             iframe_url = urljoin(state.url, iframe_src)
             allowed, reason = envelope_allows(envelope, iframe_url)
             if not allowed:
-                self.freeze(state.lease)
-                channel = "IFRAME"
-                status = "BLOCKED" if reason == UNSUPPORTED_SCHEME else "REAUTHORIZATION_REQUIRED"
-                if status == "REAUTHORIZATION_REQUIRED":
+                view = DeniedBrowserRequest(
+                    url=iframe_url,
+                    resource_type="document",
+                    is_navigation_request=True,
+                    frame_kind=FRAME_CHILD,
+                    browser_action=state.browser_action,
+                    deny_reason=reason,
+                    representable=url_is_representable(iframe_url),
+                    source_page=state.url,
+                )
+                classification = classify_denied_browser_request(view)
+                if classification.reauth_required:
+                    self.freeze(state.lease)
+                    if reason == UNSUPPORTED_SCHEME:
+                        return self._failed(state, "BLOCKED", "iframe target is outside envelope")
                     return self._deny_url(
                         iframe_url,
                         reason,
@@ -713,11 +767,13 @@ class InMemoryBrowserEngine:
                         freeze=True,
                         lease=state.lease,
                         limits=limits,
-                        channel=channel,
+                        channel=classification.channel or "IFRAME",
                         response_url=response_url,
                     )
-                return self._failed(state, "BLOCKED", "iframe target is outside envelope")
-            state.frame_count = 2
+                state.blocked_boundaries.append(blocked_boundary_record(view, classification))
+                iframe_src = None
+            if iframe_src:
+                state.frame_count = 2
         if seeded is not None and seeded.websocket:
             return self._failed(state, "BLOCKED", "websocket is not allowed")
         if seeded is not None and seeded.download:
@@ -835,6 +891,7 @@ class InMemoryBrowserEngine:
 
     def _succeeded(self, state: _PageState, limits: BrowserRuntimeLimits) -> BrowserActionResult:
         normalized = normalize_target(state.url) or state.url
+        diagnostics = succeeded_boundary_diagnostics(state.blocked_boundaries)
         raw = snapshot_raw(
             attempted_network_requests=state.attempted,
             browser_context_reference=state.lease.context_ref,
@@ -848,10 +905,13 @@ class InMemoryBrowserEngine:
                 network_event_to_mapping(item) for item in state.network_events[: limits.max_network_events]
             ],
         )
+        if diagnostics is not None:
+            raw["blocked_boundaries"] = list(state.blocked_boundaries)
+            raw["page_degraded_by_blocked_external_dependency"] = True
         return BrowserActionResult(
             status="SUCCEEDED",
             raw=raw,
-            diagnostics=None,
+            diagnostics=diagnostics,
             attempted_network_requests=state.attempted,
             freeze=state.lease.frozen,
         )
@@ -880,6 +940,42 @@ class InMemoryBrowserEngine:
             diagnostics={"error": "attempted network requests would exceed max", "self_authorized": False},
             attempted_network_requests=state.attempted,
             freeze=False,
+        )
+
+    def _partial_exhausted(self, state: _PageState, limits: BrowserRuntimeLimits) -> BrowserActionResult:
+        normalized = normalize_target(state.url) or state.url
+        diagnostics = {
+            "error": "attempted network requests would exceed max",
+            "self_authorized": False,
+            "partial": True,
+            "budget_exhausted": True,
+        }
+        raw = snapshot_raw(
+            attempted_network_requests=state.attempted,
+            browser_context_reference=state.lease.context_ref,
+            page_reference=state.lease.page_ref,
+            snapshot_fingerprint=state.snapshot_fingerprint,
+            normalized_url=normalized,
+            ready_state=state.ready_state,
+            frame_count=state.frame_count,
+            controls=[control_to_mapping(item) for item in state.controls[: limits.max_control_refs]],
+            network_events=[
+                network_event_to_mapping(item) for item in state.network_events[: limits.max_network_events]
+            ],
+        )
+        raw["partial"] = True
+        raw["budget_exhausted"] = True
+        raw["capped_network_requests"] = limits.max_attempted_network_requests_per_action
+        raw["coverage_complete"] = False
+        if state.blocked_boundaries:
+            raw["blocked_boundaries"] = list(state.blocked_boundaries)
+            raw["page_degraded_by_blocked_external_dependency"] = True
+        return BrowserActionResult(
+            status="SUCCEEDED",
+            raw=raw,
+            diagnostics=diagnostics,
+            attempted_network_requests=state.attempted,
+            freeze=state.lease.frozen,
         )
 
     def _deny_url(

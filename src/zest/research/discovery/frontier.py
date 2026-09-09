@@ -23,6 +23,7 @@ GOAL_PRIORITY = (
     DiscoveryGoalKind.RESOLVE_TRANSITION_RESULT,
     DiscoveryGoalKind.RESOLVE_OBJECT_TYPE,
 )
+SURFACE_DISCOVERY_MAX_SIDE_EFFECT = 1
 
 LEGAL_TRANSITIONS: dict[FrontierEventKind, frozenset[FrontierEventKind]] = {
     FrontierEventKind.CREATED: frozenset(
@@ -32,6 +33,8 @@ LEGAL_TRANSITIONS: dict[FrontierEventKind, frozenset[FrontierEventKind]] = {
             FrontierEventKind.BLOCKED_AUTH,
             FrontierEventKind.BLOCKED_BUDGET,
             FrontierEventKind.SUPERSEDED,
+            FrontierEventKind.DEFERRED_TO_RESEARCH,
+            FrontierEventKind.UNSUPPORTED,
         }
     ),
     FrontierEventKind.ELIGIBLE: frozenset(
@@ -42,6 +45,8 @@ LEGAL_TRANSITIONS: dict[FrontierEventKind, frozenset[FrontierEventKind]] = {
             FrontierEventKind.BLOCKED_BUDGET,
             FrontierEventKind.SUPERSEDED,
             FrontierEventKind.NO_NEW_INFORMATION,
+            FrontierEventKind.DEFERRED_TO_RESEARCH,
+            FrontierEventKind.UNSUPPORTED,
         }
     ),
     FrontierEventKind.SELECTED: frozenset(
@@ -55,6 +60,7 @@ LEGAL_TRANSITIONS: dict[FrontierEventKind, frozenset[FrontierEventKind]] = {
             FrontierEventKind.BLOCKED_AUTH,
             FrontierEventKind.BLOCKED_BUDGET,
             FrontierEventKind.SUPERSEDED,
+            FrontierEventKind.UNSUPPORTED,
         }
     ),
     FrontierEventKind.FAILED_TRANSIENT: frozenset(
@@ -82,6 +88,8 @@ LEGAL_TRANSITIONS: dict[FrontierEventKind, frozenset[FrontierEventKind]] = {
     FrontierEventKind.BLOCKED_BUDGET: frozenset({FrontierEventKind.SUPERSEDED}),
     FrontierEventKind.FAILED_TERMINAL: frozenset({FrontierEventKind.SUPERSEDED}),
     FrontierEventKind.SUPERSEDED: frozenset(),
+    FrontierEventKind.DEFERRED_TO_RESEARCH: frozenset({FrontierEventKind.SUPERSEDED}),
+    FrontierEventKind.UNSUPPORTED: frozenset({FrontierEventKind.SUPERSEDED}),
 }
 
 TERMINAL_EVENT_KINDS = frozenset(
@@ -90,7 +98,10 @@ TERMINAL_EVENT_KINDS = frozenset(
         FrontierEventKind.BLOCKED_SCOPE,
         FrontierEventKind.BLOCKED_BUDGET,
         FrontierEventKind.FAILED_TERMINAL,
+        FrontierEventKind.BLOCKED_AUTH,
         FrontierEventKind.SUPERSEDED,
+        FrontierEventKind.DEFERRED_TO_RESEARCH,
+        FrontierEventKind.UNSUPPORTED,
     }
 )
 
@@ -235,24 +246,155 @@ def reconstruct_state(events: tuple[FrontierEvent, ...]) -> FrontierState | None
     return FrontierState(latest.event_kind.value)
 
 
-def select_eligible_frontier(
+def runnable_discovery_frontier_items(
     items: tuple[FrontierItem, ...],
     events_by_frontier: Mapping[str, tuple[FrontierEvent, ...]],
     *,
-    max_side_effect: int = 1,
-) -> FrontierItem | None:
-    """Deterministic next item. SE2/SE3 are not selected by surface.discovery.v1."""
+    max_side_effect: int = SURFACE_DISCOVERY_MAX_SIDE_EFFECT,
+) -> tuple[FrontierItem, ...]:
+    """Items surface.discovery.v1 may still select. Not a second scheduler."""
 
-    ranked: list[tuple[int, int, str, FrontierItem]] = []
+    runnable: list[FrontierItem] = []
     for item in items:
         if item.budget_class > max_side_effect or item.expected_side_effect > max_side_effect:
             continue
         latest = latest_event(events_by_frontier.get(item.frontier_id, ()))
         if latest is None or latest.event_kind is not FrontierEventKind.ELIGIBLE:
             continue
+        runnable.append(item)
+    return tuple(runnable)
+
+
+def select_eligible_frontier(
+    items: tuple[FrontierItem, ...],
+    events_by_frontier: Mapping[str, tuple[FrontierEvent, ...]],
+    *,
+    max_side_effect: int = SURFACE_DISCOVERY_MAX_SIDE_EFFECT,
+) -> FrontierItem | None:
+    """Deterministic next item. SE2/SE3 are not selected by surface.discovery.v1."""
+
+    ranked: list[tuple[int, int, str, FrontierItem]] = []
+    for item in runnable_discovery_frontier_items(
+        items, events_by_frontier, max_side_effect=max_side_effect
+    ):
         goal_rank = GOAL_PRIORITY.index(item.goal_kind)
         ranked.append((item.budget_class, goal_rank, item.dedupe_identity, item))
     if not ranked:
         return None
     ranked.sort(key=lambda row: (row[0], row[1], row[2], row[3].frontier_id))
     return ranked[0][3]
+
+
+OWNER_DISCOVERY = "DISCOVERY"
+OWNER_RESEARCH = "RESEARCH"
+OWNER_HUMAN = "HUMAN"
+OWNER_TERMINAL = "TERMINAL"
+OWNER_NONE = "NONE"
+
+CATEGORY_RUNNABLE = "runnable_discovery"
+CATEGORY_IN_FLIGHT = "in_flight"
+CATEGORY_WAITING_HUMAN = "waiting_human"
+CATEGORY_EXECUTED = "executed"
+CATEGORY_BLOCKED_SCOPE = "blocked_scope"
+CATEGORY_BLOCKED_POLICY = "blocked_policy"
+CATEGORY_BUDGET_BLOCKED = "budget_blocked"
+CATEGORY_FAILED = "failed"
+CATEGORY_DEDUPLICATED = "deduplicated"
+CATEGORY_HANDED_OFF = "handed_off"
+CATEGORY_UNSUPPORTED = "unsupported"
+CATEGORY_DEFERRED = "deferred"
+CATEGORY_BLOCKED_BOUNDARY = "blocked_boundary"
+CATEGORY_UNEXPLAINED = "unexplained"
+
+DISCOVERY_EXECUTABLE_CAPABILITIES = frozenset({"browser.page", "http.transaction"})
+REASON_DEFERRED_TO_RESEARCH = "SIDE_EFFECT_NOT_DISCOVERY_EXECUTABLE"
+REASON_UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"
+REASON_DEDUPLICATED = "DEDUPLICATED"
+
+
+@dataclass(frozen=True)
+class FrontierOwnershipView:
+    """Who is responsible for one frontier item right now. Not a second scheduler."""
+
+    frontier_id: str
+    latest_event: str
+    owner: str
+    category: str
+    reason_code: str | None
+    expected_side_effect: int
+    proposed_capability: str
+
+
+def classify_frontier_ownership(
+    item: FrontierItem,
+    events: tuple[FrontierEvent, ...],
+) -> FrontierOwnershipView:
+    latest = latest_event(events)
+    if latest is None:
+        return FrontierOwnershipView(
+            frontier_id=item.frontier_id,
+            latest_event="NONE",
+            owner=OWNER_NONE,
+            category=CATEGORY_UNEXPLAINED,
+            reason_code=None,
+            expected_side_effect=item.expected_side_effect,
+            proposed_capability=item.proposed_capability,
+        )
+    kind = latest.event_kind
+    reason = latest.reason_code
+    if kind is FrontierEventKind.ELIGIBLE:
+        if (
+            item.budget_class > SURFACE_DISCOVERY_MAX_SIDE_EFFECT
+            or item.expected_side_effect > SURFACE_DISCOVERY_MAX_SIDE_EFFECT
+        ):
+            return _view(item, kind, OWNER_DISCOVERY, CATEGORY_UNEXPLAINED, reason)
+        if item.proposed_capability not in DISCOVERY_EXECUTABLE_CAPABILITIES:
+            return _view(item, kind, OWNER_DISCOVERY, CATEGORY_UNEXPLAINED, reason)
+        return _view(item, kind, OWNER_DISCOVERY, CATEGORY_RUNNABLE, reason)
+    if kind is FrontierEventKind.SELECTED:
+        return _view(item, kind, OWNER_DISCOVERY, CATEGORY_IN_FLIGHT, reason)
+    if kind is FrontierEventKind.FAILED_TRANSIENT:
+        return _view(item, kind, OWNER_DISCOVERY, CATEGORY_IN_FLIGHT, reason)
+    if kind is FrontierEventKind.CREATED:
+        return _view(item, kind, OWNER_DISCOVERY, CATEGORY_UNEXPLAINED, reason)
+    if kind is FrontierEventKind.AWAITING_REAUTHORIZATION:
+        return _view(item, kind, OWNER_HUMAN, CATEGORY_WAITING_HUMAN, reason)
+    if kind is FrontierEventKind.OBSERVED:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_EXECUTED, reason)
+    if kind is FrontierEventKind.BLOCKED_SCOPE:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_BLOCKED_SCOPE, reason)
+    if kind is FrontierEventKind.BLOCKED_AUTH:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_BLOCKED_POLICY, reason)
+    if kind is FrontierEventKind.BLOCKED_BUDGET:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_BUDGET_BLOCKED, reason)
+    if kind is FrontierEventKind.FAILED_TERMINAL:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_FAILED, reason)
+    if kind is FrontierEventKind.SUPERSEDED:
+        if reason and reason.startswith(REASON_DEDUPLICATED):
+            return _view(item, kind, OWNER_TERMINAL, CATEGORY_DEDUPLICATED, reason)
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_DEDUPLICATED, reason)
+    if kind is FrontierEventKind.DEFERRED_TO_RESEARCH:
+        return _view(item, kind, OWNER_RESEARCH, CATEGORY_HANDED_OFF, reason)
+    if kind is FrontierEventKind.UNSUPPORTED:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_UNSUPPORTED, reason)
+    if kind is FrontierEventKind.NO_NEW_INFORMATION:
+        return _view(item, kind, OWNER_TERMINAL, CATEGORY_DEFERRED, reason)
+    return _view(item, kind, OWNER_NONE, CATEGORY_UNEXPLAINED, reason)
+
+
+def _view(
+    item: FrontierItem,
+    kind: FrontierEventKind,
+    owner: str,
+    category: str,
+    reason: str | None,
+) -> FrontierOwnershipView:
+    return FrontierOwnershipView(
+        frontier_id=item.frontier_id,
+        latest_event=kind.value,
+        owner=owner,
+        category=category,
+        reason_code=reason,
+        expected_side_effect=item.expected_side_effect,
+        proposed_capability=item.proposed_capability,
+    )

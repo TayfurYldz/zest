@@ -60,6 +60,7 @@ class CoverageHypothesisView:
             "V2",
             "V3_QUEUED",
             "COVERED",
+            "REJECTED",
         }:
             raise ResearchInputError("highest_tier is not a recognized coverage tier")
 

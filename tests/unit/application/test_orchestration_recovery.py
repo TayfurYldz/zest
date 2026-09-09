@@ -486,7 +486,7 @@ class CrashRecoveryTests(unittest.TestCase):
         )
         restarted, _ = _controller2(store)
         result = restarted.step(_command(bounds=_bounds(max_cycles=2)))
-        self.assertEqual(result.stop_reason, "OPERATIONAL_FAILURE")
+        self.assertEqual(result.stop_reason, "UNKNOWN_OUTCOME_REQUIRES_REVIEW")
         self.assertEqual(len(store.execution_attempts), 1)
         self.assertEqual(len(store.experiments), 1)
 

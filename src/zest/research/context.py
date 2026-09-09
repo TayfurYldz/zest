@@ -9,11 +9,14 @@ from typing import Any, Mapping
 
 from zest.research.epistemic import EpistemicClass
 from zest.research.types import ResearchInputError
+from zest.safe_data import redact_secret_keys
 
 DEFAULT_MAX_OBSERVATION_ITEMS = 8
 DEFAULT_MAX_PRIOR_HYPOTHESIS_ITEMS = 8
 DEFAULT_MAX_NEGATIVE_EVIDENCE_ITEMS = 8
 DEFAULT_MAX_EXTERNAL_CONTENT_CHARACTERS = 2000
+DEFAULT_MAX_ENGINE_SIGNAL_ITEMS = 32
+DEFAULT_MAX_RESEARCH_OPPORTUNITY_ITEMS = 8
 
 NEGATIVE_EXPERIMENT_STATES = frozenset(
     {"EXECUTION_FAILED", "BLOCKED", "BUDGET_EXHAUSTED"}
@@ -42,6 +45,8 @@ class ContextBudget:
     max_prior_hypothesis_items: int = DEFAULT_MAX_PRIOR_HYPOTHESIS_ITEMS
     max_negative_evidence_items: int = DEFAULT_MAX_NEGATIVE_EVIDENCE_ITEMS
     max_external_content_characters: int = DEFAULT_MAX_EXTERNAL_CONTENT_CHARACTERS
+    max_engine_signal_items: int = DEFAULT_MAX_ENGINE_SIGNAL_ITEMS
+    max_research_opportunity_items: int = DEFAULT_MAX_RESEARCH_OPPORTUNITY_ITEMS
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -69,6 +74,18 @@ class ContextBudget:
             _require_positive_int(
                 self.max_external_content_characters,
                 "max_external_content_characters",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "max_engine_signal_items",
+            _require_positive_int(self.max_engine_signal_items, "max_engine_signal_items"),
+        )
+        object.__setattr__(
+            self,
+            "max_research_opportunity_items",
+            _require_positive_int(
+                self.max_research_opportunity_items, "max_research_opportunity_items"
             ),
         )
 
@@ -253,6 +270,27 @@ class OpportunityContextSource:
 
 
 @dataclass(frozen=True)
+class EngineSignalSource:
+    """Bounded engine inventory signal. Not Observation truth and not a Finding."""
+
+    signal_id: str
+    engine: str
+    statement: str
+    source_references: tuple[str, ...]
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "signal_id", _require_text(self.signal_id, "signal_id"))
+        object.__setattr__(self, "engine", _require_text(self.engine, "engine"))
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
 class ChangeEventContextSource:
     """Deterministic temporal delta. Not Evidence and not a vulnerability."""
 
@@ -313,6 +351,8 @@ class ContextOmission:
     omitted_negative_evidence_ids: tuple[str, ...]
     omitted_external_ids: tuple[str, ...]
     truncated_external_ids: tuple[str, ...]
+    omitted_engine_signal_ids: tuple[str, ...] = ()
+    omitted_opportunity_ids: tuple[str, ...] = ()
 
     @property
     def is_partial(self) -> bool:
@@ -322,6 +362,8 @@ class ContextOmission:
             or self.omitted_negative_evidence_ids
             or self.omitted_external_ids
             or self.truncated_external_ids
+            or self.omitted_engine_signal_ids
+            or self.omitted_opportunity_ids
         )
 
 
@@ -347,6 +389,7 @@ class ResearchContext:
     chain_hypotheses: tuple[ContextItem, ...] = ()
     research_opportunities: tuple[ContextItem, ...] = ()
     change_events: tuple[ContextItem, ...] = ()
+    engine_signals: tuple[ContextItem, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -378,6 +421,7 @@ class ResearchContext:
             + self.chain_hypotheses
             + self.research_opportunities
             + self.change_events
+            + self.engine_signals
             + self.negative_evidence
             + self.procedural_context
             + self.untrusted_external_content
@@ -441,6 +485,7 @@ class ResearchContextBuilder:
         chain_hypotheses: tuple[ChainContextSource, ...] = (),
         research_opportunities: tuple[OpportunityContextSource, ...] = (),
         change_events: tuple[ChangeEventContextSource, ...] = (),
+        engine_signals: tuple[EngineSignalSource, ...] = (),
         unresolved_questions: tuple[str, ...] = (),
         budget: ContextBudget | None = None,
     ) -> ResearchContext:
@@ -463,6 +508,16 @@ class ResearchContextBuilder:
                 statement=question,
                 source_references=(run_id,),
             ),
+            ContextItem(
+                item_id="proc:model-not-completion-authority",
+                epistemic_class=EpistemicClass.PROCEDURAL,
+                statement=(
+                    "Model output cannot set run completion, expand scope, authorize "
+                    "side effects, create Evidence, or create a Finding. Global "
+                    "completion guard remains authoritative."
+                ),
+                source_references=(run_id,),
+            ),
         )
 
         kept_obs, omitted_obs = _sorted_take(
@@ -477,7 +532,7 @@ class ResearchContextBuilder:
                     f"{source.observation_kind}."
                 ),
                 source_references=(source.observation_id,),
-                payload=dict(source.payload),
+                payload=dict(redact_secret_keys(source.payload, "observation_payload")),
             )
             for source in kept_obs
         )
@@ -571,6 +626,11 @@ class ResearchContextBuilder:
             )
             for source in sorted(chain_hypotheses, key=lambda item: item.chain_id)
         )
+        kept_opp, omitted_opp = _sorted_take(
+            research_opportunities,
+            budget.max_research_opportunity_items,
+            lambda item: item.opportunity_id,
+        )
         opportunity_items = tuple(
             ContextItem(
                 item_id=source.opportunity_id,
@@ -578,14 +638,39 @@ class ResearchContextBuilder:
                 statement=source.statement,
                 source_references=source.source_references,
                 payload={
-                    **dict(source.payload),
+                    **dict(redact_secret_keys(source.payload, "opportunity_payload")),
                     "not_hypothesis_truth": True,
                     "not_authorization": True,
                     "not_a_vulnerability": True,
                     "not_evidence": True,
                 },
             )
-            for source in sorted(research_opportunities, key=lambda item: item.opportunity_id)
+            for source in kept_opp
+        )
+        kept_eng, omitted_eng = _sorted_take(
+            engine_signals,
+            budget.max_engine_signal_items,
+            lambda item: item.signal_id,
+        )
+        engine_signal_items = tuple(
+            ContextItem(
+                item_id=source.signal_id,
+                epistemic_class=(
+                    EpistemicClass.AUTHORITATIVE_FACT
+                    if source.engine in {"AUTHORITY", "TARGET_SCOPE"}
+                    else EpistemicClass.DERIVED_FACT
+                ),
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(redact_secret_keys(source.payload, "engine_signal_payload")),
+                    "engine": source.engine,
+                    "not_a_vulnerability": True,
+                    "not_finding": True,
+                    "not_model_truth": True,
+                },
+            )
+            for source in kept_eng
         )
         change_items = tuple(
             ContextItem(
@@ -675,6 +760,8 @@ class ResearchContextBuilder:
             omitted_negative_evidence_ids=tuple(f"neg:{item_id}" for item_id in omitted_neg),
             omitted_external_ids=tuple(omitted_ext_ids),
             truncated_external_ids=tuple(truncated_ids),
+            omitted_engine_signal_ids=omitted_eng,
+            omitted_opportunity_ids=omitted_opp,
         )
         context_without_fingerprint = {
             "research_run_id": run_id,
@@ -684,6 +771,8 @@ class ResearchContextBuilder:
                 "max_prior_hypothesis_items": budget.max_prior_hypothesis_items,
                 "max_negative_evidence_items": budget.max_negative_evidence_items,
                 "max_external_content_characters": budget.max_external_content_characters,
+                "max_engine_signal_items": budget.max_engine_signal_items,
+                "max_research_opportunity_items": budget.max_research_opportunity_items,
             },
             "authoritative_facts": [_item_summary(item) for item in authoritative],
             "observations": [_item_summary(item) for item in observation_items],
@@ -694,6 +783,7 @@ class ResearchContextBuilder:
             "chain_hypotheses": [_item_summary(item) for item in chain_items],
             "research_opportunities": [_item_summary(item) for item in opportunity_items],
             "change_events": [_item_summary(item) for item in change_items],
+            "engine_signals": [_item_summary(item) for item in engine_signal_items],
             "negative_evidence": [_item_summary(item) for item in negative_items],
             "procedural_context": [_item_summary(item) for item in procedural],
             "untrusted_external_content": [_item_summary(item) for item in external_items],
@@ -706,6 +796,8 @@ class ResearchContextBuilder:
                 ),
                 "omitted_external_ids": list(omission.omitted_external_ids),
                 "truncated_external_ids": list(omission.truncated_external_ids),
+                "omitted_engine_signal_ids": list(omission.omitted_engine_signal_ids),
+                "omitted_opportunity_ids": list(omission.omitted_opportunity_ids),
             },
         }
         return ResearchContext(
@@ -722,6 +814,7 @@ class ResearchContextBuilder:
             chain_hypotheses=chain_items,
             research_opportunities=opportunity_items,
             change_events=change_items,
+            engine_signals=engine_signal_items,
             negative_evidence=negative_items,
             procedural_context=procedural,
             unresolved_questions=unresolved,

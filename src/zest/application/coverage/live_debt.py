@@ -74,12 +74,21 @@ class RefreshLiveCoverageDebt:
                     subject_type="coverage_debt_snapshot",
                     subject_id=current_record.snapshot_id,
                     payload={
+                        "research_run_id": command.research_run_id,
                         "previous_snapshot_id": impact.previous_snapshot_id,
+                        "current_snapshot_id": current_record.snapshot_id,
                         "current_matrix_hash": impact.current_matrix_hash,
                         "total_debt_after": impact.total_debt_after,
                         "total_debt_delta": impact.total_debt_delta,
                         "change_event_ids": list(impact.change_event_ids),
                         "reason_codes": list(impact.reason_codes),
+                        "fact_count": len(uow.discovery_facts.list_for_research_run(command.research_run_id)),
+                        "observation_count": len(
+                            uow.observations.list_for_research_run(command.research_run_id)
+                        ),
+                        "hypothesis_count": len(
+                            uow.hypotheses.list_for_research_run(command.research_run_id)
+                        ),
                         "not_a_vulnerability": True,
                         "not_evidence": True,
                         "not_candidate": True,

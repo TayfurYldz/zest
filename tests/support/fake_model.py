@@ -40,7 +40,7 @@ def default_generator_output(request: ModelCallRequest) -> dict[str, Any]:
         "proposed_claim": DIAGNOSTIC_CLAIM,
         "rationale": "Diagnostic echo should round-trip the submitted value.",
         "source_references": _source_refs_from(request)[:2],
-        "assumptions": ["the diagnostic capability is available"],
+        "assumptions": ["the diagnostic capability is available", "side_effect_estimate:0"],
         "unresolved_questions": ["whether the runtime protocol matches"],
         "suggested_disconfirming_test": "submit a value and observe mismatch or missing echo",
         "suggested_capability": DIAGNOSTIC_ECHO_CAPABILITY,

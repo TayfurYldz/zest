@@ -12,6 +12,7 @@ from zest.application.discovery.claim import claim_frontier_selected
 from zest.application.discovery.compile_plan import (
     LivePageSnapshot,
     ReobserveRequired,
+    UnsupportedDiscoveryCapability,
     compile_frontier_plan,
 )
 from zest.application.discovery.config import (
@@ -52,8 +53,10 @@ from zest.research.discovery.canonical import canonical_key
 from zest.research.discovery.config import DiscoveryRunConfig
 from zest.research.discovery.control_resolve import LiveControlView
 from zest.research.discovery.frontier import (
+    SURFACE_DISCOVERY_MAX_SIDE_EFFECT,
     FrontierEvent,
     FrontierItem,
+    runnable_discovery_frontier_items,
     select_eligible_frontier,
 )
 from zest.research.discovery.projection import seed_inspect_path_frontier
@@ -91,6 +94,14 @@ class SurfaceDiscoveryCycleResult:
     frontier_id: str | None
     experiment_id: str | None
     worker_invoked: bool
+    eligible_before: int = 0
+    eligible_after: int = 0
+    selected_goal_kind: str | None = None
+    selected_path: str | None = None
+    compiled_capability: str | None = None
+    worker_status: str | None = None
+    observation_id: str | None = None
+    discovery_exhausted: bool = False
 
 
 class SurfaceDiscoveryRunner:
@@ -157,6 +168,12 @@ class SurfaceDiscoveryRunner:
             reconcile_missing_projections(
                 uow, research_run_id, created_at=now, target_reference=target_reference
             )
+            from zest.application.discovery.lifecycle import (
+                apply_discovery_exit_dispositions,
+                discovery_exit_audit,
+            )
+
+            apply_discovery_exit_dispositions(uow, research_run_id, created_at=now)
             bound_stop = _bound_stop_reason(uow, start.config)
             if bound_stop is not None:
                 uow.commit()
@@ -171,17 +188,40 @@ class SurfaceDiscoveryRunner:
                 for item in items
             }
             domain_items = tuple(_domain_item(item) for item in items)
-            chosen = select_eligible_frontier(domain_items, events_by, max_side_effect=1)
+            eligible_before = _eligible_count(domain_items, events_by)
+            chosen = select_eligible_frontier(
+                domain_items, events_by, max_side_effect=SURFACE_DISCOVERY_MAX_SIDE_EFFECT
+            )
             if chosen is None:
+                apply_discovery_exit_dispositions(uow, research_run_id, created_at=now)
+                audit = discovery_exit_audit(uow, research_run_id, considered=True)
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
                 uow.commit()
                 return SurfaceDiscoveryCycleResult(
-                    research_run_id, "NO_ELIGIBLE_FRONTIER", None, None, False
+                    research_run_id,
+                    "NO_ELIGIBLE_FRONTIER" if audit.discovery_exit_allowed else "DISCOVERY_EXIT_BLOCKED",
+                    None,
+                    None,
+                    False,
+                    eligible_before=eligible_before,
+                    eligible_after=eligible_after,
+                    discovery_exhausted=audit.discovery_exit_allowed,
                 )
             if chosen.candidate_origin != start.config.normalized_origin:
                 self._block(uow, chosen.frontier_id, "BLOCKED_SCOPE", now)
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
                 uow.commit()
                 return SurfaceDiscoveryCycleResult(
-                    research_run_id, "BLOCKED_SCOPE", chosen.frontier_id, None, False
+                    research_run_id,
+                    "BLOCKED_SCOPE",
+                    chosen.frontier_id,
+                    None,
+                    False,
+                    eligible_before=eligible_before,
+                    eligible_after=eligible_after,
+                    selected_goal_kind=chosen.goal_kind.value,
+                    selected_path=chosen.candidate_path,
+                    compiled_capability=chosen.proposed_capability,
                 )
             claim_frontier_selected(uow, chosen.frontier_id, created_at=now)
             hypothesis_id = uow.hypotheses.list_for_research_run(research_run_id)[0].hypothesis_id
@@ -207,9 +247,37 @@ class SurfaceDiscoveryRunner:
         except ReobserveRequired:
             with self._uow_factory.open() as uow:
                 self._reobserve(uow, record, created_at=now)
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
                 uow.commit()
             return SurfaceDiscoveryCycleResult(
-                research_run_id, None, record.frontier_id, None, False
+                research_run_id,
+                None,
+                record.frontier_id,
+                None,
+                False,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+            )
+        except UnsupportedDiscoveryCapability:
+            with self._uow_factory.open() as uow:
+                self._append_event(
+                    uow, record.frontier_id, "UNSUPPORTED", now, reason_code="UNSUPPORTED_CAPABILITY"
+                )
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
+                uow.commit()
+            return SurfaceDiscoveryCycleResult(
+                research_run_id,
+                "UNSUPPORTED_CAPABILITY",
+                record.frontier_id,
+                None,
+                False,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=record.proposed_capability,
             )
         scope_decision = authorize_http_transaction_plan(
             plan,
@@ -219,9 +287,19 @@ class SurfaceDiscoveryRunner:
         if not scope_decision.accepted:
             with self._uow_factory.open() as uow:
                 self._block(uow, record.frontier_id, "BLOCKED_SCOPE", now)
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
                 uow.commit()
             return SurfaceDiscoveryCycleResult(
-                research_run_id, "BLOCKED_SCOPE", record.frontier_id, None, False
+                research_run_id,
+                "BLOCKED_SCOPE",
+                record.frontier_id,
+                None,
+                False,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=plan.required_capability,
             )
         experiment_id = new_opaque_id()
         with self._uow_factory.open() as uow:
@@ -265,7 +343,9 @@ class SurfaceDiscoveryRunner:
                 # is the operational source of truth.  This frontier event
                 # only makes the selected discovery item terminal and prevents
                 # it from being selected again; it is not an observation.
-                self._append_event(uow, record.frontier_id, "FAILED_TERMINAL", now)
+                self._append_event(
+                    uow, record.frontier_id, "FAILED_TERMINAL", now, reason_code=stop_reason
+                )
                 uow.commit()
             return SurfaceDiscoveryCycleResult(
                 research_run_id,
@@ -301,7 +381,40 @@ class SurfaceDiscoveryRunner:
                     )
                 if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
                     self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
+                elif loop.status is ResearchLoopStatus.DISPATCH_DENIED:
+                    self._append_event(
+                        uow, record.frontier_id, "BLOCKED_AUTH", now, reason_code="CORE_DENIED"
+                    )
+                elif loop.status is ResearchLoopStatus.HUMAN_REVIEW_REQUIRED:
+                    self._append_event(
+                        uow,
+                        record.frontier_id,
+                        "AWAITING_REAUTHORIZATION",
+                        now,
+                        reason_code="HUMAN_REVIEW_REQUIRED",
+                    )
+                else:
+                    self._append_event(
+                        uow,
+                        record.frontier_id,
+                        "FAILED_TERMINAL",
+                        now,
+                        reason_code=loop.status.value,
+                    )
             bound_stop = _bound_stop_reason(uow, start.config)
+            from zest.application.discovery.lifecycle import (
+                apply_discovery_exit_dispositions,
+                discovery_exit_audit,
+            )
+
+            apply_discovery_exit_dispositions(uow, research_run_id, created_at=now)
+            eligible_after = _snapshot_eligible_count(uow, research_run_id)
+            audit = discovery_exit_audit(uow, research_run_id, considered=eligible_after == 0)
+            observation_id = None
+            if loop.status is ResearchLoopStatus.OBSERVATION_PRODUCED:
+                observations = uow.observations.list_for_experiment(experiment_id)
+                if observations:
+                    observation_id = observations[-1].observation_id
             uow.commit()
         if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
             return SurfaceDiscoveryCycleResult(
@@ -310,13 +423,60 @@ class SurfaceDiscoveryRunner:
                 record.frontier_id,
                 experiment_id,
                 worker_invoked,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=plan.required_capability,
+                worker_status=loop.status.value,
+                observation_id=observation_id,
+                discovery_exhausted=False,
+            )
+        if loop.status is ResearchLoopStatus.HUMAN_REVIEW_REQUIRED:
+            return SurfaceDiscoveryCycleResult(
+                research_run_id,
+                "HUMAN_REVIEW_REQUIRED",
+                record.frontier_id,
+                experiment_id,
+                worker_invoked,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=plan.required_capability,
+                worker_status=loop.status.value,
+                observation_id=observation_id,
+                discovery_exhausted=False,
             )
         if bound_stop is not None:
             return SurfaceDiscoveryCycleResult(
-                research_run_id, bound_stop, record.frontier_id, experiment_id, worker_invoked
+                research_run_id,
+                bound_stop,
+                record.frontier_id,
+                experiment_id,
+                worker_invoked,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=plan.required_capability,
+                worker_status=loop.status.value,
+                observation_id=observation_id,
             )
         return SurfaceDiscoveryCycleResult(
-            research_run_id, None, record.frontier_id, experiment_id, worker_invoked
+            research_run_id,
+            None,
+            record.frontier_id,
+            experiment_id,
+            worker_invoked,
+            eligible_before=eligible_before,
+            eligible_after=eligible_after,
+            selected_goal_kind=record.goal_kind,
+            selected_path=record.candidate_path,
+            compiled_capability=plan.required_capability,
+            worker_status=loop.status.value,
+            observation_id=observation_id,
+            discovery_exhausted=audit.discovery_exit_allowed,
         )
 
     def _seed(self, uow, start: SurfaceDiscoveryStart, *, created_at) -> None:
@@ -529,7 +689,14 @@ class SurfaceDiscoveryRunner:
         )
 
     def _append_event(
-        self, uow, frontier_id: str, kind: str, created_at, sequence: int | None = None
+        self,
+        uow,
+        frontier_id: str,
+        kind: str,
+        created_at,
+        sequence: int | None = None,
+        *,
+        reason_code: str | None = None,
     ) -> None:
         existing = uow.frontier_events.list_for_frontier(frontier_id)
         research_run_id = (
@@ -537,16 +704,19 @@ class SurfaceDiscoveryRunner:
             if existing
             else uow.frontier_items.get(frontier_id).research_run_id
         )
+        next_sequence = sequence or (existing[-1].sequence + 1 if existing else 1)
         uow.frontier_events.insert(
             FrontierEventRecord(
                 event_id=new_opaque_id(),
                 frontier_id=frontier_id,
                 research_run_id=research_run_id,
                 event_kind=kind,
-                sequence=sequence or (existing[-1].sequence + 1 if existing else 1),
+                sequence=next_sequence,
                 created_at=created_at,
+                reason_code=reason_code,
             )
         )
+        uow.frontier_items.set_cache_state(frontier_id, kind, next_sequence)
 
 
 def _bound_stop_reason(uow, config: DiscoveryRunConfig) -> str | None:
@@ -568,6 +738,25 @@ def _bound_stop_reason(uow, config: DiscoveryRunConfig) -> str | None:
     if http >= bounds.max_http_transactions:
         return "MAX_HTTP_TRANSACTIONS"
     return None
+
+
+def _eligible_count(domain_items, events_by) -> int:
+    return len(
+        runnable_discovery_frontier_items(
+            domain_items, events_by, max_side_effect=SURFACE_DISCOVERY_MAX_SIDE_EFFECT
+        )
+    )
+
+
+def _snapshot_eligible_count(uow, research_run_id: str) -> int:
+    items = uow.frontier_items.list_for_research_run(research_run_id)
+    events_by = {
+        item.frontier_id: tuple(
+            _domain_events(uow.frontier_events.list_for_frontier(item.frontier_id))
+        )
+        for item in items
+    }
+    return _eligible_count(tuple(_domain_item(item) for item in items), events_by)
 
 
 def _domain_item(record: FrontierItemRecord) -> FrontierItem:

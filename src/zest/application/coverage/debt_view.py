@@ -82,19 +82,7 @@ class CoverageDebtView:
         research_run_id: str,
         strategy_version: str,
     ) -> Any:
-        from zest.application.discovery.snapshot_views import _fact_from_record, _inference_from_record
-        from zest.research.discovery.graph import rebuild_attack_surface_graph
-
-        facts = uow.discovery_facts.list_for_research_run(research_run_id)
-        inferences = uow.discovery_inferences.list_for_research_run(research_run_id)
-        domain_facts = tuple(_fact_from_record(uow, row) for row in facts)
-        domain_inferences = tuple(_inference_from_record(row) for row in inferences)
-        return rebuild_attack_surface_graph(
-            research_run_id=research_run_id,
-            strategy_version=strategy_version,
-            facts=domain_facts,
-            inferences=domain_inferences,
-        )
+        return rebuild_coverage_graph(uow, research_run_id, strategy_version)
 
     def _load_registry(self, uow: UnitOfWork) -> tuple[HunterFamilyView, ...]:
         records = uow.hunter_families.list_enabled()
@@ -116,6 +104,24 @@ class CoverageDebtView:
             if existing is None or view.version > existing.version:
                 latest[record.family_id] = view
         return tuple(latest.values())
+
+
+def rebuild_coverage_graph(uow: UnitOfWork, research_run_id: str, strategy_version: str) -> Any:
+    """Rebuild the attack-surface graph from authoritative discovery records."""
+
+    from zest.application.discovery.snapshot_views import _fact_from_record, _inference_from_record
+    from zest.research.discovery.graph import rebuild_attack_surface_graph
+
+    facts = uow.discovery_facts.list_for_research_run(research_run_id)
+    inferences = uow.discovery_inferences.list_for_research_run(research_run_id)
+    domain_facts = tuple(_fact_from_record(uow, row) for row in facts)
+    domain_inferences = tuple(_inference_from_record(row) for row in inferences)
+    return rebuild_attack_surface_graph(
+        research_run_id=research_run_id,
+        strategy_version=strategy_version,
+        facts=domain_facts,
+        inferences=domain_inferences,
+    )
 
 
 def _to_summary(

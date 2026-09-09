@@ -10,6 +10,7 @@ from zest.worker_runtime.python.browser_engine import (
 )
 from zest.worker_runtime.python.browser_envelope import parse_envelope
 from zest.worker_runtime.python.browser_page import execute_browser_page
+from zest.worker_runtime.python.capabilities import execute as execute_packaged_worker
 from support.worker_requests import valid_worker_request
 
 ORIGIN = "http://127.0.0.1:9"
@@ -86,6 +87,75 @@ class BrowserPageWorkerTests(unittest.TestCase):
         self.assertIn("q", names)
         for control in raw["controls"]:
             self.assertNotIn("value", control)
+
+    def test_packaged_worker_accepts_production_observe_shape_before_runtime(self) -> None:
+        request = valid_worker_request(
+            worker_capability="browser.page",
+            action="observe",
+            target_reference="https://www.dyson.tw/",
+            arguments={"authorized_origin": "https://www.dyson.tw", "path": "/"},
+            side_effect_level=0,
+        )
+
+        status, raw, diagnostics = execute_packaged_worker(request)
+
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertEqual(raw, {})
+        self.assertIsNotNone(diagnostics)
+        self.assertNotEqual(diagnostics.get("reason_code"), "SCHEMA_MISMATCH")
+        self.assertIn("network_envelope", diagnostics.get("error", ""))
+
+    def test_observe_allows_moderate_modern_page_fanout(self) -> None:
+        resources = [
+            {"url": f"{ORIGIN}/asset-{index}.js", "resource_type": "script"}
+            for index in range(15)
+        ]
+        self.engine.seed_page(
+            f"{ORIGIN}/store",
+            {"html": "<button name='buy'>buy</button>"},
+            {"resources": resources},
+        )
+
+        status, raw, diagnostics = self._execute(
+            _request(
+                "observe",
+                {"authorized_origin": ORIGIN, "path": "/store"},
+                max_attempted_requests=150,
+            )
+        )
+
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNone(diagnostics)
+        self.assertEqual(raw["attempted_network_requests"], 16)
+        self.assertNotIn("partial", raw)
+
+    def test_observe_budget_cap_after_document_emits_partial_snapshot(self) -> None:
+        resources = [
+            {"url": f"{ORIGIN}/asset-{index}.js", "resource_type": "script"}
+            for index in range(8)
+        ]
+        self.engine.seed_page(
+            f"{ORIGIN}/store",
+            {"html": "<button name='buy'>buy</button>"},
+            {"resources": resources},
+        )
+
+        status, raw, diagnostics = self._execute(
+            _request(
+                "observe",
+                {"authorized_origin": ORIGIN, "path": "/store"},
+                max_attempted_requests=4,
+            )
+        )
+
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNotNone(diagnostics)
+        self.assertTrue(raw["partial"])
+        self.assertTrue(raw["budget_exhausted"])
+        self.assertFalse(raw["coverage_complete"])
+        self.assertEqual(raw["attempted_network_requests"], 4)
+        self.assertEqual(raw["capped_network_requests"], 4)
+        self.assertIn("snapshot_fingerprint", raw)
 
     def test_https_origin_is_supported_and_other_schemes_remain_blocked(self) -> None:
         https_origin = "https://127.0.0.1:443"
@@ -256,8 +326,14 @@ class BrowserPageWorkerTests(unittest.TestCase):
             {"authorized_origin": ORIGIN, "path": "/ok"},
             network_envelope=_envelope(path="/ok", origin_wide=False, denied=["/excluded"], allowed=["/ok"]),
         )
-        status, _, diagnostics = self._execute(denied)
-        self.assertEqual(status, "REAUTHORIZATION_REQUIRED")
+        status, raw, diagnostics = self._execute(denied)
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertFalse(diagnostics["self_authorized"])
+        self.assertFalse(diagnostics["followed"])
+        self.assertEqual(diagnostics["blocked_boundaries"][0]["route_decision"], "BLOCK_PASSIVE_BOUNDARY")
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["reauth_required"])
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["egress_occurred"])
+        self.assertIn("snapshot_fingerprint", raw)
         self.engine.seed_page(
             f"{ORIGIN}/app",
             {"html": "<p>app</p>"},
@@ -286,15 +362,18 @@ class BrowserPageWorkerTests(unittest.TestCase):
             {"html": "<p>app</p>"},
             {"iframe_src": "/excluded/secret"},
         )
-        status, _, diagnostics = self._execute(
+        status, raw, diagnostics = self._execute(
             _request(
                 "navigate",
                 {"authorized_origin": ORIGIN, "path": "/app"},
                 network_envelope=_envelope(denied=["/excluded"], allowed=["/app"], origin_wide=False),
             )
         )
-        self.assertEqual(status, "REAUTHORIZATION_REQUIRED")
-        self.assertEqual(diagnostics["channel"], "IFRAME")
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertFalse(diagnostics["self_authorized"])
+        self.assertEqual(diagnostics["blocked_boundaries"][0]["boundary_kind"], "EMBEDDED_SUBDOCUMENT")
+        self.assertFalse(diagnostics["blocked_boundaries"][0]["reauth_required"])
+        self.assertIn("snapshot_fingerprint", raw)
         self.engine.close_all()
         self.engine.seed_page(f"{ORIGIN}/app", {"html": "<p>app</p>"}, {"websocket": True})
         status, _, diagnostics = self._execute(

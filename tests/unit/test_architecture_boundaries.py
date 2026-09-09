@@ -417,6 +417,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             "browser_containment.py",
             "browser_engine.py",
             "browser_envelope.py",
+            "browser_route_policy.py",
             "playwright_chromium_engine.py",
             "persistent_runtime.py",
         )

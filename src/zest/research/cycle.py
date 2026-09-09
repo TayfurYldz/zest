@@ -79,6 +79,8 @@ def context_model_payload(context: ResearchContext) -> dict[str, object]:
             ),
             "omitted_external_ids": list(context.omission.omitted_external_ids),
             "truncated_external_ids": list(context.omission.truncated_external_ids),
+            "omitted_engine_signal_ids": list(context.omission.omitted_engine_signal_ids),
+            "omitted_opportunity_ids": list(context.omission.omitted_opportunity_ids),
         },
         "authoritative_facts": [_item_payload(item) for item in context.authoritative_facts],
         "observations": [_item_payload(item) for item in context.observations],
@@ -95,6 +97,7 @@ def context_model_payload(context: ResearchContext) -> dict[str, object]:
             _item_payload(item) for item in context.research_opportunities
         ],
         "change_events": [_item_payload(item) for item in context.change_events],
+        "engine_signals": [_item_payload(item) for item in context.engine_signals],
         "negative_evidence": [_item_payload(item) for item in context.negative_evidence],
         "procedural_context": [_item_payload(item) for item in context.procedural_context],
         "unresolved_questions": list(context.unresolved_questions),

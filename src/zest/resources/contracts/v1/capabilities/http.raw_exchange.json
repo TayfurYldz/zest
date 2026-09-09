@@ -48,7 +48,7 @@
         "additionalProperties": true
       },
       "minimum_side_effect_level": 0,
-      "maximum_side_effect_level": 0,
+      "maximum_side_effect_level": 3,
       "target_types": ["opaque_reference"],
       "network_policy": {
         "allowed_methods": ["RAW"],
