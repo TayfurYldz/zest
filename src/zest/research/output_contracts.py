@@ -14,7 +14,7 @@ from typing import Any
 
 STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v3"
 STRICT_TRANSPORT_SCHEMA_VERSION = "research.structured-output-transport.v4"
-GENERATOR_INSTRUCTION_VERSION = "research.generator.v3"
+GENERATOR_INSTRUCTION_VERSION = "research.generator.v4"
 FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v3"
 DIAGNOSTIC_INSTRUCTION_VERSION = "research.diagnostic-readiness.v2"
 
@@ -150,12 +150,26 @@ GENERATOR_CONTRACT = OutputContract(
     name="HypothesisProposal",
     version=STRUCTURED_OUTPUT_SPEC_VERSION,
     instruction_version=GENERATOR_INSTRUCTION_VERSION,
-    role_directive="Propose one testable research hypothesis as structured fields only.",
+    role_directive=(
+        "Propose one testable research hypothesis as structured fields only. "
+        "For every proposal, assumptions must be a non-null array containing "
+        "exactly one side_effect_estimate:N entry where N is 0, 1, 2, or 3. "
+        "The side-effect estimate is advisory research metadata only and does "
+        "not grant execution or authorization authority."
+    ),
     fields=(
         OutputField("proposed_claim", _STRING, True, "one testable claim, not a finding"),
         OutputField("rationale", _STRING, True, "reasoning grounded in supplied context"),
         OutputField("source_references", _STRING_ARRAY, False, "context source ids cited"),
-        OutputField("assumptions", _STRING_ARRAY, False, "assumptions that remain unproven"),
+        OutputField(
+            "assumptions",
+            _STRING_ARRAY,
+            False,
+            (
+                "assumptions that remain unproven; every proposal must include "
+                "exactly one side_effect_estimate:N entry where N is 0, 1, 2, or 3"
+            ),
+        ),
         OutputField(
             "expected_security_relevance",
             _STRING_OR_NULL,
