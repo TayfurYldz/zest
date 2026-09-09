@@ -1881,6 +1881,27 @@ class _DiscoveryInferenceRepo(_Repo):
         return [item for item in self._root.discovery_inferences.values() if item.research_run_id == research_run_id]
 
 
+class _DiscoveryInferenceSourceRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(
+            store.discovery_inference_sources,
+            fail_on_insert=fail_on_insert,
+        )
+        self._root = store
+
+    def list_for_inference(
+        self, inference_id: str
+    ) -> list[DiscoveryInferenceSourceRecord]:
+        return sorted(
+            [
+                item
+                for item in self._root.discovery_inference_sources.values()
+                if item.inference_id == inference_id
+            ],
+            key=lambda item: item.source_row_id,
+        )
+
+
 class _FrontierItemRepo(_Repo):
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
         super().__init__(store.frontier_items, fail_on_insert=fail_on_insert)
@@ -2232,7 +2253,7 @@ class FakeUnitOfWork:
         self.discovery_facts = _DiscoveryFactRepo(self._store)
         self.discovery_fact_sources = _DiscoveryFactSourceRepo(self._store)
         self.discovery_inferences = _DiscoveryInferenceRepo(self._store)
-        self.discovery_inference_sources = _Repo(self._store.discovery_inference_sources)
+        self.discovery_inference_sources = _DiscoveryInferenceSourceRepo(self._store)
         self.frontier_items = _FrontierItemRepo(self._store)
         self.frontier_sources = _Repo(self._store.frontier_sources)
         self.frontier_events = _FrontierEventRepo(self._store)

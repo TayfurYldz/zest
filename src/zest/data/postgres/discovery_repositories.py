@@ -237,6 +237,32 @@ class PostgresDiscoveryInferenceSourceRepository:
             tables.discovery_inference_source.insert().values(**asdict(record)),
         )
 
+    def list_for_inference(
+        self, inference_id: str
+    ) -> list[DiscoveryInferenceSourceRecord]:
+        require_opaque_id(inference_id, "inference_id")
+        try:
+            rows = (
+                self._connection.execute(
+                    select(tables.discovery_inference_source)
+                    .where(
+                        tables.discovery_inference_source.c.inference_id
+                        == inference_id
+                    )
+                    .order_by(
+                        tables.discovery_inference_source.c.source_row_id
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [
+            map_row.discovery_inference_source_from_row(row)
+            for row in rows
+        ]
+
 
 class PostgresFrontierItemRepository:
     def __init__(self, connection: Connection) -> None:

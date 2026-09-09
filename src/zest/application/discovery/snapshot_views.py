@@ -46,7 +46,9 @@ def summarize_attack_surface(
     facts = uow.discovery_facts.list_for_research_run(research_run_id)
     inferences = uow.discovery_inferences.list_for_research_run(research_run_id)
     domain_facts = tuple(_fact_from_record(uow, row) for row in facts)
-    domain_inferences = tuple(_inference_from_record(row) for row in inferences)
+    domain_inferences = tuple(
+        _inference_from_record(uow, row) for row in inferences
+    )
     graph = rebuild_attack_surface_graph(
         research_run_id=research_run_id,
         strategy_version=strategy_version,
@@ -114,7 +116,14 @@ def _fact_from_record(uow: UnitOfWork, record) -> DiscoveryFact:
     )
 
 
-def _inference_from_record(record) -> DiscoveryInference:
+def _inference_from_record(
+    uow: UnitOfWork,
+    record,
+) -> DiscoveryInference:
+    sources = uow.discovery_inference_sources.list_for_inference(
+        record.inference_id
+    )
+
     return DiscoveryInference(
         inference_id=record.inference_id,
         research_run_id=record.research_run_id,
@@ -122,8 +131,20 @@ def _inference_from_record(record) -> DiscoveryInference:
         canonical_key=record.canonical_key,
         epistemic_status=TargetEpistemicStatus(record.epistemic_status),
         identity_id=record.identity_id,
-        source_fact_ids=record.source_fact_ids,
-        source_inference_ids=record.source_inference_ids,
-        source_observation_ids=record.source_observation_ids,
+        source_fact_ids=tuple(
+            item.source_fact_id
+            for item in sources
+            if item.source_fact_id is not None
+        ),
+        source_inference_ids=tuple(
+            item.source_inference_id
+            for item in sources
+            if item.source_inference_id is not None
+        ),
+        source_observation_ids=tuple(
+            item.observation_id
+            for item in sources
+            if item.observation_id is not None
+        ),
         attributes=record.attributes,
     )

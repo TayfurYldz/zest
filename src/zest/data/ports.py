@@ -529,6 +529,9 @@ class DiscoveryInferenceRepository(Protocol):
 
 class DiscoveryInferenceSourceRepository(Protocol):
     def insert(self, record: DiscoveryInferenceSourceRecord) -> None: ...
+    def list_for_inference(
+        self, inference_id: str
+    ) -> list[DiscoveryInferenceSourceRecord]: ...
 
 
 class FrontierItemRepository(Protocol):
