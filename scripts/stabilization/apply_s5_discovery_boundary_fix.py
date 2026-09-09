@@ -201,7 +201,7 @@ def _compiled_scope(*, explicit_example_oos: bool) -> CompiledScope:
                 scheme="http",
                 host="example.com",
                 host_pattern=None,
-                port=None,
+                port=80,
                 path_prefix=None,
                 source_reference="scope-src",
                 expires_at=None,
