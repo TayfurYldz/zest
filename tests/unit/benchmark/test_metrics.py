@@ -54,6 +54,7 @@ class MetricAndBaselineTests(unittest.TestCase):
                 allowed,
                 [
                     "obs:gate04b-contract-echo",
+                    "proc:model-not-completion-authority",
                     "proc:research-question",
                     "run:run-gate04b-clean-contract",
                 ],

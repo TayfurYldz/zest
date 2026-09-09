@@ -593,6 +593,34 @@ class AutonomousResearchController:
             CycleOutcome.COMPLETE,
         )
 
+    def stop_for_budget_exhaustion(
+        self,
+        research_run_id: str,
+        *,
+        phase: str = "runtime_recovery_budget",
+    ) -> OrchestrationTickResult:
+        """Terminalize a non-terminal run whose issued Core budget is exhausted.
+
+        This does not allocate budget, extend authority, or retry work.
+        """
+
+        current = self._reload(research_run_id)
+
+        if current.state in TERMINAL_ORCHESTRATION_STATES:
+            return _result_from_record(current, CycleOutcome.CONTINUE)
+
+        if current.state not in {
+            OrchestrationState.READY.value,
+            OrchestrationState.RUNNING.value,
+        }:
+            return _result_from_record(current, CycleOutcome.CONTINUE)
+
+        return self._stop(
+            current,
+            StopReason.BUDGET_EXHAUSTED,
+            phase,
+        )
+
     def stop_for_operational_failure(
         self,
         research_run_id: str,

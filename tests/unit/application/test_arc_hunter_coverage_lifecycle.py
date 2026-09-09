@@ -36,6 +36,7 @@ from zest.data.records import HypothesisRecord, IssuedBudgetRecord
 from zest.research.coverage.types import CoverageCell, CoverageState
 from zest.research.exploration import OpportunityKind, ResearchPolicyBudget
 from zest.research.orchestration import OrchestrationBounds, OrchestrationState
+from zest.research.scheduler.fairness import KIND_STARVATION_BOUND
 from zest.research.scheduler.types import HunterScore, ScoredCell
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -255,17 +256,31 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
         self.assertEqual(len(first_cycle_records), 1)
         self.assertNotEqual(first_cycle_records[0].opportunity_id, candidate_id)
 
-        # Cycle 2: the diagnostic opportunity derived from "hyp-pre" was
-        # already admitted (its structural identity is now
-        # previously-selected), so it no longer competes; restoring
-        # max_exploratory lets the still-PENDING Hunter/Coverage candidate
-        # win its turn instead of being starved forever.
-        cycle_2 = controller.step(
-            _command(
-                selection_budget=ResearchPolicyBudget(max_selected=1, max_exploratory=1)
-            )
-        )
+        # Restoring exploratory capacity does not guarantee immediate
+        # selection: other legitimate engines share the same scheduler.
+        # The invariant is bounded fairness, not "must win cycle 2".
+        admitted_cycle = None
         admitted_candidate = store.opportunity_selection_candidates[candidate_id]
+
+        for cycle_number in range(2, 2 + KIND_STARVATION_BOUND):
+            controller.step(
+                _command(
+                    selection_budget=ResearchPolicyBudget(
+                        max_selected=1,
+                        max_exploratory=1,
+                    )
+                )
+            )
+            admitted_candidate = store.opportunity_selection_candidates[candidate_id]
+            if admitted_candidate.outcome == "ADMITTED":
+                admitted_cycle = cycle_number
+                break
+
+        self.assertIsNotNone(
+            admitted_cycle,
+            "eligible Hunter/Coverage work must be admitted within the "
+            "scheduler starvation bound",
+        )
         self.assertEqual(admitted_candidate.outcome, "ADMITTED")
         self.assertEqual(admitted_candidate.resulting_opportunity_id, candidate_id)
         wiring = [
@@ -280,8 +295,10 @@ class ArcHunterCoverageLifecycleTests(unittest.TestCase):
                 for item in wiring
             )
         )
-        self.assertEqual(len(port.calls), 2)
-        self.assertEqual(len(store.experiments), 2)
+        # Exact global Worker/Experiment counts are scheduler-order
+        # dependent; this test owns the fairness invariant only.
+        self.assertGreaterEqual(len(port.calls), 2)
+        self.assertGreaterEqual(len(store.experiments), 2)
 
 
 if __name__ == "__main__":

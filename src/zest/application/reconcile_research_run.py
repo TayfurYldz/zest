@@ -63,7 +63,6 @@ class ReconcileResearchRun:
         self._clock = clock or SystemClock()
 
     def execute(self, command: ReconcileResearchRunCommand) -> ReconcileResearchRunResult:
-        del self._clock
         items: list[ReconciliationItem] = []
         with self._uow_factory.open() as uow:
             run = uow.research_runs.get(command.research_run_id)

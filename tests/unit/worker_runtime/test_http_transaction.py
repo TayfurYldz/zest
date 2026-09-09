@@ -138,10 +138,29 @@ class HttpTransactionWorkerTests(unittest.TestCase):
         self.assertNotIn("secret", str(diagnostics))
 
     def test_oversized_headers_denied(self) -> None:
-        status, _, diagnostics = execute(
-            _request(self.origin, headers={"Accept": "a" * 200})
+        request = _request(
+            self.origin,
+            headers={"Accept": "a" * 200},
         )
-        self.assertEqual(status, "BLOCKED")
+
+        # Packaged Worker boundary rejects schema-invalid arguments before
+        # capability execution.
+        status, _, diagnostics = execute(request)
+
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIsNotNone(diagnostics)
+        self.assertEqual(
+            diagnostics["reason_code"],
+            "SCHEMA_MISMATCH",
+        )
+
+        # Defense in depth: even if the raw executor receives the same
+        # oversized value directly, it fails closed without target contact.
+        raw_status, _, raw_diagnostics = execute_http_transaction(request)
+
+        self.assertEqual(raw_status, "BLOCKED")
+        self.assertIsNotNone(raw_diagnostics)
+        self.assertFalse(raw_diagnostics["contacted"])
 
     def test_response_size_cap_enforced(self) -> None:
         status, _, diagnostics = execute(

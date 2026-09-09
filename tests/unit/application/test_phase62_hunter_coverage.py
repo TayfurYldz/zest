@@ -516,12 +516,24 @@ class HunterCoverageProductionTests(unittest.TestCase):
         controller, port = _controller(store)
         controller.start(_command())
         controller.step(_command())
-        missing = [
+        skipped = [
             item
             for item in store.audit_events.values()
-            if item.event_type == "RESEARCH_WORK_MISSING_PRECONDITION"
+            if item.event_type
+            == "HUNT_HYPOTHESIS_SKIPPED_MISSING_CONTEXT"
+            and item.payload.get("family_id") == "hf-object-authz"
         ]
-        self.assertTrue(missing)
+        self.assertTrue(skipped)
+        self.assertEqual(
+            skipped[-1].payload.get("reason_code"),
+            "CLAIM_TEMPLATE_MISSING_CONTEXT",
+        )
+        self.assertFalse(
+            skipped[-1].payload.get("hypothesis_created")
+        )
+        self.assertFalse(
+            skipped[-1].payload.get("worker_authorized")
+        )
         self.assertEqual(len(port.calls), 0)
         echo = [
             item

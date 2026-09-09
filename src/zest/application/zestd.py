@@ -71,7 +71,7 @@ from zest.application.runtime_instance import (
     mark_runtime_status,
     register_runtime_instance,
 )
-from zest.core.enums import ActorType
+from zest.core.enums import ActorType, ReasonCode
 from zest.data.errors import (
     DatabaseUnavailableError,
     PersistenceConflictError,
@@ -606,6 +606,29 @@ class ZestdRuntime:
             return None
         if report.status is not PreflightStatus.READY_TO_START:
             failing = [check for check in report.checks if not check.passed]
+
+            recovery_budget_exhausted = (
+                recovery
+                and len(failing) == 1
+                and failing[0].name is PreflightCheckName.BUDGET_AVAILABLE
+                and failing[0].detail == ReasonCode.BUDGET_EXHAUSTED.value
+            )
+
+            if recovery_budget_exhausted:
+                result = self._unfenced_controller.stop_for_budget_exhaustion(
+                    research_run_id,
+                    phase="runtime_recovery_budget",
+                )
+                _log(
+                    "runtime.recovery_budget_exhausted",
+                    runtime_instance_id=self.runtime_instance_id,
+                    research_run_id=research_run_id,
+                    state=result.state,
+                    stop_reason=result.stop_reason,
+                    authority_expanded=False,
+                )
+                return None
+
             recovery_integrity_only = recovery and bool(failing) and all(
                 check.name is PreflightCheckName.ORCHESTRATION_RECOVERABLE
                 for check in failing

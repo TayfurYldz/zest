@@ -10,6 +10,14 @@ from zest.core.enums import ActorType, ScopeClassification
 from zest.data.records import AuditEventRecord, OpportunitySelectionCandidateRecord
 from zest.research.discovery.graph import AttackSurfaceNodeKind
 from zest.research.discovery.types import SURFACE_DISCOVERY_STRATEGY_VERSION
+from zest.research.oast.semantics import (
+    FAMILY_SSRF,
+    FAMILY_WEBHOOK,
+    FAMILY_XSS,
+    FAMILY_XXE,
+    OAST_CALLBACK_EVALUATION_STRATEGY,
+    OAST_EXECUTABLE_FAMILIES,
+)
 from zest.research.exploration import (
     OpportunityDimensions,
     OpportunityKind,
@@ -23,14 +31,6 @@ OAST_STRATEGY_VERSION = "oast.interaction.opportunity.v1"
 OAST_HARVEST_BOUND = 20
 OAST_TOKEN_BOUND = "OAST_TOKEN_BOUND"
 OAST_DEFAULT_TTL = timedelta(minutes=15)
-OAST_CALLBACK_EVALUATION_STRATEGY = "oast.callback.v1"
-
-FAMILY_SSRF = "SSRF_SERVER_SIDE_FETCH"
-FAMILY_XXE = "BLIND_XXE"
-FAMILY_XSS = "BLIND_XSS"
-FAMILY_WEBHOOK = "WEBHOOK_CALLBACK"
-OAST_EXECUTABLE_FAMILIES = frozenset({FAMILY_SSRF, FAMILY_XXE, FAMILY_XSS, FAMILY_WEBHOOK})
-
 URL_SINK_PARAMS = frozenset(
     {
         "url",

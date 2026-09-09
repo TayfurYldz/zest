@@ -359,11 +359,27 @@ class DispatchApprovedV3QueueTests(unittest.TestCase):
             raise RuntimeError("crash after dispatch")
 
         worker = RecordingWorkerPort(store=store, handler=boom)
-        with self.assertRaises(RuntimeError):
-            _dispatch(store, worker=worker, selected_cell_id=cell.cell_id)
+
+        first, _ = _dispatch(
+            store,
+            worker=worker,
+            selected_cell_id=cell.cell_id,
+        )
+
+        self.assertEqual(first.outcome, "UNKNOWN_OUTCOME")
+        self.assertTrue(first.worker_invoked)
+        self.assertIsNotNone(first.attempt_id)
         self.assertEqual(len(worker.calls), 1)
-        second, _ = _dispatch(store, worker=worker, selected_cell_id=cell.cell_id)
+
+        second, _ = _dispatch(
+            store,
+            worker=worker,
+            selected_cell_id=cell.cell_id,
+        )
+
         self.assertEqual(second.outcome, "ALREADY_DISPATCHED")
+        self.assertEqual(second.reason_code, "UNIT_ALREADY_ATTEMPTED")
+        self.assertFalse(second.worker_invoked)
         self.assertEqual(len(worker.calls), 1)
         self.assertEqual(store.hunt_v3_queue["queue-1"].state, "APPROVED")
 

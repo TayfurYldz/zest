@@ -22,6 +22,10 @@ from zest.research.http_transaction import (
     HTTP_TRANSACTION_EVALUATION_STRATEGY,
     HTTP_TRANSACTION_EXPECTED_OBSERVATION,
 )
+from zest.research.oast.semantics import (
+    OAST_CALLBACK_EVALUATION_STRATEGY,
+    OAST_EXECUTABLE_FAMILIES,
+)
 from zest.research.mutation.cell_contract import (
     FAMILY_REQUIRED_DIMENSIONS,
     MutationCellContractError,
@@ -538,7 +542,6 @@ class OastInteractionCompiler:
     compiler_id = COMPILER_OAST_INTERACTION
 
     def compile(self, request: CompilerRequest) -> CompilerResult:
-        from zest.application.oast_source import OAST_CALLBACK_EVALUATION_STRATEGY
 
         arguments = request.arguments
         action = _text_arg(arguments, "action")
@@ -734,7 +737,6 @@ def default_family_compilers() -> dict[str, ExperimentCompiler]:
     protocol = ProtocolStepCompiler()
     for name in PROTOCOL_FAMILIES:
         compilers[name] = protocol
-    from zest.application.oast_source import OAST_EXECUTABLE_FAMILIES
 
     oast = OastInteractionCompiler()
     for name in OAST_EXECUTABLE_FAMILIES:
@@ -767,7 +769,6 @@ class ExperimentCompilerRegistry:
             return self._by_family_name[family_name].compile(request)
         if request.arguments.get("mutation_rule_id"):
             return self._mutation_variant.compile(request)
-        from zest.application.oast_source import OAST_EXECUTABLE_FAMILIES
 
         if family_name in OAST_EXECUTABLE_FAMILIES or request.arguments.get("oast_family"):
             return OastInteractionCompiler().compile(request)

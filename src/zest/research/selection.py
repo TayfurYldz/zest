@@ -269,10 +269,10 @@ def claim_from_template(
 
 
 class _ClaimContext(dict):
-    """Fill unknown template fields from SoR attributes without inventing facts."""
+    """Reject unknown template fields rather than inventing missing facts."""
 
     def __missing__(self, key: str) -> str:
-        return ""
+        raise KeyError(key)
 
 
 def lifecycle_from_assessments(

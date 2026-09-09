@@ -41,6 +41,7 @@ from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.errors import DatabaseUnavailableError, LeaseFencingError
 from zest.data.records import (
+    BudgetConsumptionRecord,
     ExecutionAttemptRecord,
     IssuedBudgetRecord,
     ProgramPolicyRecord,
@@ -316,6 +317,28 @@ class ClassifyRuntimeRecoveryTests(unittest.TestCase):
         decision = ClassifyRuntimeRecovery(FakeUnitOfWorkFactory(store)).execute("run-1")
         self.assertEqual(decision.action, RuntimeRecoveryAction.SAFE_RESUME)
 
+    def test_recovery_classifier_is_reentrant(self) -> None:
+        store = _seed()
+        store.research_orchestrations["run-1"] = _orchestration_record(
+            state="READY"
+        )
+
+        classifier = ClassifyRuntimeRecovery(
+            FakeUnitOfWorkFactory(store)
+        )
+
+        first = classifier.execute("run-1")
+        second = classifier.execute("run-1")
+
+        self.assertEqual(
+            first.action,
+            RuntimeRecoveryAction.SAFE_RESUME,
+        )
+        self.assertEqual(
+            second.action,
+            RuntimeRecoveryAction.SAFE_RESUME,
+        )
+
     def test_paused_is_not_resumed(self) -> None:
         store = _seed()
         store.research_orchestrations["run-1"] = _orchestration_record(state="PAUSED")
@@ -542,6 +565,53 @@ class ZestdRuntimeTests(unittest.TestCase):
         self.assertNotEqual(recovered.state, "FAILED_OPERATIONAL")
         if recovered.state in {"READY", "RUNNING"}:
             self.assertEqual(recovered.owner_runtime_instance_id, second.runtime_instance_id)
+
+    def test_exhausted_budget_recovery_terminalizes_without_attach(self) -> None:
+        store = _seed()
+
+        store.research_orchestrations["run-1"] = _orchestration_record(
+            state="READY"
+        )
+
+        store.budget_consumptions["cons-exhausted"] = BudgetConsumptionRecord(
+            consumption_id="cons-exhausted",
+            budget_id="budget-1",
+            research_run_id="run-1",
+            resource_type="REQUEST",
+            amount=20,
+            unit="count",
+            occurred_at=CREATED_AT,
+            provenance="recovery-regression",
+            request_id="req-exhausted",
+        )
+
+        worker = RecordingWorkerPort(store=store)
+
+        self._runtime = _runtime(
+            store,
+            worker=worker,
+            cadence_seconds=30,
+        )
+
+        self._runtime.start_process()
+
+        recovered = store.research_orchestrations["run-1"]
+
+        self.assertEqual(
+            recovered.state,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+        )
+        self.assertEqual(
+            recovered.stop_reason,
+            "BUDGET_EXHAUSTED",
+        )
+        self.assertIsNone(
+            recovered.owner_runtime_instance_id
+        )
+        self.assertFalse(
+            self._runtime.is_supervising("run-1")
+        )
+        self.assertEqual(worker.calls, [])
 
     def test_dispatching_recovery_does_not_retry(self) -> None:
         store = _seed()

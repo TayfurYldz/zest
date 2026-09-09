@@ -22,9 +22,13 @@ from zest.research.selection import (
     claim_from_template,
     families_for_node,
 )
+from zest.research.types import ResearchInputError
 
 
 HUNT_HYPOTHESIS_GENERATED = "HUNT_HYPOTHESIS_GENERATED"
+HUNT_HYPOTHESIS_SKIPPED_MISSING_CONTEXT = (
+    "HUNT_HYPOTHESIS_SKIPPED_MISSING_CONTEXT"
+)
 IDENTITY_EXPANSION_CAPPED = "IDENTITY_EXPANSION_CAPPED"
 HYPOTHESIS_GENERATOR_ACTOR_ID = "control-plane:hunt-generator"
 
@@ -165,11 +169,29 @@ class GenerateHuntHypotheses:
         hypothesis_ids: list[str],
         hypothesis_sources: list[tuple[str, str, str, str]],
     ) -> None:
-        claim = claim_from_template(
-            node,
-            family,
-            extra_context={"identity_id": identity_id},
-        )
+        try:
+            claim = claim_from_template(
+                node,
+                family,
+                extra_context={"identity_id": identity_id},
+            )
+        except ResearchInputError as exc:
+            # Fail closed at the hypothesis boundary. Missing SoR context must
+            # never be replaced with invented/blank claim material, but one
+            # incomplete family/node pairing must not crash the whole run.
+            uow.audit_events.insert(
+                _missing_claim_context_audit(
+                    audit_id=new_opaque_id(),
+                    occurred_at=now,
+                    research_run_id=command.research_run_id,
+                    family_id=family.family_id,
+                    node_canonical_key=node.canonical_key,
+                    identity_id=identity_id,
+                    detail=str(exc),
+                )
+            )
+            return
+
         for existing in uow.hypotheses.list_for_research_run(command.research_run_id):
             if (
                 existing.origin_reference == family.family_id
@@ -205,6 +227,39 @@ class GenerateHuntHypotheses:
                 validation_tier=family.validation_tier,
             )
         )
+
+
+def _missing_claim_context_audit(
+    *,
+    audit_id: str,
+    occurred_at,
+    research_run_id: str,
+    family_id: str,
+    node_canonical_key: str,
+    identity_id: str,
+    detail: str,
+) -> AuditEventRecord:
+    return AuditEventRecord(
+        audit_event_id=audit_id,
+        occurred_at=occurred_at,
+        actor_id=HYPOTHESIS_GENERATOR_ACTOR_ID,
+        actor_type=ActorType.CONTROL_PLANE.value,
+        event_type=HUNT_HYPOTHESIS_SKIPPED_MISSING_CONTEXT,
+        subject_type="hunt_generation",
+        subject_id=node_canonical_key,
+        correlation_id=research_run_id,
+        payload={
+            "research_run_id": research_run_id,
+            "family_id": family_id,
+            "node_canonical_key": node_canonical_key,
+            "identity_id": identity_id,
+            "reason_code": "CLAIM_TEMPLATE_MISSING_CONTEXT",
+            "detail": detail,
+            "hypothesis_created": False,
+            "worker_authorized": False,
+            "not_coverage": True,
+        },
+    )
 
 
 def _identity_ids_for_node(node) -> tuple[str, ...]:

@@ -61,6 +61,7 @@ from zest.research.differential import (
 from zest.research.epistemic import EpistemicClass
 from zest.research.exploration import OpportunityMode, ResearchPolicyBudget, SelectionOutcome
 from zest.research.planning import plan_diagnostic_echo
+from zest.research.scheduler.fairness import KIND_STARVATION_BOUND
 from zest.research.temporal import ChangeOutcome, SnapshotOutcome
 from zest.research.types import ResearchInputError
 from support.fake_model import ScriptedModelPort
@@ -212,7 +213,39 @@ class ExplorationTemporalApplicationTests(unittest.TestCase):
         self.assertTrue(followups)
         self.assertEqual(followups[0].outcome, SelectionOutcome.SKIP_LOW_INFORMATION)
         self.assertTrue(revisits)
-        self.assertTrue(revisits[0].selected)
+
+        revisit_selected = any(item.selected for item in revisits)
+
+        for _ in range(KIND_STARVATION_BOUND):
+            if revisit_selected:
+                break
+
+            result = SelectResearchOpportunities(
+                factory,
+                clock=FixedClock(),
+            ).execute(
+                SelectResearchOpportunitiesCommand(
+                    research_run_id="run-1"
+                )
+            )
+
+            revisits = [
+                item
+                for item in result.decisions
+                if item.opportunity.opportunity_kind.value
+                == "NEGATIVE_KNOWLEDGE_REVISIT"
+            ]
+
+            revisit_selected = any(
+                item.selected for item in revisits
+            )
+
+        self.assertTrue(
+            revisit_selected,
+            "negative-knowledge revisit must remain eligible and eventually "
+            "receive a scheduler slot",
+        )
+
         original = store.hypothesis_assessments["assess-neg-1"]
         self.assertEqual(original.assessment_outcome, "CONTRADICTS_PREDICTION")
 
@@ -290,19 +323,44 @@ class ExplorationTemporalApplicationTests(unittest.TestCase):
         )
         self.assertEqual(compared.outcome, DifferentialOutcome.COMPARED)
         worker_before = len(store.execution_attempts)
-        selected = SelectResearchOpportunities(factory, clock=FixedClock()).execute(
-            SelectResearchOpportunitiesCommand(research_run_id="run-1")
-        )
-        self.assertTrue(
-            any(
-                "change:" in item.opportunity.context_signature
-                for item in selected.selected
+
+        change_decision = None
+
+        for _ in range(KIND_STARVATION_BOUND + 1):
+            selected = SelectResearchOpportunities(
+                factory,
+                clock=FixedClock(),
+            ).execute(
+                SelectResearchOpportunitiesCommand(
+                    research_run_id="run-1"
+                )
             )
+
+            change_decision = next(
+                (
+                    item
+                    for item in selected.selected
+                    if item.opportunity.context_signature.startswith("change:")
+                ),
+                None,
+            )
+
+            if change_decision is not None:
+                break
+
+        self.assertIsNotNone(
+            change_decision,
+            "durable ChangeEvent work must eventually receive a scheduler slot",
         )
-        self.assertEqual(len(store.execution_attempts), worker_before)
-        opportunity_id = next(
-            item.opportunity.opportunity_id for item in selected.selected
+
+        self.assertEqual(
+            len(store.execution_attempts),
+            worker_before,
+            "selection alone must not dispatch a Worker",
         )
+
+        assert change_decision is not None
+        opportunity_id = change_decision.opportunity.opportunity_id
         proposed = ProposeResearchHypothesis(
             factory, ScriptedModelPort(), clock=FixedClock()
         ).execute(

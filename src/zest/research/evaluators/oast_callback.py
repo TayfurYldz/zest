@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zest.application.oast_source import OAST_CALLBACK_EVALUATION_STRATEGY
+from zest.research.oast.semantics import OAST_CALLBACK_EVALUATION_STRATEGY
 from zest.research.assessment import (
     UNUSABLE_ATTEMPT_STATES,
     UNUSABLE_EXECUTION_OUTCOMES,
