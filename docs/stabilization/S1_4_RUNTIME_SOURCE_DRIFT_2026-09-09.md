@@ -1,4 +1,4 @@
-# S1.4 Runtime/Source Drift — Provenance Reopened
+# S1.4 Recovery Import Drift — Provenance Reopened
 
 Date: 2026-09-09
 Deployed release: `zest-canonical-phase8-rc3-browser-page-fanout-hotfix`
@@ -6,40 +6,61 @@ Recovered Git baseline: `ae89df540893a972866ce0e7f91765bf7a0244f6`
 
 ## Decision
 
-S1 deployment provenance is temporarily **reopened**. S5 root-cause work is paused until the deployed Python package is fully reconciled against the release source tree and recovered Git baseline.
+S1 deployment provenance remains temporarily **reopened**, but the previously suspected installed-runtime/source drift is disproved.
 
-## Evidence
+S5 root-cause work remains paused only until the recovered Git baseline is reconciled against the exact captured deployed source snapshot.
 
-A focused S5 import test exposed this baseline inconsistency:
+## Runtime/source reconciliation result
 
-- `src/zest/application/execute_planned_experiment.py` imports and calls `browser_page_max_network_requests(action_id)`.
-- recovered `src/zest/tools/browser_page_policy.py` does not define that helper; it contains only `BROWSER_PAGE_MAX_NETWORK_REQUESTS = 16` for this concern.
-- the deployed installed package at `/opt/zest/current/.venv/lib/python3.12/site-packages/zest/tools/browser_page_policy.py` **does** define `browser_page_max_network_requests(action_id)`.
-- deployed `zest.application.execute_planned_experiment` imports successfully and calls that helper.
+A full read-only comparison of the deployed release source package and installed `site-packages/zest` returned:
 
-Therefore the deployed runtime package contains at least one source change not represented by the recovered release source snapshot/Git baseline.
+- source files: 452
+- runtime files: 452
+- MATCH: 452
+- MISMATCH: 0
+- SOURCE_ONLY: 0
+- RUNTIME_ONLY: 0
 
-## Important correction
+Therefore the installed Python package is byte-coherent with the release `src/zest` tree. The browser fanout helper is **not** a runtime-only modification.
 
-Earlier S1.1 proved release-source == installed-runtime only for five sampled lifecycle-critical files. It did not prove whole-package equality. The later full source snapshot proved the release source tree itself was captured correctly, but it did not compare every installed `site-packages/zest/*.py` file against `src/zest/*.py`.
+## Correct root cause
 
-The correct status is now:
+The original deployed-source capture already contains the browser-page fanout hotfix. In particular, captured `src/zest/tools/browser_page_policy.py` has SHA-256:
 
-- release source snapshot integrity: PASS
-- recovered Git source integrity: PASS relative to that snapshot
-- whole installed runtime package vs release source: **UNKNOWN / at least one confirmed mismatch**
+`81873234e093d40f61f80b42b58e9db37c72f4593dd9f24c7fbd560b4b2058ba`
 
-## Next gate
+and defines `browser_page_max_network_requests(action_id)`.
 
-Run a read-only full Python package reconciliation between:
+The independent release-vs-candidate comparison also records that this file differs from candidate `5b81b3d1...`.
 
-- `/opt/zest/current/src/zest`
-- `/opt/zest/current/.venv/lib/python3.12/site-packages/zest`
+However the recovered Git baseline still contains the old candidate blob for that path. The recovery importer staged only the 131 paths declared by `release/release-manifest.json` (`66 tracked modified + 65 untracked`). That manifest path set was stale/incomplete relative to the final release tree and omitted late browser-page fanout hotfix files.
 
-Classify every `.py` path as MATCH, MISMATCH, SOURCE_ONLY or RUNTIME_ONLY and capture SHA-256s for mismatches.
+The importer therefore reproduced the manifest-declared dirty tree, **not the complete final deployed source snapshot**.
 
-No product change, deployment, S4 rerun or S5 qualification should proceed until this reconciliation is complete.
+## Confirmed omitted hotfix surface so far
+
+Direct comparison evidence already confirms omissions in the browser-page fanout surface, including canonical policy/capability/worker files and mirrored Worker/test files. A whole-snapshot-vs-Git audit is required before repairing the baseline so the omission set is exhaustive rather than guessed.
+
+## Required next gate
+
+Compare every non-release, non-cache file in the exact captured `deployed-source.tar.gz` against Git objects in recovered baseline `ae89df540893a972866ce0e7f91765bf7a0244f6`.
+
+Classify paths as:
+
+- MATCH
+- CONTENT_MISMATCH
+- MODE_MISMATCH
+- SNAPSHOT_ONLY
+- GIT_ONLY
+
+Only after this exhaustive audit may the baseline be repaired from the captured artifact.
+
+## Importer correction requirement
+
+The recovery importer must no longer trust only `tracked_modified_files + untracked_files` from the embedded release manifest as the authoritative copy set.
+
+A corrected recovery procedure must verify the final snapshot tree itself against the resulting Git tree and fail if any captured product/source/test file remains different.
 
 ## Non-dilution
 
-Do not replace the runtime helper with the old constant merely to make Git importable. The deployed release name and behavior indicate a browser-page fanout hotfix; runtime-only behavior must be recovered exactly before deciding whether any code should be changed.
+Do not revert the deployed browser fanout behavior to the candidate constant merely to make the recovered branch importable. The deployed runtime and deployed release source agree; Git recovery is the stale side. Recover the final deployed source exactly first, then resume the S5 boundary fix qualification.
