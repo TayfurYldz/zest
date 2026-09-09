@@ -115,7 +115,7 @@ def rebuild_coverage_graph(uow: UnitOfWork, research_run_id: str, strategy_versi
     facts = uow.discovery_facts.list_for_research_run(research_run_id)
     inferences = uow.discovery_inferences.list_for_research_run(research_run_id)
     domain_facts = tuple(_fact_from_record(uow, row) for row in facts)
-    domain_inferences = tuple(_inference_from_record(row) for row in inferences)
+    domain_inferences = tuple(_inference_from_record(uow, row) for row in inferences)
     return rebuild_attack_surface_graph(
         research_run_id=research_run_id,
         strategy_version=strategy_version,

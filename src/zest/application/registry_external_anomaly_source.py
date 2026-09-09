@@ -504,7 +504,7 @@ def _load_graph(uow: UnitOfWork, research_run_id: str):
         research_run_id=research_run_id,
         strategy_version=GRAPH_STRATEGY_VERSION,
         facts=tuple(_fact_from_record(uow, row) for row in facts),
-        inferences=tuple(_inference_from_record(row) for row in inferences),
+        inferences=tuple(_inference_from_record(uow, row) for row in inferences),
     )
 
 
