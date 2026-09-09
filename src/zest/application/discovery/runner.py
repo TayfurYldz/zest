@@ -33,14 +33,17 @@ from zest.application.http_transaction_authorization import authorize_http_trans
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from zest.application.program_research_context import ProgramPolicyView
+from zest.application.scope_reauthorization import evaluate_reauthorization_request
 from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
 from zest.core.approval import ApprovalView
+from zest.core.enums import ScopeClassification, ScopeDecision
 from zest.core.scope import ScopeEvaluationInput
-from zest.core.scope_compiler import CompiledScope
+from zest.core.scope_compiler import CompiledScope, evaluate_scope_candidate
 from zest.data.records import (
+    ExperimentExecutionState,
     FrontierEventRecord,
     FrontierItemRecord,
     FrontierSourceRecord,
@@ -48,6 +51,7 @@ from zest.data.records import (
     ObservationRecord,
 )
 from zest.platform.secrets import CompositeSecretPort
+from zest.platform.url_normalize import normalize_url
 from zest.platform.worker import InvocationStatus, WorkerPort
 from zest.research.discovery.canonical import canonical_key
 from zest.research.discovery.config import DiscoveryRunConfig
@@ -223,6 +227,31 @@ class SurfaceDiscoveryRunner:
                     selected_path=chosen.candidate_path,
                     compiled_capability=chosen.proposed_capability,
                 )
+            chosen_record = uow.frontier_items.get(chosen.frontier_id)
+            if chosen_record is not None and _known_control_destination_is_explicit_oos(
+                chosen_record, start.compiled_scope
+            ):
+                self._append_event(
+                    uow,
+                    chosen.frontier_id,
+                    "BLOCKED_SCOPE",
+                    now,
+                    reason_code="KNOWN_CONTROL_DESTINATION_OUT_OF_SCOPE",
+                )
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
+                uow.commit()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id,
+                    "BLOCKED_SCOPE",
+                    chosen.frontier_id,
+                    None,
+                    False,
+                    eligible_before=eligible_before,
+                    eligible_after=eligible_after,
+                    selected_goal_kind=chosen.goal_kind.value,
+                    selected_path=chosen.candidate_path,
+                    compiled_capability=chosen.proposed_capability,
+                )
             claim_frontier_selected(uow, chosen.frontier_id, created_at=now)
             hypothesis_id = uow.hypotheses.list_for_research_run(research_run_id)[0].hypothesis_id
             record = uow.frontier_items.get(chosen.frontier_id)
@@ -358,6 +387,16 @@ class SurfaceDiscoveryRunner:
             return SurfaceDiscoveryCycleResult(
                 research_run_id, "UNKNOWN_OUTCOME", record.frontier_id, experiment_id, True
             )
+        reauthorization_explicit_oos = False
+        if (
+            loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED
+            and start.compiled_scope is not None
+            and isinstance(loop.reauthorization_request, Mapping)
+        ):
+            reauthorization_check = evaluate_reauthorization_request(
+                loop.reauthorization_request, start.compiled_scope
+            )
+            reauthorization_explicit_oos = _explicit_out_of_scope(reauthorization_check)
         with self._uow_factory.open() as uow:
             for result in uow.worker_results.list_for_research_run(research_run_id):
                 ingest_control_event_from_worker_result(
@@ -380,7 +419,21 @@ class SurfaceDiscoveryRunner:
                         identity_id=record.identity_id,
                     )
                 if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
-                    self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
+                    if reauthorization_explicit_oos:
+                        uow.experiments.set_execution_state(
+                            experiment_id, ExperimentExecutionState.BLOCKED.value
+                        )
+                        self._append_event(
+                            uow,
+                            record.frontier_id,
+                            "BLOCKED_SCOPE",
+                            now,
+                            reason_code="REAUTHORIZATION_TARGET_OUT_OF_SCOPE",
+                        )
+                    else:
+                        self._append_event(
+                            uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now
+                        )
                 elif loop.status is ResearchLoopStatus.DISPATCH_DENIED:
                     self._append_event(
                         uow, record.frontier_id, "BLOCKED_AUTH", now, reason_code="CORE_DENIED"
@@ -419,7 +472,11 @@ class SurfaceDiscoveryRunner:
         if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
             return SurfaceDiscoveryCycleResult(
                 research_run_id,
-                "REAUTHORIZATION_REQUIRED",
+                (
+                    "BLOCKED_SCOPE"
+                    if reauthorization_explicit_oos
+                    else "REAUTHORIZATION_REQUIRED"
+                ),
                 record.frontier_id,
                 experiment_id,
                 worker_invoked,
@@ -717,6 +774,36 @@ class SurfaceDiscoveryRunner:
             )
         )
         uow.frontier_items.set_cache_state(frontier_id, kind, next_sequence)
+
+
+def _explicit_out_of_scope(check) -> bool:
+    """Only an explicit frozen-scope exclusion may be auto-denied.
+
+    No matching rule is UNKNOWN in CompiledScope and therefore does not satisfy
+    this predicate. Expired/ambiguous scope is human-gated, never auto-allowed.
+    """
+
+    return (
+        check.decision is ScopeDecision.DENY
+        and check.classification is ScopeClassification.OUT_OF_SCOPE
+        and bool(check.matched_rule_ids)
+    )
+
+
+def _known_control_destination_is_explicit_oos(
+    record: FrontierItemRecord, compiled_scope: CompiledScope | None
+) -> bool:
+    if compiled_scope is None or record.goal_kind != DiscoveryGoalKind.INSPECT_CONTROL.value:
+        return False
+    attributes = record.attributes if isinstance(record.attributes, Mapping) else {}
+    href_origin = str(attributes.get("href_origin") or "").rstrip("/")
+    if not href_origin.startswith(("http://", "https://")):
+        return False
+    href_path = str(attributes.get("href_path") or "/")
+    if not href_path.startswith("/"):
+        href_path = "/" + href_path
+    candidate = normalize_url(href_origin + href_path)
+    return _explicit_out_of_scope(evaluate_scope_candidate(candidate, compiled_scope))
 
 
 def _bound_stop_reason(uow, config: DiscoveryRunConfig) -> str | None:

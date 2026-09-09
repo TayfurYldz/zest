@@ -701,6 +701,7 @@ def run(args: argparse.Namespace) -> int:
             time.sleep(args.poll_interval)
 
         record["final_detail_before_cleanup"] = final_detail
+        classification_detail = dict(final_detail)
         try:
             analysis = unwrap(http_json(zest, "GET", f"/api/runs/{rid}/analysis"))
         except ProbeError as exc:
@@ -728,12 +729,14 @@ def run(args: argparse.Namespace) -> int:
                 pass
         record["final_detail"] = final_detail
 
-        layer_a, layer_b, diagnostics = evaluate(final_detail, analysis, hits, origin)
+        layer_a, layer_b, diagnostics = evaluate(
+            classification_detail, analysis, hits, origin
+        )
         record["layer_a"] = layer_a
         record["layer_b"] = layer_b
         record["diagnostics"] = diagnostics
         classification, class_reason = classify(
-            final_detail,
+            classification_detail,
             analysis,
             layer_a,
             layer_b,
