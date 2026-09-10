@@ -16,7 +16,12 @@ from zest.application.orchestration_obligations import unresolved_control_obliga
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.records import ExecutionAttemptRecord, IssuedBudgetRecord
-from zest.research.model_port import ContentPolicyBlockedError, ModelRole, ProviderAuthError
+from zest.research.model_port import (
+    ContentPolicyBlockedError,
+    ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+)
 from zest.research.model_runtime import api_runtime_identity
 from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
 from zest.research.routing import (
@@ -397,6 +402,142 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertEqual(result.stop_reason, StopReason.AUTH_REQUIRED.value)
         self.assertNotEqual(result.stop_reason, StopReason.CONTENT_POLICY_BLOCKED.value)
         self.assertEqual(len(model.calls), 1)
+
+    def test_exhausted_rate_limit_opens_durable_circuit_without_false_success(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+
+        model = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "rate"
+            )
+        )
+
+        controller, factory, _ = _controller(
+            store,
+            model=model,
+        )
+
+        command = _command(
+            bounds=_bounds(
+                max_cycles=2,
+                max_runtime_fallback=0,
+            )
+        )
+
+        controller.start(command)
+
+        with mock.patch(
+            "zest.application."
+            "bounded_model_failover.sleep",
+            return_value=None,
+        ):
+            first = controller.step(
+                command
+            )
+
+        self.assertEqual(
+            first.state,
+            OrchestrationState.READY.value,
+        )
+
+        self.assertIsNone(
+            first.stop_reason
+        )
+
+        # One original physical attempt + one bounded retry.
+        self.assertEqual(
+            len(model.calls),
+            2,
+        )
+
+        exhausted = [
+            event
+            for event
+            in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_EXHAUSTED"
+        ]
+
+        self.assertEqual(
+            len(exhausted),
+            1,
+        )
+
+        # Simulate process/controller reconstruction. The circuit must
+        # come from persisted audit state, not transient Python memory.
+        restarted = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(
+                store=store
+            ),
+            model,
+            clock=FixedClock(),
+        )
+
+        second = restarted.step(
+            command
+        )
+
+        self.assertEqual(
+            second.state,
+            OrchestrationState.READY.value,
+        )
+
+        # No additional provider call after durable circuit opens.
+        self.assertEqual(
+            len(model.calls),
+            2,
+        )
+
+        deferred = [
+            event
+            for event
+            in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_DEFERRED"
+        ]
+
+        self.assertEqual(
+            len(deferred),
+            1,
+        )
+
+        # Existing orchestration bound remains authoritative.
+        final = restarted.step(
+            command
+        )
+
+        self.assertEqual(
+            final.state,
+            OrchestrationState.COMPLETED.value,
+        )
+
+        self.assertEqual(
+            final.stop_reason,
+            StopReason.MAX_CYCLES_REACHED.value,
+        )
+
+        self.assertEqual(
+            len(model.calls),
+            2,
+        )
+
+        # Provider failure remains durable research provenance.
+        failed = [
+            row
+            for row
+            in store.research_admissions.values()
+            if row.outcome
+            == "MODEL_INVOCATION_FAILED"
+        ]
+
+        self.assertEqual(
+            len(failed),
+            1,
+        )
 
     def test_routing_unavailable_stops_cleanly(self) -> None:
         store = _Store()

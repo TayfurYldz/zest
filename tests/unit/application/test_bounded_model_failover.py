@@ -28,10 +28,69 @@ def _request(
     )
 
 
+class _RateLimitOnceThenSuccess:
+    def __init__(self) -> None:
+        self.calls = 0
+        self._success = ScriptedModelPort()
+
+    def complete(self, request):
+        self.calls += 1
+
+        if self.calls == 1:
+            raise ProviderRateLimitError(
+                "transient rate"
+            )
+
+        return self._success.complete(request)
+
+
 class BoundedRateLimitFailoverTests(
     unittest.TestCase
 ):
-    def test_rate_limit_moves_to_secondary_and_sticks(
+    def test_transient_rate_limit_retries_same_runtime(
+        self,
+    ) -> None:
+        primary = _RateLimitOnceThenSuccess()
+        sleeps: list[float] = []
+
+        port = BoundedRateLimitFailoverModelPort(
+            (primary,),
+            max_fallback_attempts=0,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0.25,
+            sleep_fn=sleeps.append,
+        )
+
+        result = port.complete(
+            _request()
+        )
+
+        self.assertIs(
+            result.role,
+            ModelRole.GENERATOR,
+        )
+
+        self.assertEqual(
+            primary.calls,
+            2,
+        )
+
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            1,
+        )
+
+        self.assertEqual(
+            port.fallbacks_used,
+            0,
+        )
+
+        self.assertEqual(
+            sleeps,
+            [0.25],
+        )
+
+    def test_rate_limit_retries_then_moves_to_secondary_and_sticks(
         self,
     ) -> None:
         primary = ScriptedModelPort(
@@ -39,16 +98,17 @@ class BoundedRateLimitFailoverTests(
                 "rate"
             )
         )
+
         secondary = ScriptedModelPort()
 
-        port = (
-            BoundedRateLimitFailoverModelPort(
-                (
-                    primary,
-                    secondary,
-                ),
-                max_fallback_attempts=1,
-            )
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                primary,
+                secondary,
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
         )
 
         generator = port.complete(
@@ -75,12 +135,17 @@ class BoundedRateLimitFailoverTests(
 
         self.assertEqual(
             len(primary.calls),
-            1,
+            2,
         )
 
         self.assertEqual(
             len(secondary.calls),
             2,
+        )
+
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            1,
         )
 
         self.assertEqual(
@@ -93,24 +158,29 @@ class BoundedRateLimitFailoverTests(
             1,
         )
 
-    def test_zero_fallback_preserves_rate_limit(
+    def test_retry_and_fallback_exhaustion_preserves_rate_limit(
         self,
     ) -> None:
         primary = ScriptedModelPort(
             error=ProviderRateLimitError(
-                "rate"
+                "primary rate"
             )
         )
-        secondary = ScriptedModelPort()
 
-        port = (
-            BoundedRateLimitFailoverModelPort(
-                (
-                    primary,
-                    secondary,
-                ),
-                max_fallback_attempts=0,
+        secondary = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "secondary rate"
             )
+        )
+
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                primary,
+                secondary,
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
         )
 
         with self.assertRaises(
@@ -119,11 +189,62 @@ class BoundedRateLimitFailoverTests(
             port.complete(_request())
 
         self.assertEqual(
+            len(primary.calls),
+            2,
+        )
+
+        self.assertEqual(
+            len(secondary.calls),
+            2,
+        )
+
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            2,
+        )
+
+        self.assertEqual(
+            port.fallbacks_used,
+            1,
+        )
+
+    def test_zero_retry_zero_fallback_preserves_rate_limit(
+        self,
+    ) -> None:
+        primary = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "rate"
+            )
+        )
+
+        secondary = ScriptedModelPort()
+
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                primary,
+                secondary,
+            ),
+            max_fallback_attempts=0,
+            max_rate_limit_retries_per_runtime=0,
+            retry_delay_seconds=0,
+        )
+
+        with self.assertRaises(
+            ProviderRateLimitError
+        ):
+            port.complete(_request())
+
+        self.assertEqual(
+            len(primary.calls),
+            1,
+        )
+
+        self.assertEqual(
             len(secondary.calls),
             0,
         )
 
-    def test_content_policy_is_never_failed_over(
+    def test_content_policy_is_never_retried_or_failed_over(
         self,
     ) -> None:
         primary = ScriptedModelPort(
@@ -131,22 +252,33 @@ class BoundedRateLimitFailoverTests(
                 "policy"
             )
         )
+
         secondary = ScriptedModelPort()
 
-        port = (
-            BoundedRateLimitFailoverModelPort(
-                (
-                    primary,
-                    secondary,
-                ),
-                max_fallback_attempts=1,
-            )
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                primary,
+                secondary,
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
         )
 
         with self.assertRaises(
             ContentPolicyBlockedError
         ):
             port.complete(_request())
+
+        self.assertEqual(
+            len(primary.calls),
+            1,
+        )
+
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            0,
+        )
 
         self.assertEqual(
             port.fallbacks_used,

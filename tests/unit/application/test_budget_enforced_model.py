@@ -5,6 +5,9 @@ import unittest
 import pathsetup  # noqa: F401
 
 from zest.application.budget_enforced_model import BudgetEnforcedModelPort
+from zest.application.bounded_model_failover import (
+    BoundedRateLimitFailoverModelPort,
+)
 from zest.application.budget_consumption import BudgetConsumptionRejected
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
@@ -15,6 +18,7 @@ from zest.research.model_port import (
     ModelCallRequest,
     ModelRole,
     ProviderAuthError,
+    ProviderRateLimitError,
     ProviderTimeoutError,
     StructuredOutputTransportError,
 )
@@ -211,6 +215,83 @@ class PreInvocationBudgetTests(unittest.TestCase):
 
         self.assertEqual(
             len(request_ids),
+            2,
+        )
+
+    def test_rate_limit_retry_charges_each_physical_attempt(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=4)
+
+        class RateOnceThenSuccess:
+            def __init__(self):
+                self.calls = 0
+                self.success = ScriptedModelPort()
+
+            def complete(self, request):
+                self.calls += 1
+
+                if self.calls == 1:
+                    raise ProviderRateLimitError(
+                        "transient"
+                    )
+
+                return self.success.complete(
+                    request
+                )
+
+        inner = RateOnceThenSuccess()
+
+        budgeted = BudgetEnforcedModelPort(
+            inner,
+            FakeUnitOfWorkFactory(
+                store=store
+            ),
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-retry",
+            invocation_namespace="slot-0",
+            clock=FixedClock(),
+        )
+
+        resilient = (
+            BoundedRateLimitFailoverModelPort(
+                (budgeted,),
+                max_fallback_attempts=0,
+                max_rate_limit_retries_per_runtime=1,
+                retry_delay_seconds=0,
+            )
+        )
+
+        resilient.complete(
+            _request()
+        )
+
+        totals = ledger_totals(
+            list(
+                store.budget_consumptions.values()
+            )
+        )
+
+        self.assertEqual(
+            inner.calls,
+            2,
+        )
+
+        self.assertEqual(
+            totals.model_calls,
+            2,
+        )
+
+        ids = {
+            item.request_id
+            for item
+            in store.budget_consumptions.values()
+            if item.resource_type
+            == "MODEL_CALL"
+        }
+
+        self.assertEqual(
+            len(ids),
             2,
         )
 

@@ -160,6 +160,14 @@ DIAGNOSTIC_RESEARCH_QUESTION = (
     "Does the diagnostic capability return the submitted value?"
 )
 
+MODEL_RATE_LIMIT_EXHAUSTED_EVENT = (
+    "MODEL_RUNTIME_RATE_LIMIT_EXHAUSTED"
+)
+
+MODEL_RATE_LIMIT_DEFERRED_EVENT = (
+    "MODEL_RUNTIME_RATE_LIMIT_DEFERRED"
+)
+
 # Sentinel distinguishing "caller did not specify this field, carry the
 # persisted value forward unchanged" from "caller explicitly wants this field
 # set to None". Plain `None` cannot mean both without ambiguity.
@@ -839,6 +847,52 @@ class AutonomousResearchController:
             program_id = run.program_id if run is not None else None
             uow.rollback()
 
+        if self._model_rate_limit_circuit_open(
+            command.research_run_id
+        ):
+            deferred_event = AuditEventRecord(
+                audit_event_id=(
+                    "ae:model-rate-limit-deferred:"
+                    + new_opaque_id()
+                ),
+                occurred_at=self._clock.now(),
+                actor_id=self._actor_id,
+                actor_type=(
+                    ActorType.CONTROL_PLANE.value
+                ),
+                event_type=(
+                    MODEL_RATE_LIMIT_DEFERRED_EVENT
+                ),
+                subject_type="research_run",
+                subject_id=command.research_run_id,
+                payload={
+                    "selected_work_id": opportunity_id,
+                    "reason": (
+                        "all configured model runtimes "
+                        "were rate-limit exhausted earlier "
+                        "in this run"
+                    ),
+                    "provider_call_performed": False,
+                    "model_lane_deferred": True,
+                    "authority_expanded": False,
+                    "not_research_truth": True,
+                },
+            )
+
+            return self._complete_cycle(
+                current,
+                CycleOutcome.CONTINUE,
+                "model_runtime_rate_limit_circuit_open",
+                opportunity_id=opportunity_id,
+                increment_cycle=True,
+                current_phase=(
+                    OrchestrationPhase.CYCLE_COMPLETE
+                ),
+                extra_audit_events=(
+                    deferred_event,
+                ),
+            )
+
         raw_models = (
             self._model,
             *self._fallback_models,
@@ -872,17 +926,16 @@ class AutonomousResearchController:
             in enumerate(selected_models)
         )
 
-        if len(budgeted_models) == 1:
-            bound_model = budgeted_models[0]
-        else:
-            bound_model = (
-                BoundedRateLimitFailoverModelPort(
-                    budgeted_models,
-                    max_fallback_attempts=(
-                        bounds.max_runtime_fallback
-                    ),
-                )
+        bound_model = (
+            BoundedRateLimitFailoverModelPort(
+                budgeted_models,
+                max_fallback_attempts=(
+                    bounds.max_runtime_fallback
+                ),
+                max_rate_limit_retries_per_runtime=1,
+                retry_delay_seconds=1.0,
             )
+        )
 
         proposer = ProposeResearchHypothesis(
             self._uow_factory,
@@ -940,6 +993,53 @@ class AutonomousResearchController:
             )
         )
 
+        rate_limit_retries_used = int(
+            getattr(
+                bound_model,
+                "rate_limit_retries_used",
+                0,
+            )
+        )
+
+        if rate_limit_retries_used:
+            self._observability.increment(
+                "model_rate_limit_retries",
+                rate_limit_retries_used,
+            )
+
+            with self._uow_factory.open() as uow:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=(
+                            "ae:model-rate-limit-retry:"
+                            + new_opaque_id()
+                        ),
+                        occurred_at=self._clock.now(),
+                        actor_id=self._actor_id,
+                        actor_type=(
+                            ActorType.CONTROL_PLANE.value
+                        ),
+                        event_type=(
+                            "MODEL_RUNTIME_RATE_LIMIT_RETRY"
+                        ),
+                        subject_type="research_run",
+                        subject_id=(
+                            command.research_run_id
+                        ),
+                        payload={
+                            "retries_used": (
+                                rate_limit_retries_used
+                            ),
+                            "retry_bound_per_runtime": 1,
+                            "retry_delay_seconds": 1.0,
+                            "physical_attempts_budgeted": True,
+                            "authority_expanded": False,
+                            "not_research_truth": True,
+                        },
+                    )
+                )
+                uow.commit()
+
         if fallbacks_used:
             self._observability.increment(
                 "runtime_fallbacks",
@@ -988,7 +1088,66 @@ class AutonomousResearchController:
                 uow.commit()
 
         if proposed.outcome is AdmissionOutcome.MODEL_INVOCATION_FAILED:
-            outcome = proposed.runtime_outcome or RuntimeOutcome.PROCESS_FAILED
+            outcome = (
+                proposed.runtime_outcome
+                or RuntimeOutcome.PROCESS_FAILED
+            )
+
+            if outcome is RuntimeOutcome.RATE_LIMITED:
+                exhausted_event = AuditEventRecord(
+                    audit_event_id=(
+                        "ae:model-rate-limit-exhausted:"
+                        + new_opaque_id()
+                    ),
+                    occurred_at=self._clock.now(),
+                    actor_id=self._actor_id,
+                    actor_type=(
+                        ActorType.CONTROL_PLANE.value
+                    ),
+                    event_type=(
+                        MODEL_RATE_LIMIT_EXHAUSTED_EVENT
+                    ),
+                    subject_type="research_run",
+                    subject_id=(
+                        command.research_run_id
+                    ),
+                    payload={
+                        "selected_work_id": opportunity_id,
+                        "runtime_outcome": (
+                            RuntimeOutcome.RATE_LIMITED.value
+                        ),
+                        "fallbacks_used": fallbacks_used,
+                        "rate_limit_retries_used": (
+                            rate_limit_retries_used
+                        ),
+                        "max_runtime_fallback": (
+                            bounds.max_runtime_fallback
+                        ),
+                        "model_lane_deferred": True,
+                        "future_model_calls_suppressed_for_run": True,
+                        "physical_attempts_budgeted": True,
+                        "authority_expanded": False,
+                        "not_research_truth": True,
+                    },
+                )
+
+                return self._complete_cycle(
+                    current,
+                    CycleOutcome.CONTINUE,
+                    "model_runtime_rate_limit_exhausted",
+                    hypothesis_id=(
+                        proposed.hypothesis_id
+                    ),
+                    opportunity_id=opportunity_id,
+                    increment_cycle=True,
+                    current_phase=(
+                        OrchestrationPhase.CYCLE_COMPLETE
+                    ),
+                    extra_audit_events=(
+                        exhausted_event,
+                    ),
+                )
+
             return self._stop(
                 current,
                 stop_reason_for_runtime_outcome(outcome),
@@ -2459,6 +2618,29 @@ class AutonomousResearchController:
                 ExecutionAttemptState.UNKNOWN_OUTCOME.value,
             }
             for item in attempts
+        )
+
+    def _model_rate_limit_circuit_open(
+        self,
+        research_run_id: str,
+    ) -> bool:
+        """Return durable run-local model rate-limit circuit state.
+
+        The circuit is operational state only. It grants no authority and
+        makes no research-quality conclusion.
+        """
+
+        with self._uow_factory.open() as uow:
+            events = uow.audit_events.list_for_subject(
+                "research_run",
+                research_run_id,
+            )
+            uow.rollback()
+
+        return any(
+            event.event_type
+            == MODEL_RATE_LIMIT_EXHAUSTED_EVENT
+            for event in events
         )
 
     def _research_inventory(self, research_run_id: str):
