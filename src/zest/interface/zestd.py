@@ -57,7 +57,7 @@ def _compose_codex_model(configurations, *, probe_codex=None):
                 "no Codex model configuration selected",
             ),
         )
-        return _UnavailableModel(), lambda readiness=readiness: readiness
+        return _UnavailableModel(), (), lambda readiness=readiness: readiness
 
     probe = probe_codex or probe_codex_cli
     availability = probe(configuration=configuration, live_probe=True)
@@ -81,9 +81,34 @@ def _compose_codex_model(configurations, *, probe_codex=None):
             configuration_id=configuration.configuration_id,
         )
         identity = model.runtime_identity
-        health = HealthCheck("model", ComponentHealth.HEALTHY, availability.detail)
+        health = HealthCheck(
+            "model",
+            ComponentHealth.HEALTHY,
+            availability.detail,
+        )
+
+        # Secondary configurations are operator-declared failover
+        # runtimes. They are not used for startup qualification and
+        # therefore do not add request-consuming startup probes.
+        # The same strict adapter/schema path still fails closed when
+        # a fallback is actually invoked.
+        fallback_models = tuple(
+            CodexCliSessionAdapter(
+                allowed_capabilities=(
+                    CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+                ),
+                executable=item.executable,
+                version=availability.version,
+                model=item.model,
+                configuration_id=(
+                    item.configuration_id
+                ),
+            )
+            for item in configurations[1:]
+        )
     else:
         model = _UnavailableModel()
+        fallback_models = ()
         identity = cli_session_runtime_identity(
             adapter_id="codex.cli.session",
             runtime_id=configuration.configuration_id,
@@ -115,7 +140,11 @@ def _compose_codex_model(configurations, *, probe_codex=None):
         ),
         health=health,
     )
-    return model, lambda readiness=readiness: readiness
+    return (
+        model,
+        fallback_models,
+        lambda readiness=readiness: readiness,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,7 +172,9 @@ def main(argv: list[str] | None = None) -> int:
 
     worker = PersistentBrowserWorkerAdapter()
     configurations = load_codex_model_configurations(os.environ)
-    model, model_probe = _compose_codex_model(configurations)
+    model, fallback_models, model_probe = _compose_codex_model(
+        configurations
+    )
 
     def probe_schema() -> SchemaHealthInput:
         try:
@@ -200,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         factory,
         worker,
         model,
+        fallback_models=fallback_models,
         lease_config=LeaseConfig(
             heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
             lease_ttl_seconds=settings.lease_ttl_seconds,

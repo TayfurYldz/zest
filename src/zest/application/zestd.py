@@ -103,6 +103,7 @@ class ZestdRuntime:
         worker: WorkerPort,
         model: ModelPort,
         *,
+        fallback_models: tuple[ModelPort, ...] = (),
         clock: Clock | None = None,
         lease_config: LeaseConfig | None = None,
         cadence_seconds: float = 0.25,
@@ -119,6 +120,7 @@ class ZestdRuntime:
         self._uow_factory = uow_factory
         self._worker = worker
         self._model = model
+        self._fallback_models = tuple(fallback_models)
         self._clock = clock or SystemClock()
         self._lease_config = lease_config or LeaseConfig()
         self._cadence_seconds = cadence_seconds
@@ -134,7 +136,11 @@ class ZestdRuntime:
         self._instance: RuntimeInstanceRecord | None = None
         self._registry: LocalRunSupervisorRegistry | None = None
         self._unfenced_controller = AutonomousResearchController(
-            uow_factory, worker, model, clock=self._clock
+            uow_factory,
+            worker,
+            model,
+            fallback_models=self._fallback_models,
+            clock=self._clock,
         )
         self._preflight = Preflight(uow_factory, clock=self._clock)
         self._classifier = ClassifyRuntimeRecovery(uow_factory)
@@ -657,7 +663,11 @@ class ZestdRuntime:
                 lease_epoch=lease_epoch,
             )
             return AutonomousResearchController(
-                fenced_factory, fenced_worker, self._model, clock=self._clock
+                fenced_factory,
+                fenced_worker,
+                self._model,
+                fallback_models=self._fallback_models,
+                clock=self._clock,
             )
 
         try:

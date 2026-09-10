@@ -24,8 +24,17 @@ from zest.application.program_daily_budget import (
 from zest.research.model_port import ModelCallRequest, ModelCallResult, ModelPort, ModelRole
 
 
-def model_invocation_request_id(*, cycle_id: str, role: ModelRole, attempt_no: int) -> str:
-    return f"cycle:{cycle_id}:{role.value.lower()}:{attempt_no}"
+def model_invocation_request_id(
+    *,
+    cycle_id: str,
+    role: ModelRole,
+    attempt_no: int,
+    invocation_namespace: str | None = None,
+) -> str:
+    base = f"cycle:{cycle_id}:{role.value.lower()}:{attempt_no}"
+    if invocation_namespace is None:
+        return base
+    return f"{base}:runtime:{invocation_namespace}"
 
 
 class BudgetEnforcedModelPort:
@@ -40,6 +49,7 @@ class BudgetEnforcedModelPort:
         research_run_id: str,
         cycle_id: str,
         program_id: str | None = None,
+        invocation_namespace: str | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._inner = inner
@@ -51,6 +61,18 @@ class BudgetEnforcedModelPort:
         self._research_run_id = research_run_id
         self._cycle_id = cycle_id
         self._program_id = program_id
+        if invocation_namespace is not None and (
+            not isinstance(invocation_namespace, str)
+            or not invocation_namespace.strip()
+        ):
+            raise ValueError(
+                "invocation_namespace must be a non-empty string when set"
+            )
+        self._invocation_namespace = (
+            invocation_namespace.strip()
+            if invocation_namespace is not None
+            else None
+        )
         self._attempts = {ModelRole.GENERATOR: 0, ModelRole.FALSIFIER: 0}
         self.reserved_invocations: list[str] = []
 
@@ -60,6 +82,7 @@ class BudgetEnforcedModelPort:
             cycle_id=self._cycle_id,
             role=request.role,
             attempt_no=self._attempts[request.role],
+            invocation_namespace=self._invocation_namespace,
         )
         if self._program_id is not None:
             program_check = self._check_program_budget.execute(self._program_id)

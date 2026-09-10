@@ -11,6 +11,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from zest.application.budget_enforced_model import BudgetEnforcedModelPort
+from zest.application.bounded_model_failover import (
+    BoundedRateLimitFailoverModelPort,
+)
 from zest.application.budget_consumption import (
     BudgetConsumptionRejected,
     RecordBudgetConsumption,
@@ -239,6 +242,7 @@ class AutonomousResearchController:
         worker: WorkerPort,
         model: ModelPort,
         *,
+        fallback_models: tuple[ModelPort, ...] = (),
         clock: Clock | None = None,
         observability: ObservabilityPort | None = None,
         actor_id: str = CONTROL_PLANE_ACTOR_ID,
@@ -249,6 +253,7 @@ class AutonomousResearchController:
         self._observability = observability or InMemoryObservability()
         self._actor_id = actor_id
         self._model = model
+        self._fallback_models = tuple(fallback_models)
         self._execute = ExecutePlannedExperiment(
             uow_factory, worker, clock=self._clock, actor_id=actor_id, secret_port=secret_port
         )
@@ -834,17 +839,55 @@ class AutonomousResearchController:
             program_id = run.program_id if run is not None else None
             uow.rollback()
 
-        bound_model = BudgetEnforcedModelPort(
+        raw_models = (
             self._model,
-            self._uow_factory,
-            budget_id=config.budget_id,
-            research_run_id=config.research_run_id,
-            cycle_id=cycle_id,
-            program_id=program_id,
-            clock=self._clock,
+            *self._fallback_models,
         )
+
+        allowed_model_count = min(
+            len(raw_models),
+            1 + bounds.max_runtime_fallback,
+        )
+
+        selected_models = raw_models[
+            :allowed_model_count
+        ]
+
+        budgeted_models = tuple(
+            BudgetEnforcedModelPort(
+                model_port,
+                self._uow_factory,
+                budget_id=config.budget_id,
+                research_run_id=config.research_run_id,
+                cycle_id=cycle_id,
+                program_id=program_id,
+                invocation_namespace=(
+                    None
+                    if len(selected_models) == 1
+                    else f"slot-{index}"
+                ),
+                clock=self._clock,
+            )
+            for index, model_port
+            in enumerate(selected_models)
+        )
+
+        if len(budgeted_models) == 1:
+            bound_model = budgeted_models[0]
+        else:
+            bound_model = (
+                BoundedRateLimitFailoverModelPort(
+                    budgeted_models,
+                    max_fallback_attempts=(
+                        bounds.max_runtime_fallback
+                    ),
+                )
+            )
+
         proposer = ProposeResearchHypothesis(
-            self._uow_factory, bound_model, clock=self._clock
+            self._uow_factory,
+            bound_model,
+            clock=self._clock,
         )
         correlation_id = new_opaque_id()
 
@@ -882,7 +925,67 @@ class AutonomousResearchController:
         except BudgetConsumptionRejected:
             return self._stop(current, StopReason.BUDGET_EXHAUSTED, "model_budget")
         if bound_model.reserved_invocations:
-            self._observability.increment("model_calls", len(bound_model.reserved_invocations))
+            self._observability.increment(
+                "model_calls",
+                len(
+                    bound_model.reserved_invocations
+                ),
+            )
+
+        fallbacks_used = int(
+            getattr(
+                bound_model,
+                "fallbacks_used",
+                0,
+            )
+        )
+
+        if fallbacks_used:
+            self._observability.increment(
+                "runtime_fallbacks",
+                fallbacks_used,
+            )
+
+            with self._uow_factory.open() as uow:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=(
+                            "ae:model-fallback:"
+                            + new_opaque_id()
+                        ),
+                        occurred_at=self._clock.now(),
+                        actor_id=self._actor_id,
+                        actor_type=(
+                            ActorType.CONTROL_PLANE.value
+                        ),
+                        event_type=(
+                            "MODEL_RUNTIME_RATE_LIMIT_FALLBACK"
+                        ),
+                        subject_type="research_run",
+                        subject_id=(
+                            command.research_run_id
+                        ),
+                        payload={
+                            "trigger": "RATE_LIMITED",
+                            "fallbacks_used": (
+                                fallbacks_used
+                            ),
+                            "active_slot": int(
+                                getattr(
+                                    bound_model,
+                                    "active_index",
+                                    0,
+                                )
+                            ),
+                            "max_runtime_fallback": (
+                                bounds.max_runtime_fallback
+                            ),
+                            "not_authorization": True,
+                            "not_research_truth": True,
+                        },
+                    )
+                )
+                uow.commit()
 
         if proposed.outcome is AdmissionOutcome.MODEL_INVOCATION_FAILED:
             outcome = proposed.runtime_outcome or RuntimeOutcome.PROCESS_FAILED

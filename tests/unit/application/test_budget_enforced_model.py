@@ -162,6 +162,58 @@ class PreInvocationBudgetTests(unittest.TestCase):
         totals = ledger_totals(list(store.budget_consumptions.values()))
         self.assertEqual(totals.model_calls, 1)
 
+    def test_runtime_namespaces_charge_physical_attempts_separately(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=2)
+        factory = FakeUnitOfWorkFactory(store=store)
+
+        primary = BudgetEnforcedModelPort(
+            ScriptedModelPort(),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            invocation_namespace="slot-0",
+            clock=FixedClock(),
+        )
+
+        secondary = BudgetEnforcedModelPort(
+            ScriptedModelPort(),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            invocation_namespace="slot-1",
+            clock=FixedClock(),
+        )
+
+        primary.complete(_request())
+        secondary.complete(_request())
+
+        totals = ledger_totals(
+            list(
+                store.budget_consumptions.values()
+            )
+        )
+
+        self.assertEqual(
+            totals.model_calls,
+            2,
+        )
+
+        request_ids = {
+            item.request_id
+            for item
+            in store.budget_consumptions.values()
+            if item.resource_type
+            == "MODEL_CALL"
+        }
+
+        self.assertEqual(
+            len(request_ids),
+            2,
+        )
+
     def test_worker_request_does_not_increment_model_calls(self) -> None:
         store = _Store()
         _seed(store, max_model_calls=1)

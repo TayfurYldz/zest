@@ -59,7 +59,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
             requested_live.append(live_probe)
             return passive
 
-        model, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model = _compose_codex_model(
             _configurations(),
             probe_codex=passive_only_probe,
         )
@@ -111,12 +111,21 @@ class ZestdModelCompositionTests(unittest.TestCase):
             self.assertIs(kwargs["live_probe"], True)
             return probe_codex_cli(runner=runner, **kwargs)
 
-        model, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model = _compose_codex_model(
             _configurations(),
             probe_codex=live_probe,
         )
         readiness = probe_model()
         call_count = len(calls)
+
+        self.assertEqual(
+            len(fallback_models),
+            1,
+        )
+        self.assertEqual(
+            fallback_models[0].runtime_identity.runtime_id,
+            "secondary",
+        )
 
         self.assertNotIsInstance(model, _UnavailableModel)
         self.assertEqual(model.adapter_identity, "codex.cli.session")
@@ -173,7 +182,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
                 reason="non-zero exit",
             )
 
-        model, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model = _compose_codex_model(
             _configurations(),
             probe_codex=lambda **kwargs: probe_codex_cli(runner=runner, **kwargs),
         )
