@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from datetime import datetime, timezone
 from unittest import mock
 
 import pathsetup  # noqa: F401
 
 from zest.application.autonomous_research_controller import (
     AutonomousResearchController,
+    OrchestrationTickResult,
     StartAutonomousResearchCommand,
 )
 from zest.application.discovery.runner import SurfaceDiscoveryStart
@@ -15,6 +17,7 @@ from zest.application.local_run_supervisor import (
     LocalRunSupervisor,
     LocalRunSupervisorRegistry,
 )
+from zest.application.program_daily_budget import program_daily_budget_id
 from zest.application.program_research_context import ProgramPolicyView
 from zest.core.enums import ScopeRuleEffect
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
@@ -26,13 +29,21 @@ from support.fake_model import ScriptedModelPort, default_generator_output
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
 from support.spine import CREATED_AT, seed_authorization_run
-from zest.data.records import IssuedBudgetRecord
+from zest.data.records import IssuedBudgetRecord, ProgramPolicyRecord
 from zest.platform.worker import InvocationStatus
 
 
 class FixedClock:
     def now(self):
         return CREATED_AT
+
+
+class MutableClock:
+    def __init__(self, current: datetime):
+        self.current = current
+
+    def now(self):
+        return self.current
 
 
 def _command() -> StartAutonomousResearchCommand:
@@ -144,6 +155,185 @@ class LocalRunSupervisorTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
+
+    def test_tick_provisions_daily_budget_across_utc_rollover(self) -> None:
+        store = _seed()
+        store.program_policies["prog-1"] = ProgramPolicyRecord(
+            program_id="prog-1",
+            loopback_fixture=True,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+            daily_llm_budget_microdollars=1_000_000,
+        )
+
+        factory = FakeUnitOfWorkFactory(store=store)
+        controller = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(store=store),
+            ScriptedModelPort(),
+            clock=FixedClock(),
+        )
+        command = _command()
+        controller.start(command)
+
+        def continue_step(_command):
+            current = store.research_orchestrations["run-1"]
+            return OrchestrationTickResult(
+                research_run_id="run-1",
+                state=current.state,
+                cycle_number=current.cycle_number,
+                outcome="CONTINUE",
+                stop_reason=current.stop_reason,
+                last_phase=current.last_phase,
+            )
+
+        controller.step = mock.Mock(side_effect=continue_step)
+
+        clock = MutableClock(
+            datetime(
+                2026,
+                9,
+                9,
+                23,
+                59,
+                59,
+                tzinfo=timezone.utc,
+            )
+        )
+
+        supervisor = LocalRunSupervisor(
+            "run-1",
+            controller,
+            command,
+            factory,
+            clock=clock,
+        )
+
+        supervisor.tick()
+
+        first_day = program_daily_budget_id(
+            "prog-1",
+            "2026-09-09",
+        )
+
+        self.assertIn(
+            first_day,
+            store.issued_budgets,
+        )
+
+        # A second tick on the same UTC date must not create
+        # another daily envelope.
+        supervisor.tick()
+
+        daily_ids = sorted(
+            budget_id
+            for budget_id in store.issued_budgets
+            if budget_id.startswith("program-daily:")
+        )
+
+        self.assertEqual(
+            daily_ids,
+            [first_day],
+        )
+
+        # The next runnable tick after UTC midnight provisions
+        # the next immutable daily envelope before controller.step.
+        clock.current = datetime(
+            2026,
+            9,
+            10,
+            0,
+            0,
+            1,
+            tzinfo=timezone.utc,
+        )
+
+        supervisor.tick()
+
+        second_day = program_daily_budget_id(
+            "prog-1",
+            "2026-09-10",
+        )
+
+        self.assertIn(
+            second_day,
+            store.issued_budgets,
+        )
+
+        self.assertEqual(
+            controller.step.call_count,
+            3,
+        )
+
+    def test_tick_does_not_turn_unset_daily_limit_into_unlimited(self) -> None:
+        store = _seed()
+        store.program_policies["prog-1"] = ProgramPolicyRecord(
+            program_id="prog-1",
+            loopback_fixture=True,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+            daily_llm_budget_microdollars=None,
+        )
+
+        factory = FakeUnitOfWorkFactory(store=store)
+        controller = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(store=store),
+            ScriptedModelPort(),
+            clock=FixedClock(),
+        )
+        command = _command()
+        controller.start(command)
+
+        current = store.research_orchestrations["run-1"]
+
+        controller.step = mock.Mock(
+            return_value=OrchestrationTickResult(
+                research_run_id="run-1",
+                state=current.state,
+                cycle_number=current.cycle_number,
+                outcome="CONTINUE",
+                stop_reason=current.stop_reason,
+                last_phase=current.last_phase,
+            )
+        )
+
+        clock = MutableClock(
+            datetime(
+                2026,
+                9,
+                10,
+                0,
+                0,
+                1,
+                tzinfo=timezone.utc,
+            )
+        )
+
+        supervisor = LocalRunSupervisor(
+            "run-1",
+            controller,
+            command,
+            factory,
+            clock=clock,
+        )
+
+        supervisor.tick()
+
+        daily_id = program_daily_budget_id(
+            "prog-1",
+            "2026-09-10",
+        )
+
+        self.assertNotIn(
+            daily_id,
+            store.issued_budgets,
+        )
+
 
     def test_controller_fault_is_durable_and_stops_supervisor(self) -> None:
         store = _seed()

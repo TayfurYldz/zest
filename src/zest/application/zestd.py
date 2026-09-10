@@ -667,6 +667,7 @@ class ZestdRuntime:
                 command=command,
                 uow_factory=self._uow_factory,
                 cadence_seconds=self._cadence_seconds,
+                clock=self._clock,
                 controller_factory=_controller_factory,
             )
         except DatabaseUnavailableError as exc:

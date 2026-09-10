@@ -7,7 +7,6 @@ current program context because exploratory Core authorization requires it.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
 from zest.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
@@ -25,7 +24,7 @@ from zest.application.orchestration_config import (
     assert_command_matches_configuration,
     configuration_from_record,
 )
-from zest.application.ports import UnitOfWorkFactory
+from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from zest.application.program_research_context import load_program_research_context
 from zest.core.scope_compiler import evaluate_scope_candidate
 from zest.platform.url_normalize import normalize_url
@@ -156,6 +155,8 @@ def reconstruct_start_command(
 def allocate_daily_budget_if_required(
     uow_factory: UnitOfWorkFactory,
     research_run_id: str,
+    *,
+    clock: Clock | None = None,
 ) -> None:
     """Issue today's program daily LLM budget when policy requires it.
 
@@ -168,6 +169,9 @@ def allocate_daily_budget_if_required(
         AllocateProgramDailyBudgetCommand,
     )
 
+    effective_clock = clock or SystemClock()
+    budget_date = effective_clock.now().date().isoformat()
+
     with uow_factory.open() as uow:
         run = uow.research_runs.get(research_run_id)
         if run is None:
@@ -177,10 +181,13 @@ def allocate_daily_budget_if_required(
         uow.rollback()
     if policy is None or policy.daily_llm_budget_microdollars is None:
         return
-    AllocateProgramDailyBudget(uow_factory).execute(
+    AllocateProgramDailyBudget(
+        uow_factory,
+        clock=effective_clock,
+    ).execute(
         AllocateProgramDailyBudgetCommand(
             program_id=run.program_id,
-            budget_date=datetime.now(timezone.utc).date().isoformat(),
+            budget_date=budget_date,
             limit_microdollars=policy.daily_llm_budget_microdollars,
         )
     )

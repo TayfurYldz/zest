@@ -21,7 +21,7 @@ from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.orchestration_lease import LeaseConfig
 from zest.application.observability import supervisor_fault
-from zest.application.ports import UnitOfWorkFactory
+from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from zest.data.errors import (
     LeaseFencingError,
     PersistenceError,
@@ -82,6 +82,7 @@ class LocalRunSupervisor:
     command: StartAutonomousResearchCommand
     uow_factory: UnitOfWorkFactory
     cadence_seconds: float = 0.25
+    clock: Clock | None = None
     owner_runtime_instance_id: str | None = None
     lease_epoch: int = 0
     lease_config: LeaseConfig = field(default_factory=LeaseConfig)
@@ -95,12 +96,42 @@ class LocalRunSupervisor:
         self._last_result: OrchestrationTickResult | None = None
         self._last_renewed_monotonic = time.monotonic()
         self._lease_lost = False
+        self._clock = self.clock or SystemClock()
+        self._daily_budget_date: str | None = None
 
     @property
     def lease_lost(self) -> bool:
         """True once a heartbeat renewal has been rejected by the SoR."""
 
         return self._lease_lost
+
+    def _ensure_current_daily_budget(self) -> None:
+        """Provision the current UTC day's program LLM envelope once.
+
+        This is a lifecycle prerequisite, not budget authority. The
+        persisted program policy remains the source of the configured
+        limit. An unset limit is still not provisioned, so the model
+        layer continues to fail closed.
+        """
+
+        budget_date = self._clock.now().date().isoformat()
+
+        if self._daily_budget_date == budget_date:
+            return
+
+        # Local import avoids widening the supervisor module's ownership:
+        # this calls the existing SoR-backed allocation use case.
+        from zest.application.reconstruct_run_command import (
+            allocate_daily_budget_if_required,
+        )
+
+        allocate_daily_budget_if_required(
+            self.uow_factory,
+            self.research_run_id,
+            clock=self._clock,
+        )
+
+        self._daily_budget_date = budget_date
 
     def _renew_lease_if_due(self) -> bool:
         """Return False only when renewal was attempted and rejected."""
@@ -148,6 +179,7 @@ class LocalRunSupervisor:
             OrchestrationState.RUNNING.value,
         }:
             try:
+                self._ensure_current_daily_budget()
                 result = self.controller.step(self.command)
             except LeaseFencingError:
                 self._lease_lost = True
@@ -315,6 +347,7 @@ class LocalRunSupervisorRegistry:
         command: StartAutonomousResearchCommand,
         uow_factory: UnitOfWorkFactory,
         cadence_seconds: float = 0.25,
+        clock: Clock | None = None,
         controller_factory=None,
     ) -> LocalRunSupervisor | None:
         """Attach a supervisor for this run, or return None if the lease
@@ -344,6 +377,7 @@ class LocalRunSupervisorRegistry:
                 command,
                 uow_factory,
                 cadence_seconds,
+                clock=clock,
                 owner_runtime_instance_id=self.owner_runtime_instance_id,
                 lease_epoch=acquired.record.lease_epoch,
                 lease_config=self.lease_config,
