@@ -156,6 +156,12 @@ from zest.application.research_work_planners import (
 
 
 CONTROL_PLANE_ACTOR_ID = "control-plane"
+
+MODEL_CHECKPOINT_RATE_LIMIT_RETRY_BOUND = 1
+MODEL_CHECKPOINT_RATE_LIMIT_RETRY_EVENT = (
+    "MODEL_RUNTIME_RATE_LIMIT_CHECKPOINT_RETRY"
+)
+
 DIAGNOSTIC_RESEARCH_QUESTION = (
     "Does the diagnostic capability return the submitted value?"
 )
@@ -853,6 +859,37 @@ class AutonomousResearchController:
             :allowed_model_count
         ]
 
+        (
+            checkpoint_retry_admission_id,
+            checkpoint_retry_ordinal,
+        ) = self._model_checkpoint_retry_grant(
+            command.research_run_id,
+            cycle_id=cycle_id,
+            opportunity_id=opportunity_id,
+        )
+
+        def _model_invocation_namespace(
+            index: int,
+        ) -> str | None:
+            parts: list[str] = []
+
+            if len(selected_models) != 1:
+                parts.append(
+                    f"slot-{index}"
+                )
+
+            if checkpoint_retry_ordinal:
+                parts.append(
+                    "checkpoint-retry-"
+                    f"{checkpoint_retry_ordinal}"
+                )
+
+            return (
+                ":".join(parts)
+                if parts
+                else None
+            )
+
         budgeted_models = tuple(
             BudgetEnforcedModelPort(
                 model_port,
@@ -862,9 +899,7 @@ class AutonomousResearchController:
                 cycle_id=cycle_id,
                 program_id=program_id,
                 invocation_namespace=(
-                    None
-                    if len(selected_models) == 1
-                    else f"slot-{index}"
+                    _model_invocation_namespace(index)
                 ),
                 clock=self._clock,
             )
@@ -918,6 +953,9 @@ class AutonomousResearchController:
                     correlation_id=correlation_id,
                     opportunity_id=opportunity_id,
                     echo_message=f"ping-{current.cycle_number + 1}",
+                    retry_admission_record_id=(
+                        checkpoint_retry_admission_id
+                    ),
                 ),
                 persist_hook=_persist_hypothesis,
             )
@@ -1038,6 +1076,83 @@ class AutonomousResearchController:
                 proposed.runtime_outcome
                 or RuntimeOutcome.PROCESS_FAILED
             )
+
+            # Generic/transient provider throttling receives exactly one
+            # durable whole-checkpoint retry. The selected opportunity and
+            # active cycle identity remain unchanged; no research cycle is
+            # completed and no completion path becomes reachable here.
+            #
+            # Explicit account/session usage exhaustion is intentionally
+            # excluded: MODEL_USAGE_LIMITED remains a truthful immediate
+            # RATE_LIMITED block after bounded model fallback.
+            if (
+                outcome is RuntimeOutcome.RATE_LIMITED
+                and proposed.reason_code
+                == "MODEL_RATE_LIMITED"
+                and checkpoint_retry_ordinal == 0
+            ):
+                if (
+                    proposed.admission_record_id is None
+                    or current.active_cycle_id is None
+                ):
+                    return self._stop(
+                        current,
+                        StopReason.OPERATIONAL_FAILURE,
+                        "model_checkpoint_retry_missing_identity",
+                        hypothesis_id=proposed.hypothesis_id,
+                    )
+
+                retry_event = AuditEventRecord(
+                    audit_event_id=(
+                        "ae:model-checkpoint-rate-limit-retry:"
+                        + new_opaque_id()
+                    ),
+                    occurred_at=self._clock.now(),
+                    actor_id=self._actor_id,
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type=(
+                        MODEL_CHECKPOINT_RATE_LIMIT_RETRY_EVENT
+                    ),
+                    subject_type="research_run",
+                    subject_id=command.research_run_id,
+                    payload={
+                        "active_cycle_id": (
+                            current.active_cycle_id
+                        ),
+                        "opportunity_id": opportunity_id,
+                        "admission_record_id": (
+                            proposed.admission_record_id
+                        ),
+                        "retry_ordinal": 1,
+                        "retry_bound": (
+                            MODEL_CHECKPOINT_RATE_LIMIT_RETRY_BOUND
+                        ),
+                        "trigger": "TRANSIENT_RATE_LIMIT",
+                        "cycle_incremented": False,
+                        "authority_expanded": False,
+                        "not_authorization": True,
+                        "not_research_truth": True,
+                        "next_physical_attempt_budgeted": True,
+                    },
+                )
+
+                self._observability.increment(
+                    "model_checkpoint_rate_limit_retries",
+                    1,
+                )
+
+                return self._complete_cycle(
+                    current,
+                    CycleOutcome.CONTINUE,
+                    "model_checkpoint_rate_limit_retry",
+                    state=OrchestrationState.READY,
+                    opportunity_id=opportunity_id,
+                    increment_cycle=False,
+                    current_phase=(
+                        OrchestrationPhase.OPPORTUNITY_SELECTED
+                    ),
+                    extra_audit_events=(retry_event,),
+                )
 
             return self._stop(
                 current,
@@ -1867,25 +1982,33 @@ class AutonomousResearchController:
                         },
                     ),
                 )
+        resolved_current_phase = (
+            current_phase.value
+            if current_phase is not None
+            else (
+                OrchestrationPhase.CYCLE_COMPLETE.value
+                if inserting
+                else current.current_phase
+            )
+        )
+
         updated = replace(
             current,
             state=next_state,
             cycle_number=cycle_number,
             last_phase=phase,
-            current_phase=(
-                current_phase.value
-                if current_phase is not None
-                else (
-                    OrchestrationPhase.CYCLE_COMPLETE.value
-                    if inserting
-                    else current.current_phase
-                )
-            ),
+            current_phase=resolved_current_phase,
             last_opportunity_id=opportunity_id or current.last_opportunity_id,
             last_hypothesis_id=hypothesis_id or current.last_hypothesis_id,
             last_experiment_id=experiment_id or current.last_experiment_id,
             last_observation_id=observation_id or current.last_observation_id,
             last_assessment_id=assessment_id or current.last_assessment_id,
+            active_cycle_id=(
+                None
+                if resolved_current_phase
+                == OrchestrationPhase.CYCLE_COMPLETE.value
+                else current.active_cycle_id
+            ),
             pause_reason=(
                 current.pause_reason if pause_reason is _UNSET else pause_reason
             ),
@@ -1932,6 +2055,98 @@ class AutonomousResearchController:
             )
         )
         return _result_from_record(updated, outcome)
+
+    def _model_checkpoint_retry_grant(
+        self,
+        research_run_id: str,
+        *,
+        cycle_id: str,
+        opportunity_id: str | None,
+    ) -> tuple[str | None, int]:
+        """Load the single durable transient-rate-limit retry grant.
+
+        Audit is append-only and survives supervisor/process restart. More
+        than one grant for one active cycle is an integrity error rather than
+        permission to retry unboundedly.
+        """
+        with self._uow_factory.open() as uow:
+            events = uow.audit_events.list_for_subject(
+                "research_run",
+                research_run_id,
+            )
+
+            matches = [
+                event
+                for event in events
+                if (
+                    event.event_type
+                    == MODEL_CHECKPOINT_RATE_LIMIT_RETRY_EVENT
+                    and event.payload.get(
+                        "active_cycle_id"
+                    ) == cycle_id
+                )
+            ]
+
+            if len(matches) > 1:
+                uow.rollback()
+                raise ApplicationError(
+                    "multiple model checkpoint retry grants "
+                    "for one active cycle"
+                )
+
+            if not matches:
+                uow.rollback()
+                return None, 0
+
+            event = matches[0]
+            payload = event.payload
+
+            admission_id = payload.get(
+                "admission_record_id"
+            )
+            retry_ordinal = payload.get(
+                "retry_ordinal"
+            )
+            event_opportunity_id = payload.get(
+                "opportunity_id"
+            )
+
+            if (
+                not isinstance(admission_id, str)
+                or not admission_id.strip()
+                or retry_ordinal != 1
+                or payload.get("retry_bound")
+                != MODEL_CHECKPOINT_RATE_LIMIT_RETRY_BOUND
+                or event_opportunity_id != opportunity_id
+            ):
+                uow.rollback()
+                raise ApplicationError(
+                    "invalid model checkpoint retry grant"
+                )
+
+            admission = uow.research_admissions.get(
+                admission_id
+            )
+
+            if (
+                admission is None
+                or admission.research_run_id
+                != research_run_id
+                or admission.outcome
+                != AdmissionOutcome.MODEL_INVOCATION_FAILED.value
+                or admission.reason_code
+                != "MODEL_RATE_LIMITED"
+            ):
+                uow.rollback()
+                raise ApplicationError(
+                    "model checkpoint retry grant does not "
+                    "reference an exact transient rate-limit admission"
+                )
+
+            uow.rollback()
+
+        return admission_id, retry_ordinal
+
 
     def _usage(
         self,

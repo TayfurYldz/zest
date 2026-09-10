@@ -15,7 +15,11 @@ from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
 from zest.research.admission import AdmissionOutcome
 from zest.research.context import ExternalContentSource
 from zest.research.epistemic import EpistemicClass
-from zest.research.model_port import ModelRole
+from zest.research.model_port import (
+    ModelRole,
+    ProviderRateLimitError,
+    ProviderUsageLimitError,
+)
 from zest.research.planning import DIAGNOSTIC_CLAIM
 from zest.research.types import ResearchInputError
 from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
@@ -156,6 +160,169 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         admission = next(iter(store.research_admissions.values()))
         self.assertIsNone(admission.admitted_hypothesis_id)
         self.assertEqual(admission.reason_code, "MODEL_INVOCATION_FAILED")
+
+    def test_usage_limit_persists_machine_distinguishable_reason_code(
+        self,
+    ) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+
+        result = _use_case(
+            store,
+            ScriptedModelPort(
+                error=ProviderUsageLimitError(
+                    "Codex CLI usage/rate limit reached"
+                )
+            ),
+        ).execute(_command())
+
+        self.assertEqual(
+            result.outcome,
+            AdmissionOutcome.MODEL_INVOCATION_FAILED,
+        )
+        self.assertEqual(
+            result.runtime_outcome.value,
+            "RATE_LIMITED",
+        )
+        self.assertEqual(
+            result.reason_code,
+            "MODEL_USAGE_LIMITED",
+        )
+        self.assertEqual(
+            store.hypotheses,
+            {},
+        )
+
+        admission = next(
+            iter(
+                store.research_admissions.values()
+            )
+        )
+
+        self.assertEqual(
+            admission.outcome,
+            AdmissionOutcome.MODEL_INVOCATION_FAILED.value,
+        )
+        self.assertEqual(
+            admission.reason_code,
+            "MODEL_USAGE_LIMITED",
+        )
+
+    def test_transient_rate_limit_replay_requires_exact_retry_admission_id(
+        self,
+    ) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+
+        first_model = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "transient rate"
+            )
+        )
+
+        first = _use_case(
+            store,
+            first_model,
+        ).execute(_command())
+
+        self.assertEqual(
+            first.outcome,
+            AdmissionOutcome.MODEL_INVOCATION_FAILED,
+        )
+        self.assertEqual(
+            first.reason_code,
+            "MODEL_RATE_LIMITED",
+        )
+        self.assertIsNotNone(
+            first.admission_record_id,
+        )
+
+        # Default idempotency remains strict: the durable failure replays
+        # without another physical model call.
+        replay_model = ScriptedModelPort()
+
+        replayed = _use_case(
+            store,
+            replay_model,
+        ).execute(_command())
+
+        self.assertEqual(
+            replayed.admission_record_id,
+            first.admission_record_id,
+        )
+        self.assertEqual(
+            len(replay_model.calls),
+            0,
+        )
+
+        # Only the exact durable grant may bypass that one failed admission.
+        retry_model = ScriptedModelPort()
+
+        retried = _use_case(
+            store,
+            retry_model,
+        ).execute(
+            _command(
+                retry_admission_record_id=(
+                    first.admission_record_id
+                )
+            )
+        )
+
+        self.assertEqual(
+            retried.outcome,
+            AdmissionOutcome.ADMITTED,
+        )
+        self.assertEqual(
+            len(retry_model.calls),
+            2,
+        )
+        self.assertEqual(
+            len(store.research_admissions),
+            2,
+        )
+        self.assertEqual(
+            len(store.hypotheses),
+            1,
+        )
+
+    def test_wrong_retry_admission_id_does_not_bypass_replay(
+        self,
+    ) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+
+        first = _use_case(
+            store,
+            ScriptedModelPort(
+                error=ProviderRateLimitError(
+                    "transient rate"
+                )
+            ),
+        ).execute(_command())
+
+        retry_model = ScriptedModelPort()
+
+        replayed = _use_case(
+            store,
+            retry_model,
+        ).execute(
+            _command(
+                retry_admission_record_id=(
+                    "different-admission"
+                )
+            )
+        )
+
+        self.assertEqual(
+            replayed.admission_record_id,
+            first.admission_record_id,
+        )
+        self.assertEqual(
+            len(retry_model.calls),
+            0,
+        )
+
 
     def test_process_failure_persists_safe_provenance_without_provider_output(self) -> None:
         store = _Store()

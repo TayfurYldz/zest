@@ -111,6 +111,7 @@ class ZestdRuntime:
         probe_schema: Callable[[], SchemaHealthInput],
         probe_worker: Callable[[], WorkerReadinessInput],
         probe_model: Callable[[], ModelReadinessInput],
+        probe_model_health: Callable[[], ModelReadinessInput] | None = None,
         required_worker_capabilities: frozenset[str] = frozenset(),
         engine_version: str = ENGINE_VERSION,
         host_identity: str = "zestd",
@@ -128,6 +129,19 @@ class ZestdRuntime:
         self._probe_schema = probe_schema
         self._probe_worker = probe_worker
         self._probe_model = probe_model
+
+        # Startup/preflight qualification and operator-facing operational
+        # health are intentionally separate. Health observation must not
+        # become authorization or consume provider requests.
+        self._probe_model_health = (
+            probe_model_health
+            if probe_model_health is not None
+            else probe_model
+        )
+        self._model_health_probe_separate = (
+            probe_model_health is not None
+        )
+
         self._required_worker_capabilities = required_worker_capabilities
         self._engine_version = engine_version
         self._host_identity = host_identity
@@ -751,7 +765,11 @@ class ZestdRuntime:
 
         db_available = self._refresh_pg_availability()
         worker = self._probe_worker()
-        model = self._probe_model()
+
+        # Read-only operator health. This may reflect the last real model
+        # invocation, but it never performs a request-consuming model probe.
+        model = self._probe_model_health()
+
         schema = SchemaHealthInput(at_expected_head=False, detail="unavailable")
         if db_available:
             try:
@@ -814,6 +832,11 @@ class ZestdRuntime:
                 "available_now": model_available,
                 "health": model_health.value,
                 "detail": model.health.detail,
+                "health_source": (
+                    "RUNTIME_OBSERVATION_OR_STARTUP_SEED"
+                    if self._model_health_probe_separate
+                    else "READINESS_PROBE"
+                ),
                 "rate_limited": model_health is ComponentHealth.RATE_LIMITED,
                 "gate_04b": GATE_04B_STATUS,
                 "gate_04b_is_not_availability": True,

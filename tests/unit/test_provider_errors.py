@@ -21,6 +21,7 @@ from zest.research.model_port import (
     ProviderAuthError,
     ProviderRateLimitError,
     ProviderRuntimeError,
+    ProviderUsageLimitError,
 )
 from zest.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
@@ -68,6 +69,74 @@ class ProviderErrorClassificationTests(unittest.TestCase):
         mapped = classify_provider_exception(_Structured(403, "forbidden", "nope"))
         self.assertIsInstance(mapped, ProviderRuntimeError)
         self.assertNotIsInstance(mapped, ProviderAuthError)
+
+
+class CodexRateLimitTaxonomyTests(unittest.TestCase):
+    def _request(self) -> ModelCallRequest:
+        return ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="rate-taxonomy",
+            context_fingerprint="fp-rate-taxonomy",
+            instructions="propose",
+            payload={"note": "ok"},
+        )
+
+    def _adapter_for_stderr(self, stderr: str) -> CodexCliSessionAdapter:
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.PROCESS_FAILED,
+                argv=argv,
+                exit_code=1,
+                stderr=stderr,
+            )
+
+        return CodexCliSessionAdapter(
+            allowed_capabilities=(
+                CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+            ),
+            executable="codex",
+            model="diagnostic-model",
+            configuration_id="codex-cli-diagnostic",
+            runner=runner,
+        )
+
+    def test_usage_quota_is_machine_distinguishable_but_still_rate_limited(
+        self,
+    ) -> None:
+        adapter = self._adapter_for_stderr(
+            "You've hit your usage limit. Try again at 18:00."
+        )
+
+        with self.assertRaises(ProviderUsageLimitError) as ctx:
+            adapter.complete(self._request())
+
+        self.assertIsInstance(
+            ctx.exception,
+            ProviderRateLimitError,
+        )
+
+        # Provider reset details are intentionally not propagated into
+        # research/admission truth.
+        self.assertNotIn(
+            "18:00",
+            str(ctx.exception),
+        )
+
+    def test_generic_rate_limit_is_not_misclassified_as_usage_quota(
+        self,
+    ) -> None:
+        adapter = self._adapter_for_stderr(
+            "429 rate limit: slow down"
+        )
+
+        with self.assertRaises(ProviderRateLimitError) as ctx:
+            adapter.complete(self._request())
+
+        self.assertNotIsInstance(
+            ctx.exception,
+            ProviderUsageLimitError,
+        )
 
 
 class CodexReadinessTests(unittest.TestCase):

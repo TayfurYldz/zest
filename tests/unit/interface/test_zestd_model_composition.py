@@ -6,16 +6,43 @@ from pathlib import Path
 
 import pathsetup  # noqa: F401
 
-from zest.application.preflight import _model_readiness_check
+from zest.application.preflight import (
+    ModelReadinessInput,
+    _model_readiness_check,
+)
 from zest.integrations.models.cli_session import (
     parse_codex_model_configurations,
     probe_codex_cli,
 )
 from zest.integrations.models.json_schemas import DIAGNOSTIC_OUTPUT_SCHEMA
-from zest.interface.zestd import _UnavailableModel, _compose_codex_model
+from zest.interface.zestd import (
+    _ObservedModelPort,
+    _ObservedModelReadinessState,
+    _UnavailableModel,
+    _compose_codex_model,
+)
 from zest.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
-from zest.platform.health import ComponentHealth
-from zest.research.model_runtime import AuthMode, RuntimeClass, RuntimeKind
+from zest.platform.health import (
+    ComponentHealth,
+    HealthCheck,
+)
+from zest.research.model_port import (
+    ModelCallRequest,
+    ModelRole,
+    ProviderRateLimitError,
+    ProviderUsageLimitError,
+)
+from zest.research.model_runtime import (
+    AuthMode,
+    RuntimeClass,
+    RuntimeKind,
+    api_runtime_identity,
+)
+from zest.research.routing import (
+    CandidateLocality,
+    RuntimeCandidate,
+)
+from support.fake_model import ScriptedModelPort
 
 
 def _configurations():
@@ -59,7 +86,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
             requested_live.append(live_probe)
             return passive
 
-        model, fallback_models, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe = _compose_codex_model(
             _configurations(),
             probe_codex=passive_only_probe,
         )
@@ -111,7 +138,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
             self.assertIs(kwargs["live_probe"], True)
             return probe_codex_cli(runner=runner, **kwargs)
 
-        model, fallback_models, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe = _compose_codex_model(
             _configurations(),
             probe_codex=live_probe,
         )
@@ -149,7 +176,187 @@ class ZestdModelCompositionTests(unittest.TestCase):
         )
 
         self.assertIs(probe_model(), readiness)
+        self.assertIs(health_probe(), readiness)
         self.assertEqual(len(calls), call_count)
+
+    def test_runtime_observation_changes_health_without_active_probe(
+        self,
+    ) -> None:
+        candidate = RuntimeCandidate(
+            identity=api_runtime_identity(
+                adapter_id="test",
+                runtime_id="primary",
+            ),
+            available=True,
+            authenticated=True,
+            structured_output_compatible=True,
+            locality=CandidateLocality.LOCAL,
+        )
+
+        seed = ModelReadinessInput(
+            candidate=candidate,
+            health=HealthCheck(
+                "model",
+                ComponentHealth.HEALTHY,
+                "startup-qualified",
+            ),
+        )
+
+        state = _ObservedModelReadinessState(
+            seed
+        )
+
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="corr-health",
+            context_fingerprint="fp-health",
+            instructions="generate",
+            payload={"diagnostic": True},
+        )
+
+        limited_inner = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "provider detail must not leak"
+            )
+        )
+
+        limited = _ObservedModelPort(
+            limited_inner,
+            state,
+        )
+
+        with self.assertRaises(
+            ProviderRateLimitError
+        ):
+            limited.complete(request)
+
+        snapshot = state.snapshot()
+
+        self.assertIs(
+            snapshot.health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+        self.assertEqual(
+            snapshot.health.detail,
+            "last_runtime_outcome=MODEL_RATE_LIMITED",
+        )
+        self.assertNotIn(
+            "provider detail",
+            snapshot.health.detail,
+        )
+        self.assertIsNotNone(
+            snapshot.candidate
+        )
+        assert snapshot.candidate is not None
+        self.assertFalse(
+            snapshot.candidate.available
+        )
+        self.assertTrue(
+            snapshot.candidate.authenticated
+        )
+
+        # Reading health is passive.
+        calls_before = len(
+            limited_inner.calls
+        )
+        state.snapshot()
+        state.snapshot()
+        self.assertEqual(
+            len(limited_inner.calls),
+            calls_before,
+        )
+
+        success_inner = ScriptedModelPort()
+        success = _ObservedModelPort(
+            success_inner,
+            state,
+        )
+
+        success.complete(request)
+
+        recovered = state.snapshot()
+
+        self.assertIs(
+            recovered.health.health,
+            ComponentHealth.HEALTHY,
+        )
+        self.assertEqual(
+            recovered.health.detail,
+            "last_runtime_outcome=COMPLETED",
+        )
+        assert recovered.candidate is not None
+        self.assertTrue(
+            recovered.candidate.available
+        )
+        self.assertTrue(
+            recovered.candidate.authenticated
+        )
+        self.assertTrue(
+            recovered.candidate.structured_output_compatible
+        )
+
+    def test_usage_limit_is_visible_as_safe_operational_health_detail(
+        self,
+    ) -> None:
+        candidate = RuntimeCandidate(
+            identity=api_runtime_identity(
+                adapter_id="test",
+                runtime_id="primary",
+            ),
+            available=True,
+            authenticated=True,
+            structured_output_compatible=True,
+            locality=CandidateLocality.LOCAL,
+        )
+
+        state = _ObservedModelReadinessState(
+            ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    ComponentHealth.HEALTHY,
+                    "startup-qualified",
+                ),
+            )
+        )
+
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="corr-usage",
+            context_fingerprint="fp-usage",
+            instructions="generate",
+            payload={"diagnostic": True},
+        )
+
+        observed = _ObservedModelPort(
+            ScriptedModelPort(
+                error=ProviderUsageLimitError(
+                    "secret provider reset text"
+                )
+            ),
+            state,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            observed.complete(request)
+
+        snapshot = state.snapshot()
+
+        self.assertIs(
+            snapshot.health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+        self.assertEqual(
+            snapshot.health.detail,
+            "last_runtime_outcome=MODEL_USAGE_LIMITED",
+        )
+        self.assertNotIn(
+            "reset",
+            snapshot.health.detail,
+        )
+
 
     def test_failed_live_probe_fails_closed_without_secondary_fallback(self) -> None:
         secret = "SENTINEL-PROMPT-SECRET"
@@ -182,7 +389,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
                 reason="non-zero exit",
             )
 
-        model, fallback_models, probe_model = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe = _compose_codex_model(
             _configurations(),
             probe_codex=lambda **kwargs: probe_codex_cli(runner=runner, **kwargs),
         )

@@ -344,7 +344,14 @@ class LocalRunSupervisor:
                 uow.rollback()
             if exhausted:
                 self.command = replace(self.command, surface_discovery=None)
-        if result.state in _TERMINAL_STATES:
+        # BLOCKED is intentionally not a globally terminal orchestration
+        # state: operator control may still cancel/resolve it. It is however
+        # non-runnable and non-auto-resumable, so retaining a live supervisor
+        # and lease only strands ownership without making progress.
+        if (
+            result.state in _TERMINAL_STATES
+            or result.state == OrchestrationState.BLOCKED.value
+        ):
             self._stop_event.set()
         return result
 

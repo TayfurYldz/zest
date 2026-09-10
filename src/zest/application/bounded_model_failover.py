@@ -17,6 +17,7 @@ from zest.research.model_port import (
     ModelCallResult,
     ModelPort,
     ProviderRateLimitError,
+    ProviderUsageLimitError,
 )
 
 
@@ -152,6 +153,27 @@ class BoundedRateLimitFailoverModelPort:
 
             try:
                 return port.complete(request)
+
+            except ProviderUsageLimitError:
+                # An explicit account/session usage envelope is not expected
+                # to recover from a one-second retry. Skip only the immediate
+                # same-runtime retry. Existing bounded fallback remains
+                # available because a different configured model/runtime may
+                # still have usable capacity.
+                can_fallback = (
+                    self._fallbacks_used
+                    < self._max_fallback_attempts
+                    and self._active_index + 1
+                    < len(self._ports)
+                )
+
+                if not can_fallback:
+                    raise
+
+                self._fallbacks_used += 1
+                self._active_index += 1
+                retries_for_active_runtime = 0
+                continue
 
             except ProviderRateLimitError:
                 can_retry_current = (

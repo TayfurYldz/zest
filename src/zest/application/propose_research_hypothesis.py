@@ -50,7 +50,15 @@ from zest.research.identity_anomaly import (
     exploratory_hypothesis_origin,
     identity_anomaly_proposal_and_challenge,
 )
-from zest.research.model_port import ModelCallResult, ModelPort, ModelPortError, ModelRole, ContentPolicyBlockedError
+from zest.research.model_port import (
+    ContentPolicyBlockedError,
+    ModelCallResult,
+    ModelPort,
+    ModelPortError,
+    ModelRole,
+    ProviderRateLimitError,
+    ProviderUsageLimitError,
+)
 from zest.research.model_runtime import RuntimeOutcome
 from zest.research.planning import plan_admitted_hypothesis
 from zest.research.proposals import (
@@ -79,6 +87,7 @@ class ProposeResearchHypothesisCommand:
     chain_id: str | None = None
     opportunity_id: str | None = None
     change_event_id: str | None = None
+    retry_admission_record_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -232,10 +241,9 @@ class ProposeResearchHypothesis:
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
                 reason=str(exc),
-                reason_code=(
-                    "CONTENT_POLICY_BLOCKED"
-                    if outcome is RuntimeOutcome.CONTENT_POLICY_BLOCKED
-                    else "MODEL_INVOCATION_FAILED"
+                reason_code=_model_failure_reason_code(
+                    exc,
+                    outcome,
                 ),
                 proposal=None,
                 challenge=None,
@@ -323,10 +331,9 @@ class ProposeResearchHypothesis:
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
                 reason=str(exc),
-                reason_code=(
-                    "CONTENT_POLICY_BLOCKED"
-                    if outcome is RuntimeOutcome.CONTENT_POLICY_BLOCKED
-                    else "MODEL_INVOCATION_FAILED"
+                reason_code=_model_failure_reason_code(
+                    exc,
+                    outcome,
                 ),
                 proposal=proposal,
                 challenge=None,
@@ -461,6 +468,21 @@ class ProposeResearchHypothesis:
         if not matches:
             return None
         record = sorted(matches, key=lambda item: item.created_at)[-1]
+
+        # Default behaviour remains strict replay/idempotency. Only an exact
+        # durable admission ID explicitly granted by the controller may bypass
+        # one transient rate-limit failure. Wrong/stale IDs fail closed by
+        # replaying the durable record as before.
+        if (
+            command.retry_admission_record_id is not None
+            and command.retry_admission_record_id
+            == record.admission_record_id
+            and record.outcome
+            == AdmissionOutcome.MODEL_INVOCATION_FAILED.value
+            and record.reason_code == "MODEL_RATE_LIMITED"
+        ):
+            return None
+
         proposal = None
         challenge = None
         if record.generator_reasoning_record_id is not None:
@@ -979,6 +1001,28 @@ class ProposeResearchHypothesis:
             model_id=generated.model_id,
             model_version=generated.model_version,
         )
+
+
+def _model_failure_reason_code(
+    exc: ModelPortError,
+    outcome: RuntimeOutcome,
+) -> str:
+    if outcome is RuntimeOutcome.CONTENT_POLICY_BLOCKED:
+        return "CONTENT_POLICY_BLOCKED"
+
+    if isinstance(
+        exc,
+        ProviderUsageLimitError,
+    ):
+        return "MODEL_USAGE_LIMITED"
+
+    if isinstance(
+        exc,
+        ProviderRateLimitError,
+    ):
+        return "MODEL_RATE_LIMITED"
+
+    return "MODEL_INVOCATION_FAILED"
 
 
 def _structured_or_raw(result: ModelCallResult | None) -> Mapping[str, Any] | None:

@@ -37,6 +37,7 @@ from zest.research.model_port import (
     ModelRole,
     ProviderAuthError,
     ProviderRateLimitError,
+    ProviderUsageLimitError,
     ProviderTimeoutError,
     RuntimeCancelledError,
     RuntimeProcessError,
@@ -61,14 +62,20 @@ FORBIDDEN_CLI_FLAGS = frozenset(
         "dangerously-bypass-approvals-and-sandbox",
     }
 )
-CODEX_USAGE_LIMIT_MARKERS = (
+CODEX_USAGE_QUOTA_MARKERS = (
     "hit your usage limit",
     "usage limit",
-    "rate limit",
-    "ratelimit",
     "quota exceeded",
     "insufficient_quota",
+)
+CODEX_TRANSIENT_RATE_LIMIT_MARKERS = (
+    "rate limit",
+    "ratelimit",
     "429",
+)
+CODEX_USAGE_LIMIT_MARKERS = (
+    *CODEX_USAGE_QUOTA_MARKERS,
+    *CODEX_TRANSIENT_RATE_LIMIT_MARKERS,
 )
 USAGE_LIMIT_DETAIL = "Codex CLI usage/rate limit reached"
 ALLOWED_SANDBOX = "read-only"
@@ -722,7 +729,9 @@ def _result_from_process(
         raise RuntimeCancelledError(result.reason or "codex CLI cancelled")
     if result.status is ArgvProcessStatus.PROCESS_FAILED:
         combined = f"{result.stdout} {result.stderr}".lower()
-        if _codex_usage_limited(combined):
+        if _codex_usage_quota_limited(combined):
+            raise ProviderUsageLimitError(USAGE_LIMIT_DETAIL)
+        if _codex_transient_rate_limited(combined):
             raise ProviderRateLimitError(USAGE_LIMIT_DETAIL)
         if "login" in combined or "unauthorized" in combined or "not authenticated" in combined:
             raise ProviderAuthError("codex CLI authentication failed")
@@ -746,8 +755,25 @@ def _result_from_process(
     )
 
 
+def _codex_usage_quota_limited(text: str) -> bool:
+    return any(
+        marker in text
+        for marker in CODEX_USAGE_QUOTA_MARKERS
+    )
+
+
+def _codex_transient_rate_limited(text: str) -> bool:
+    return any(
+        marker in text
+        for marker in CODEX_TRANSIENT_RATE_LIMIT_MARKERS
+    )
+
+
 def _codex_usage_limited(text: str) -> bool:
-    return any(marker in text for marker in CODEX_USAGE_LIMIT_MARKERS)
+    return (
+        _codex_usage_quota_limited(text)
+        or _codex_transient_rate_limited(text)
+    )
 
 
 def _codex_non_git_working_directory_error(text: str) -> bool:

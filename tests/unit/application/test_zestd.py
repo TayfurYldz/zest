@@ -1157,6 +1157,107 @@ class ZestdRuntimeTests(unittest.TestCase):
         self.assertEqual(latest["status"], "NOT_READY")
         self.assertFalse(self._runtime.is_supervising("run-1"))
 
+    def test_operational_model_health_is_separate_from_startup_qualification(
+        self,
+    ) -> None:
+        store = _seed()
+        factory = FakeUnitOfWorkFactory(
+            store=store
+        )
+
+        qualified = _healthy_model()
+        assert qualified.candidate is not None
+
+        observed_limited = ModelReadinessInput(
+            candidate=replace(
+                qualified.candidate,
+                available=False,
+            ),
+            health=HealthCheck(
+                "model",
+                ComponentHealth.RATE_LIMITED,
+                "last_runtime_outcome=MODEL_RATE_LIMITED",
+            ),
+        )
+
+        calls = {
+            "qualification": 0,
+            "operational": 0,
+        }
+
+        def qualification_probe():
+            calls["qualification"] += 1
+            return qualified
+
+        def operational_probe():
+            calls["operational"] += 1
+            return observed_limited
+
+        runtime = ZestdRuntime(
+            factory,
+            RecordingWorkerPort(
+                store=store
+            ),
+            ScriptedModelPort(),
+            cadence_seconds=30,
+            probe_schema=_ok_schema,
+            probe_worker=_healthy_browser_worker,
+            probe_model=qualification_probe,
+            probe_model_health=operational_probe,
+        )
+
+        self._runtime = runtime
+        runtime.start_process()
+
+        health = runtime.health()
+
+        self.assertEqual(
+            calls["qualification"],
+            0,
+        )
+        self.assertEqual(
+            calls["operational"],
+            1,
+        )
+        self.assertFalse(
+            health["ready_for_start"]
+        )
+        self.assertFalse(
+            health["model"]["available_now"]
+        )
+        self.assertTrue(
+            health["model"]["rate_limited"]
+        )
+        self.assertEqual(
+            health["model"]["health"],
+            "RATE_LIMITED",
+        )
+        self.assertEqual(
+            health["model"]["health_source"],
+            "RUNTIME_OBSERVATION_OR_STARTUP_SEED",
+        )
+
+        # Explicit preflight still uses qualification readiness, not the
+        # historical operational observation. This prevents a past rate-limit
+        # from becoming a permanent start-gating deadlock.
+        preflight = runtime.execute_preflight(
+            "run-1"
+        )
+
+        self.assertEqual(
+            preflight["status"],
+            "READY_TO_START",
+        )
+        self.assertEqual(
+            calls["qualification"],
+            1,
+        )
+        self.assertEqual(
+            calls["operational"],
+            1,
+        )
+
+
     def test_health_does_not_claim_ready_when_model_auth_missing(self) -> None:
         store = _seed()
         factory = FakeUnitOfWorkFactory(store=store)

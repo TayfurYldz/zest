@@ -20,6 +20,7 @@ from zest.research.model_port import (
     ProviderAuthError,
     ProviderRateLimitError,
     ProviderTimeoutError,
+    ProviderUsageLimitError,
     StructuredOutputTransportError,
 )
 from zest.research.orchestration import OrchestrationBounds
@@ -293,6 +294,146 @@ class PreInvocationBudgetTests(unittest.TestCase):
         self.assertEqual(
             len(ids),
             2,
+        )
+
+    def test_usage_limit_fallback_charges_each_physical_attempt_without_retry(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(
+            store,
+            max_model_calls=4,
+        )
+        factory = FakeUnitOfWorkFactory(
+            store=store
+        )
+
+        primary = BudgetEnforcedModelPort(
+            ScriptedModelPort(
+                error=ProviderUsageLimitError(
+                    "usage exhausted"
+                )
+            ),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-usage",
+            invocation_namespace="slot-0",
+            clock=FixedClock(),
+        )
+
+        secondary = BudgetEnforcedModelPort(
+            ScriptedModelPort(),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-usage",
+            invocation_namespace="slot-1",
+            clock=FixedClock(),
+        )
+
+        resilient = BoundedRateLimitFailoverModelPort(
+            (primary, secondary),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        resilient.complete(_request())
+
+        totals = ledger_totals(
+            list(
+                store.budget_consumptions.values()
+            )
+        )
+
+        self.assertEqual(
+            totals.model_calls,
+            2,
+        )
+        self.assertEqual(
+            resilient.rate_limit_retries_used,
+            0,
+        )
+        self.assertEqual(
+            resilient.fallbacks_used,
+            1,
+        )
+
+        request_ids = {
+            item.request_id
+            for item
+            in store.budget_consumptions.values()
+            if item.resource_type == "MODEL_CALL"
+        }
+
+        self.assertEqual(
+            len(request_ids),
+            2,
+        )
+
+    def test_same_role_attempt_in_distinct_cycles_is_charged_separately(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(
+            store,
+            max_model_calls=4,
+        )
+
+        factory = FakeUnitOfWorkFactory(
+            store=store
+        )
+
+        first = BudgetEnforcedModelPort(
+            ScriptedModelPort(),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-first",
+            clock=FixedClock(),
+        )
+
+        second = BudgetEnforcedModelPort(
+            ScriptedModelPort(),
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-second",
+            clock=FixedClock(),
+        )
+
+        first.complete(
+            _request(ModelRole.GENERATOR)
+        )
+        second.complete(
+            _request(ModelRole.GENERATOR)
+        )
+
+        totals = ledger_totals(
+            list(
+                store.budget_consumptions.values()
+            )
+        )
+
+        self.assertEqual(
+            totals.model_calls,
+            2,
+        )
+
+        request_ids = {
+            item.request_id
+            for item
+            in store.budget_consumptions.values()
+            if item.resource_type == "MODEL_CALL"
+        }
+
+        self.assertEqual(
+            request_ids,
+            {
+                "cycle:cycle-first:generator:1",
+                "cycle:cycle-second:generator:1",
+            },
         )
 
     def test_worker_request_does_not_increment_model_calls(self) -> None:

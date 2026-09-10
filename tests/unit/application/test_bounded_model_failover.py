@@ -12,6 +12,7 @@ from zest.research.model_port import (
     ModelCallRequest,
     ModelRole,
     ProviderRateLimitError,
+    ProviderUsageLimitError,
 )
 from support.fake_model import ScriptedModelPort
 
@@ -203,6 +204,127 @@ class BoundedRateLimitFailoverTests(
             2,
         )
 
+        self.assertEqual(
+            port.fallbacks_used,
+            1,
+        )
+
+    def test_usage_limit_skips_immediate_retry_and_uses_bounded_fallback(
+        self,
+    ) -> None:
+        primary = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "usage exhausted"
+            )
+        )
+        secondary = ScriptedModelPort()
+
+        port = BoundedRateLimitFailoverModelPort(
+            (primary, secondary),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        result = port.complete(_request())
+
+        self.assertIs(
+            result.role,
+            ModelRole.GENERATOR,
+        )
+        self.assertEqual(
+            len(primary.calls),
+            1,
+        )
+        self.assertEqual(
+            len(secondary.calls),
+            1,
+        )
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            0,
+        )
+        self.assertEqual(
+            port.fallbacks_used,
+            1,
+        )
+        self.assertEqual(
+            port.active_index,
+            1,
+        )
+
+    def test_usage_limit_without_fallback_preserves_usage_subtype(
+        self,
+    ) -> None:
+        primary = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "usage exhausted"
+            )
+        )
+
+        port = BoundedRateLimitFailoverModelPort(
+            (primary,),
+            max_fallback_attempts=0,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            port.complete(_request())
+
+        self.assertEqual(
+            len(primary.calls),
+            1,
+        )
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            0,
+        )
+        self.assertEqual(
+            port.fallbacks_used,
+            0,
+        )
+
+    def test_usage_limit_fallback_exhaustion_does_not_retry_either_runtime(
+        self,
+    ) -> None:
+        primary = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "primary usage exhausted"
+            )
+        )
+        secondary = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "secondary usage exhausted"
+            )
+        )
+
+        port = BoundedRateLimitFailoverModelPort(
+            (primary, secondary),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            port.complete(_request())
+
+        self.assertEqual(
+            len(primary.calls),
+            1,
+        )
+        self.assertEqual(
+            len(secondary.calls),
+            1,
+        )
+        self.assertEqual(
+            port.rate_limit_retries_used,
+            0,
+        )
         self.assertEqual(
             port.fallbacks_used,
             1,

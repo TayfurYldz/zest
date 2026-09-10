@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import argparse
 import logging
 import os
@@ -13,6 +15,9 @@ from pathlib import Path
 from zest.application.orchestration_lease import LeaseConfig
 from zest.application.observer import ObserverService, ObserverSettings
 from zest.application.osd_settings import load_osd_settings, resolve_alembic_ini
+from zest.application.runtime_outcomes import (
+    runtime_outcome_from_exception,
+)
 from zest.application.preflight import (
     ModelReadinessInput,
     SchemaHealthInput,
@@ -28,6 +33,11 @@ from zest.interface.operator_api import OperatorApiServer
 from zest.platform.health import ComponentHealth, HealthCheck
 from zest.platform.browser_resource_control import BrowserResourceLimits, browser_resource_controller
 from zest.platform.worker_health import probe_local_python_worker
+from zest.research.model_port import (
+    ModelPortError,
+    ProviderUsageLimitError,
+)
+from zest.research.model_runtime import RuntimeOutcome
 from zest.integrations.observer import NvidiaCompatibleObserverProvider
 from zest.tools.registry import load_capability_registry
 
@@ -36,8 +46,163 @@ def _alembic_ini() -> str:
     return str(resolve_alembic_ini(os.environ, source_file=Path(__file__)))
 
 
+class _ObservedModelReadinessState:
+    """Thread-safe last-observed operational ModelRuntime health.
+
+    Startup qualification is immutable. This state is observational only and
+    is updated exclusively by actual ModelPort calls. Reading it causes no
+    provider request and grants no authority.
+    """
+
+    def __init__(
+        self,
+        initial: ModelReadinessInput,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._value = initial
+
+    def snapshot(self) -> ModelReadinessInput:
+        with self._lock:
+            return self._value
+
+    def record_success(self) -> None:
+        with self._lock:
+            current = self._value
+            candidate = current.candidate
+
+            if candidate is not None:
+                candidate = replace(
+                    candidate,
+                    available=True,
+                    authenticated=True,
+                    structured_output_compatible=True,
+                )
+
+            self._value = ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    ComponentHealth.HEALTHY,
+                    "last_runtime_outcome=COMPLETED",
+                ),
+            )
+
+    def record_failure(
+        self,
+        exc: ModelPortError,
+    ) -> None:
+        outcome = runtime_outcome_from_exception(
+            exc
+        )
+
+        # Cancellation is a control-plane/runtime lifecycle event, not proof
+        # that the provider itself became unhealthy.
+        if outcome is RuntimeOutcome.CANCELLED:
+            return
+
+        health_by_outcome = {
+            RuntimeOutcome.AUTH_FAILED:
+                ComponentHealth.AUTH_REQUIRED,
+            RuntimeOutcome.RATE_LIMITED:
+                ComponentHealth.RATE_LIMITED,
+            RuntimeOutcome.CONTENT_POLICY_BLOCKED:
+                ComponentHealth.BLOCKED_POLICY,
+        }
+
+        health = health_by_outcome.get(
+            outcome,
+            ComponentHealth.UNAVAILABLE,
+        )
+
+        if isinstance(
+            exc,
+            ProviderUsageLimitError,
+        ):
+            detail = (
+                "last_runtime_outcome="
+                "MODEL_USAGE_LIMITED"
+            )
+        elif outcome is RuntimeOutcome.RATE_LIMITED:
+            detail = (
+                "last_runtime_outcome="
+                "MODEL_RATE_LIMITED"
+            )
+        else:
+            detail = (
+                "last_runtime_outcome="
+                f"{outcome.value}"
+            )
+
+        with self._lock:
+            current = self._value
+            candidate = current.candidate
+
+            if candidate is not None:
+                candidate = replace(
+                    candidate,
+                    available=False,
+                    authenticated=(
+                        False
+                        if outcome
+                        is RuntimeOutcome.AUTH_FAILED
+                        else candidate.authenticated
+                    ),
+                    structured_output_compatible=(
+                        False
+                        if outcome in {
+                            RuntimeOutcome.STRUCTURED_OUTPUT_INVALID,
+                            RuntimeOutcome.PROTOCOL_ERROR,
+                        }
+                        else candidate.structured_output_compatible
+                    ),
+                )
+
+            self._value = ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    health,
+                    detail,
+                ),
+            )
+
+
+class _ObservedModelPort:
+    """Transparent ModelPort wrapper that publishes operational health."""
+
+    def __init__(
+        self,
+        inner,
+        state: _ObservedModelReadinessState,
+    ) -> None:
+        self._inner = inner
+        self._state = state
+
+    @property
+    def runtime_identity(self):
+        return self._inner.runtime_identity
+
+    @property
+    def adapter_identity(self):
+        return self._inner.adapter_identity
+
+    def complete(self, request):
+        try:
+            result = self._inner.complete(
+                request
+            )
+        except ModelPortError as exc:
+            self._state.record_failure(
+                exc
+            )
+            raise
+
+        self._state.record_success()
+        return result
+
+
 def _compose_codex_model(configurations, *, probe_codex=None):
-    """Qualify the selected production runtime once and cache its readiness."""
+    """Qualify once; observe later runtime health without active health probes."""
 
     from zest.integrations.models.cli_session import (
         CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
@@ -57,7 +222,15 @@ def _compose_codex_model(configurations, *, probe_codex=None):
                 "no Codex model configuration selected",
             ),
         )
-        return _UnavailableModel(), (), lambda readiness=readiness: readiness
+        static_probe = (
+            lambda readiness=readiness: readiness
+        )
+        return (
+            _UnavailableModel(),
+            (),
+            static_probe,
+            static_probe,
+        )
 
     probe = probe_codex or probe_codex_cli
     availability = probe(configuration=configuration, live_probe=True)
@@ -140,10 +313,40 @@ def _compose_codex_model(configurations, *, probe_codex=None):
         ),
         health=health,
     )
+    startup_probe = (
+        lambda readiness=readiness: readiness
+    )
+
+    if not qualified:
+        return (
+            model,
+            fallback_models,
+            startup_probe,
+            startup_probe,
+        )
+
+    observed = _ObservedModelReadinessState(
+        readiness
+    )
+
+    model = _ObservedModelPort(
+        model,
+        observed,
+    )
+
+    fallback_models = tuple(
+        _ObservedModelPort(
+            item,
+            observed,
+        )
+        for item in fallback_models
+    )
+
     return (
         model,
         fallback_models,
-        lambda readiness=readiness: readiness,
+        startup_probe,
+        observed.snapshot,
     )
 
 
@@ -172,7 +375,12 @@ def main(argv: list[str] | None = None) -> int:
 
     worker = PersistentBrowserWorkerAdapter()
     configurations = load_codex_model_configurations(os.environ)
-    model, fallback_models, model_probe = _compose_codex_model(
+    (
+        model,
+        fallback_models,
+        model_probe,
+        model_health_probe,
+    ) = _compose_codex_model(
         configurations
     )
 
@@ -239,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
         probe_schema=probe_schema,
         probe_worker=probe_worker,
         probe_model=model_probe,
+        probe_model_health=model_health_probe,
         host_identity=os.uname().nodename or "zestd",
         process_id=str(os.getpid()),
         engine_version=settings.release_version,

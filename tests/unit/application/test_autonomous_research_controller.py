@@ -21,9 +21,16 @@ from zest.research.model_port import (
     ModelRole,
     ProviderAuthError,
     ProviderRateLimitError,
+    ProviderUsageLimitError,
 )
 from zest.research.model_runtime import api_runtime_identity
-from zest.research.orchestration import OrchestrationBounds, OrchestrationState, StopReason
+from zest.research.orchestration import (
+    CycleOutcome,
+    OrchestrationBounds,
+    OrchestrationPhase,
+    OrchestrationState,
+    StopReason,
+)
 from zest.research.routing import (
     CandidateLocality,
     RoutingBudget,
@@ -117,6 +124,70 @@ def _controller(store: _Store, *, worker=None, model=None):
 
 
 class AutonomousResearchControllerTests(unittest.TestCase):
+    def test_cycle_complete_releases_active_cycle_identity(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+
+        controller, _, _ = _controller(store)
+        command = _command()
+
+        controller.start(command)
+
+        current = store.research_orchestrations["run-1"]
+
+        current = controller._checkpoint(
+            current,
+            phase=OrchestrationPhase.OPPORTUNITY_SELECTED,
+            active_cycle_id="cycle-first",
+        )
+
+        self.assertEqual(
+            current.active_cycle_id,
+            "cycle-first",
+        )
+
+        result = controller._complete_cycle(
+            current,
+            CycleOutcome.CONTINUE,
+            "test-cycle-complete",
+            increment_cycle=True,
+            current_phase=OrchestrationPhase.CYCLE_COMPLETE,
+        )
+
+        persisted = store.research_orchestrations[
+            "run-1"
+        ]
+
+        self.assertEqual(
+            result.cycle_number,
+            1,
+        )
+        self.assertEqual(
+            persisted.current_phase,
+            OrchestrationPhase.CYCLE_COMPLETE.value,
+        )
+        self.assertIsNone(
+            persisted.active_cycle_id,
+        )
+
+        # A later cycle may now receive a distinct budget identity.
+        next_checkpoint = controller._checkpoint(
+            persisted,
+            phase=OrchestrationPhase.OPPORTUNITY_SELECTED,
+            active_cycle_id="cycle-second",
+        )
+
+        self.assertEqual(
+            next_checkpoint.active_cycle_id,
+            "cycle-second",
+        )
+        self.assertNotEqual(
+            next_checkpoint.active_cycle_id,
+            current.active_cycle_id,
+        )
+
     def test_reauthorization_required_holds_run_without_false_completion(self) -> None:
         store = _Store()
         _seed_large_budget(store)
@@ -403,7 +474,7 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertNotEqual(result.stop_reason, StopReason.CONTENT_POLICY_BLOCKED.value)
         self.assertEqual(len(model.calls), 1)
 
-    def test_exhausted_rate_limit_remains_truthful_blocked_failure(
+    def test_exhausted_transient_rate_limit_gets_one_durable_checkpoint_retry_then_blocks(
         self,
     ) -> None:
         store = _Store()
@@ -415,7 +486,7 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             )
         )
 
-        controller, _, _ = _controller(
+        controller, factory, _ = _controller(
             store,
             model=model,
         )
@@ -434,54 +505,408 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             "bounded_model_failover.sleep",
             return_value=None,
         ):
-            result = controller.step(
-                command
-            )
+            first = controller.step(command)
 
         self.assertEqual(
-            result.state,
-            OrchestrationState.BLOCKED.value,
+            first.state,
+            OrchestrationState.READY.value,
         )
-
+        self.assertIsNone(
+            first.stop_reason,
+        )
         self.assertEqual(
-            result.stop_reason,
-            StopReason.RATE_LIMITED.value,
+            first.cycle_number,
+            0,
         )
-
-        # Original attempt + one bounded retry.
         self.assertEqual(
             len(model.calls),
             2,
         )
 
-        # Provider failure remains durable provenance.
-        failed = [
+        checkpoint = store.research_orchestrations[
+            "run-1"
+        ]
+
+        self.assertIsNotNone(
+            checkpoint.active_cycle_id,
+        )
+        self.assertEqual(
+            checkpoint.current_phase,
+            "OPPORTUNITY_SELECTED",
+        )
+
+        grants = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_CHECKPOINT_RETRY"
+        ]
+
+        self.assertEqual(
+            len(grants),
+            1,
+        )
+        self.assertEqual(
+            grants[0].payload["retry_ordinal"],
+            1,
+        )
+        self.assertFalse(
+            grants[0].payload["cycle_incremented"]
+        )
+
+        # Process/supervisor restart must not reset the durable retry bound.
+        restarted = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(store=store),
+            model,
+            clock=FixedClock(),
+        )
+
+        with mock.patch(
+            "zest.application."
+            "bounded_model_failover.sleep",
+            return_value=None,
+        ):
+            second = restarted.step(command)
+
+        self.assertEqual(
+            second.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertEqual(
+            second.stop_reason,
+            StopReason.RATE_LIMITED.value,
+        )
+
+        # Two attempts on initial tick + two attempts on the one checkpoint
+        # retry. No third checkpoint retry is possible.
+        self.assertEqual(
+            len(model.calls),
+            4,
+        )
+
+        grants = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_CHECKPOINT_RETRY"
+        ]
+
+        self.assertEqual(
+            len(grants),
+            1,
+        )
+
+        model_consumptions = [
             row
             for row
-            in store.research_admissions.values()
-            if row.outcome
-            == "MODEL_INVOCATION_FAILED"
+            in store.budget_consumptions.values()
+            if row.resource_type == "MODEL_CALL"
         ]
+
+        self.assertEqual(
+            len(model_consumptions),
+            4,
+        )
+        self.assertEqual(
+            len({
+                row.request_id
+                for row in model_consumptions
+            }),
+            4,
+        )
+        self.assertTrue(
+            any(
+                "checkpoint-retry-1"
+                in row.request_id
+                for row in model_consumptions
+            )
+        )
+
+        # Once BLOCKED, another step cannot consume another model attempt.
+        before = len(model.calls)
+        again = restarted.step(command)
+
+        self.assertEqual(
+            again.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertEqual(
+            len(model.calls),
+            before,
+        )
+
+    def test_transient_rate_limit_checkpoint_retry_can_recover_same_opportunity(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+
+        class FailTwoThenSucceed:
+            def __init__(self):
+                self.calls = []
+                self.delegate = ScriptedModelPort()
+
+            def complete(self, request):
+                self.calls.append(request)
+
+                if len(self.calls) <= 2:
+                    raise ProviderRateLimitError(
+                        "transient rate"
+                    )
+
+                return self.delegate.complete(
+                    request
+                )
+
+        model = FailTwoThenSucceed()
+
+        controller, factory, worker = _controller(
+            store,
+            model=model,
+        )
+
+        command = _command(
+            bounds=_bounds(
+                max_cycles=2,
+                max_runtime_fallback=0,
+            )
+        )
+
+        controller.start(command)
+
+        with mock.patch(
+            "zest.application."
+            "bounded_model_failover.sleep",
+            return_value=None,
+        ):
+            first = controller.step(command)
+
+        self.assertEqual(
+            first.state,
+            OrchestrationState.READY.value,
+        )
+        self.assertEqual(
+            first.cycle_number,
+            0,
+        )
+
+        first_cycle_id = (
+            store.research_orchestrations[
+                "run-1"
+            ].active_cycle_id
+        )
+
+        self.assertIsNotNone(
+            first_cycle_id,
+        )
+
+        restarted = AutonomousResearchController(
+            factory,
+            worker,
+            model,
+            clock=FixedClock(),
+        )
+
+        with mock.patch(
+            "zest.application."
+            "bounded_model_failover.sleep",
+            return_value=None,
+        ):
+            recovered = restarted.step(command)
+
+        self.assertNotEqual(
+            recovered.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertNotEqual(
+            recovered.stop_reason,
+            StopReason.RATE_LIMITED.value,
+        )
+
+        self.assertEqual(
+            len(model.calls),
+            4,
+        )
+        self.assertEqual(
+            len(store.hypotheses),
+            1,
+        )
+        # Default test bounds explicitly permit repeated control
+        # experiments. Recovery must therefore preserve the normal two-
+        # experiment control topology rather than collapsing it to one.
+        self.assertEqual(
+            len(worker.calls),
+            2,
+        )
+        self.assertEqual(
+            len(store.experiments),
+            2,
+        )
+
+        hypothesis_ids = {
+            experiment.hypothesis_id
+            for experiment in store.experiments.values()
+        }
+
+        self.assertEqual(
+            hypothesis_ids,
+            set(store.hypotheses),
+        )
+        self.assertEqual(
+            len(hypothesis_ids),
+            1,
+        )
+
+        worker_request_ids = [
+            call["request"]["correlation"]["request_id"]
+            for call in worker.calls
+        ]
+
+        self.assertEqual(
+            len(set(worker_request_ids)),
+            2,
+        )
+
+        attempt_experiment_ids = {
+            attempt.experiment_id
+            for attempt in store.execution_attempts.values()
+        }
+
+        self.assertEqual(
+            attempt_experiment_ids,
+            set(store.experiments),
+        )
+
+        worker_result_experiment_ids = {
+            result.experiment_id
+            for result in store.worker_results.values()
+        }
+
+        self.assertEqual(
+            worker_result_experiment_ids,
+            set(store.experiments),
+        )
+
+        admissions = list(
+            store.research_admissions.values()
+        )
+
+        self.assertEqual(
+            len(admissions),
+            2,
+        )
+        self.assertEqual(
+            admissions[0].reason_code,
+            "MODEL_RATE_LIMITED",
+        )
+        self.assertEqual(
+            admissions[1].outcome,
+            "ADMITTED",
+        )
+
+        model_consumptions = [
+            row
+            for row
+            in store.budget_consumptions.values()
+            if row.resource_type == "MODEL_CALL"
+        ]
+
+        self.assertEqual(
+            len(model_consumptions),
+            4,
+        )
+        self.assertEqual(
+            len({
+                row.request_id
+                for row in model_consumptions
+            }),
+            4,
+        )
+
+        grants = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_CHECKPOINT_RETRY"
+        ]
+
+        self.assertEqual(
+            len(grants),
+            1,
+        )
+        self.assertEqual(
+            grants[0].payload[
+                "active_cycle_id"
+            ],
+            first_cycle_id,
+        )
+
+    def test_usage_limit_does_not_enter_checkpoint_retry_loop(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+
+        model = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "usage exhausted"
+            )
+        )
+
+        controller, _, _ = _controller(
+            store,
+            model=model,
+        )
+
+        command = _command(
+            bounds=_bounds(
+                max_runtime_fallback=0,
+            )
+        )
+
+        controller.start(command)
+
+        result = controller.step(command)
+
+        self.assertEqual(
+            result.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertEqual(
+            result.stop_reason,
+            StopReason.RATE_LIMITED.value,
+        )
+
+        # R2 skips the meaningless same-runtime immediate retry.
+        self.assertEqual(
+            len(model.calls),
+            1,
+        )
+
+        failed = list(
+            store.research_admissions.values()
+        )
 
         self.assertEqual(
             len(failed),
             1,
         )
-
-        events = [
-            event.event_type
-            for event
-            in store.audit_events.values()
-        ]
-
-        self.assertNotIn(
-            "MODEL_RUNTIME_RATE_LIMIT_EXHAUSTED",
-            events,
+        self.assertEqual(
+            failed[0].reason_code,
+            "MODEL_USAGE_LIMITED",
         )
 
-        self.assertNotIn(
-            "MODEL_RUNTIME_RATE_LIMIT_DEFERRED",
-            events,
+        grants = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type
+            == "MODEL_RUNTIME_RATE_LIMIT_CHECKPOINT_RETRY"
+        ]
+
+        self.assertEqual(
+            grants,
+            [],
         )
 
     def test_routing_unavailable_stops_cleanly(self) -> None:

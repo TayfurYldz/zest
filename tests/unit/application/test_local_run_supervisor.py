@@ -335,6 +335,51 @@ class LocalRunSupervisorTests(unittest.TestCase):
         )
 
 
+    def test_blocked_rate_limited_state_detaches_supervisor_without_rewriting_truth(
+        self,
+    ) -> None:
+        store = _seed()
+        supervisor = self._supervisor(store)
+
+        current = store.research_orchestrations["run-1"]
+
+        store.research_orchestrations["run-1"] = replace(
+            current,
+            state=OrchestrationState.BLOCKED.value,
+            stop_reason="RATE_LIMITED",
+            last_phase="model_runtime_outcome",
+        )
+
+        result = supervisor.tick()
+
+        self.assertIsNotNone(result)
+        self.assertEqual(
+            result.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertEqual(
+            result.stop_reason,
+            "RATE_LIMITED",
+        )
+
+        persisted = store.research_orchestrations["run-1"]
+
+        # Truth is unchanged: no false completion and no terminal rewrite.
+        self.assertEqual(
+            persisted.state,
+            OrchestrationState.BLOCKED.value,
+        )
+        self.assertEqual(
+            persisted.stop_reason,
+            "RATE_LIMITED",
+        )
+
+        # But the non-runnable supervisor must leave instead of stranding.
+        self.assertTrue(
+            supervisor._stop_event.is_set()
+        )
+
+
     def test_controller_fault_is_durable_and_stops_supervisor(self) -> None:
         store = _seed()
         supervisor = self._supervisor(store)

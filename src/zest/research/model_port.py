@@ -40,6 +40,15 @@ class ProviderRateLimitError(ProviderRuntimeError):
     """Rate limited by the provider. Not a research-quality judgment."""
 
 
+class ProviderUsageLimitError(ProviderRateLimitError):
+    """Provider account/session usage quota is exhausted.
+
+    Still RATE_LIMITED operational truth. The subtype only preserves the
+    distinction required for bounded recovery policy; it is not research
+    truth and does not grant authority.
+    """
+
+
 class ProviderTimeoutError(ProviderRuntimeError):
     """Provider call timed out. Not a research-quality judgment."""
 
