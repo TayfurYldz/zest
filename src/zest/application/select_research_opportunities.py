@@ -47,6 +47,9 @@ from zest.research.scheduler.fairness import (
 # PENDING so a still-relevant Hunter/Coverage gap gets reconsidered on a later
 # cycle instead of being silently discarded because this cycle's budget/
 # negative-knowledge context happened not to select it.
+_SURFACE_DISCOVERY_HYPOTHESIS_ORIGIN = "surface-discovery-v1"
+
+
 _CANDIDATE_TERMINAL_OUTCOMES = {
     SelectionOutcome.SELECT: "ADMITTED",
     SelectionOutcome.SKIP_DUPLICATE: "NOT_ADMITTED",
@@ -144,10 +147,61 @@ class SelectResearchOpportunities:
             experiments = uow.experiments.list_for_research_run(
                 command.research_run_id
             )
+            worker_results = uow.worker_results.list_for_research_run(
+                command.research_run_id
+            )
+            observations = uow.observations.list_for_research_run(
+                command.research_run_id
+            )
+
+            # Observation provenance is:
+            # Observation.worker_result_id
+            #   -> WorkerResult.experiment_id
+            #   -> Experiment.hypothesis_id.
+            # Observation itself deliberately does not duplicate experiment_id.
+            observed_worker_result_ids = frozenset(
+                item.worker_result_id for item in observations
+            )
+            observation_backed_experiment_ids = frozenset(
+                item.experiment_id
+                for item in worker_results
+                if item.worker_result_id in observed_worker_result_ids
+            )
+
+            successful_observation_hypothesis_ids = frozenset(
+                item.hypothesis_id
+                for item in experiments
+                if item.execution_state == "EXECUTION_SUCCEEDED"
+                and item.experiment_id in observation_backed_experiment_ids
+            )
+
+            surface_discovery_hypothesis_ids = frozenset(
+                item.hypothesis_id
+                for item in hypotheses
+                if item.origin_reference
+                == _SURFACE_DISCOVERY_HYPOTHESIS_ORIGIN
+            )
+
+            # BLOCKED remains truthful and experiment-local.
+            #
+            # Normal research hypotheses retain the existing fail-closed
+            # hypothesis-level suppression.
+            #
+            # Surface discovery is special because one synthetic hypothesis
+            # intentionally owns many sibling frontier experiments. A single
+            # scope-blocked sibling must not erase independent successful,
+            # observation-backed discovery work from the research-transition
+            # pool.
             blocked_hypothesis_ids = frozenset(
                 item.hypothesis_id
                 for item in experiments
                 if item.execution_state == "BLOCKED"
+                and (
+                    item.hypothesis_id
+                    not in surface_discovery_hypothesis_ids
+                    or item.hypothesis_id
+                    not in successful_observation_hypothesis_ids
+                )
             )
             assessments = uow.hypothesis_assessments.list_for_research_run(
                 command.research_run_id

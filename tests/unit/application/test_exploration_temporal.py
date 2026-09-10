@@ -158,6 +158,135 @@ class ExplorationTemporalApplicationTests(unittest.TestCase):
         self.assertEqual(len(store.candidates), 0)
         self.assertEqual(len(store.findings), 0)
 
+    def test_surface_discovery_blocked_sibling_preserves_observed_followup(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(store)
+        store.hypotheses["hyp-1"] = replace(
+            store.hypotheses["hyp-1"],
+            origin_reference="surface-discovery-v1",
+        )
+
+        factory = FakeUnitOfWorkFactory(store)
+
+        with factory.open() as uow:
+            uow.experiments.set_execution_state("exp-1", "BLOCKED")
+            uow.commit()
+
+        _run_experiment(store, "exp-2", "alpha")
+
+        self.assertEqual(
+            store.experiments["exp-1"].execution_state,
+            "BLOCKED",
+        )
+        self.assertEqual(
+            store.experiments["exp-2"].execution_state,
+            "EXECUTION_SUCCEEDED",
+        )
+        self.assertTrue(store.observations)
+
+        result = SelectResearchOpportunities(
+            factory,
+            clock=FixedClock(),
+        ).execute(
+            SelectResearchOpportunitiesCommand(
+                research_run_id="run-1"
+            )
+        )
+
+        followups = [
+            item
+            for item in result.decisions
+            if item.opportunity.opportunity_kind.value
+            == "HYPOTHESIS_FOLLOWUP"
+        ]
+
+        self.assertTrue(followups)
+        self.assertTrue(any(item.selected for item in followups))
+
+        # Fix must never rewrite the truthful blocked sibling.
+        self.assertEqual(
+            store.experiments["exp-1"].execution_state,
+            "BLOCKED",
+        )
+
+    def test_surface_discovery_only_blocked_without_observation_stays_suppressed(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(store)
+        store.hypotheses["hyp-1"] = replace(
+            store.hypotheses["hyp-1"],
+            origin_reference="surface-discovery-v1",
+        )
+
+        factory = FakeUnitOfWorkFactory(store)
+
+        with factory.open() as uow:
+            uow.experiments.set_execution_state("exp-1", "BLOCKED")
+            uow.commit()
+
+        result = SelectResearchOpportunities(
+            factory,
+            clock=FixedClock(),
+        ).execute(
+            SelectResearchOpportunitiesCommand(
+                research_run_id="run-1"
+            )
+        )
+
+        followups = [
+            item
+            for item in result.decisions
+            if item.opportunity.opportunity_kind.value
+            == "HYPOTHESIS_FOLLOWUP"
+        ]
+
+        self.assertFalse(followups)
+        self.assertEqual(
+            store.experiments["exp-1"].execution_state,
+            "BLOCKED",
+        )
+
+    def test_normal_blocked_hypothesis_remains_suppressed_with_successful_sibling(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(store)
+
+        factory = FakeUnitOfWorkFactory(store)
+
+        with factory.open() as uow:
+            uow.experiments.set_execution_state("exp-1", "BLOCKED")
+            uow.commit()
+
+        _run_experiment(store, "exp-2", "alpha")
+
+        self.assertTrue(store.observations)
+
+        result = SelectResearchOpportunities(
+            factory,
+            clock=FixedClock(),
+        ).execute(
+            SelectResearchOpportunitiesCommand(
+                research_run_id="run-1"
+            )
+        )
+
+        followups = [
+            item
+            for item in result.decisions
+            if item.opportunity.opportunity_kind.value
+            == "HYPOTHESIS_FOLLOWUP"
+        ]
+
+        self.assertFalse(followups)
+        self.assertEqual(
+            store.experiments["exp-1"].execution_state,
+            "BLOCKED",
+        )
+
     def test_zero_and_negative_exploration_budget(self) -> None:
         store = _Store()
         _seed(store)
