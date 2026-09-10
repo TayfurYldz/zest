@@ -74,6 +74,7 @@ from zest.application.runtime_instance import (
 from zest.core.enums import ActorType, ReasonCode
 from zest.data.errors import (
     DatabaseUnavailableError,
+    LeaseFencingError,
     PersistenceConflictError,
     PersistenceError,
 )
@@ -299,21 +300,230 @@ class ZestdRuntime:
             check.name is PreflightCheckName.NO_CONFLICTING_LEASE for check in failing
         )
 
-    def pause_run(self, research_run_id: str) -> OrchestrationTickResult:
+    def pause_run(
+        self,
+        research_run_id: str,
+    ) -> OrchestrationTickResult:
         self._require_pg()
-        result = self._unfenced_controller.pause(research_run_id)
-        if self._registry is not None:
-            self._registry.stop(research_run_id)
-        return result
 
-    def resume_run(self, research_run_id: str) -> OrchestrationTickResult:
-        self._require_pg()
-        command = reconstruct_start_command(
-            self._uow_factory, research_run_id, recovery=True
+        supervisor = (
+            None
+            if self._registry is None
+            else self._registry.supervisor(
+                research_run_id
+            )
         )
-        result = self._unfenced_controller.resume(research_run_id)
+
+        if (
+            supervisor is not None
+            and supervisor.is_running
+        ):
+            try:
+                return supervisor.run_serialized_control(
+                    lambda: supervisor.controller.pause(
+                        research_run_id
+                    ),
+                    timeout_seconds=(
+                        self._lease_config.lease_ttl_seconds
+                    ),
+                )
+            except TimeoutError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.RECONCILIATION_REQUIRED,
+                    "local supervisor did not reach a "
+                    "safe pause boundary before its lease "
+                    "TTL; PAUSED was not claimed",
+                ) from exc
+            except LeaseFencingError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.LEASE_CONFLICT,
+                    "local supervisor ownership changed "
+                    "before pause; PAUSED was not claimed",
+                ) from exc
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                raise OperatorError(
+                    OperatorErrorCode.DATABASE_UNAVAILABLE,
+                    "postgresql became unavailable while "
+                    "establishing the pause boundary",
+                ) from exc
+
+        with self._uow_factory.open() as uow:
+            current = (
+                uow.research_orchestrations.get(
+                    research_run_id
+                )
+            )
+            uow.rollback()
+
+        if current is None:
+            raise OperatorError(
+                OperatorErrorCode.RUN_NOT_FOUND,
+                "orchestration not found",
+            )
+
+        if current.state in {
+            OrchestrationState.PAUSED.value,
+            OrchestrationState.COMPLETED.value,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+            OrchestrationState.FAILED_OPERATIONAL.value,
+        }:
+            return self._status_from_sor(
+                research_run_id
+            )
+
+        owner = current.owner_runtime_instance_id
+
+        if owner is not None:
+            if owner != self.runtime_instance_id:
+                raise OperatorError(
+                    OperatorErrorCode.LEASE_CONFLICT,
+                    "run is owned by another runtime; "
+                    "refusing unfenced pause",
+                )
+
+            raise OperatorError(
+                OperatorErrorCode.RECONCILIATION_REQUIRED,
+                "run is leased by this runtime but has no "
+                "live local supervisor; reconcile before pause",
+            )
+
+        return self._unfenced_controller.pause(
+            research_run_id
+        )
+
+    def resume_run(
+        self,
+        research_run_id: str,
+    ) -> OrchestrationTickResult:
+        self._require_pg()
+
+        command = reconstruct_start_command(
+            self._uow_factory,
+            research_run_id,
+            recovery=True,
+        )
+
+        supervisor = (
+            None
+            if self._registry is None
+            else self._registry.supervisor(
+                research_run_id
+            )
+        )
+
+        if (
+            supervisor is not None
+            and supervisor.is_running
+        ):
+            def _resume_under_barrier():
+                # Preflight while still PAUSED. No autonomous tick can
+                # race this decision because the supervisor execution
+                # barrier is held.
+                report = self._run_preflight(
+                    command,
+                    check_reconciliation=True,
+                )
+
+                if (
+                    report.status
+                    is not PreflightStatus.READY_TO_START
+                ):
+                    failing = [
+                        check
+                        for check in report.checks
+                        if not check.passed
+                    ]
+
+                    budget_only = (
+                        len(failing) == 1
+                        and failing[0].name
+                        is PreflightCheckName.BUDGET_AVAILABLE
+                        and failing[0].detail
+                        == ReasonCode.BUDGET_EXHAUSTED.value
+                    )
+
+                    if budget_only:
+                        resumed = (
+                            supervisor.controller.resume(
+                                research_run_id
+                            )
+                        )
+
+                        if (
+                            resumed.state
+                            == OrchestrationState.READY.value
+                        ):
+                            terminal = (
+                                supervisor.controller
+                                .stop_for_budget_exhaustion(
+                                    research_run_id,
+                                    phase=(
+                                        "runtime_recovery_budget"
+                                    ),
+                                )
+                            )
+                            supervisor.request_stop()
+                            return terminal
+
+                        return resumed
+
+                    # Other recovery blockers must not turn PAUSED into
+                    # a misleading READY state.
+                    raise self._operator_error_from_preflight(
+                        report
+                    )
+
+                return supervisor.controller.resume(
+                    research_run_id
+                )
+
+            try:
+                return supervisor.run_serialized_control(
+                    _resume_under_barrier,
+                    timeout_seconds=(
+                        self._lease_config.lease_ttl_seconds
+                    ),
+                )
+            except TimeoutError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.RECONCILIATION_REQUIRED,
+                    "local supervisor did not reach a "
+                    "safe resume boundary before its lease TTL; "
+                    "READY was not claimed",
+                ) from exc
+            except LeaseFencingError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.LEASE_CONFLICT,
+                    "local supervisor ownership changed "
+                    "before resume; READY was not claimed",
+                ) from exc
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                raise OperatorError(
+                    OperatorErrorCode.DATABASE_UNAVAILABLE,
+                    "postgresql became unavailable while "
+                    "establishing the resume boundary",
+                ) from exc
+
+        # No live local supervisor: preserve the existing recovery path.
+        # _attach_supervisor performs fresh recovery preflight and can
+        # terminalize exhausted budget. Return SoR after it, never the
+        # pre-recovery READY snapshot.
+        result = self._unfenced_controller.resume(
+            research_run_id
+        )
+
         if result.state == OrchestrationState.READY.value:
-            self._attach_supervisor(research_run_id, recovery=True, command=command)
+            self._attach_supervisor(
+                research_run_id,
+                recovery=True,
+                command=command,
+            )
+            return self._status_from_sor(
+                research_run_id
+            )
+
         return result
 
 
@@ -349,12 +559,72 @@ class ZestdRuntime:
 
         return result
 
-    def cancel_run(self, research_run_id: str) -> OrchestrationTickResult:
+    def cancel_run(
+        self,
+        research_run_id: str,
+    ) -> OrchestrationTickResult:
         self._require_pg()
-        result = self._unfenced_controller.cancel(research_run_id)
+
+        supervisor = (
+            None
+            if self._registry is None
+            else self._registry.supervisor(
+                research_run_id
+            )
+        )
+
+        if (
+            supervisor is not None
+            and supervisor.is_running
+        ):
+            def _cancel_under_barrier():
+                result = supervisor.controller.cancel(
+                    research_run_id
+                )
+                # Stop while the barrier is still held so no new
+                # autonomous tick can start after cancellation.
+                supervisor.request_stop()
+                return result
+
+            try:
+                return supervisor.run_serialized_control(
+                    _cancel_under_barrier,
+                    timeout_seconds=(
+                        self._lease_config.lease_ttl_seconds
+                    ),
+                )
+            except TimeoutError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.RECONCILIATION_REQUIRED,
+                    "local supervisor did not reach a "
+                    "safe cancel boundary before its lease TTL; "
+                    "cancellation was not claimed",
+                ) from exc
+            except LeaseFencingError as exc:
+                raise OperatorError(
+                    OperatorErrorCode.LEASE_CONFLICT,
+                    "local supervisor ownership changed "
+                    "before cancel; cancellation was not claimed",
+                ) from exc
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                raise OperatorError(
+                    OperatorErrorCode.DATABASE_UNAVAILABLE,
+                    "postgresql became unavailable while "
+                    "establishing the cancel boundary",
+                ) from exc
+
+        result = self._unfenced_controller.cancel(
+            research_run_id
+        )
+
         if self._registry is not None:
-            self._registry.stop(research_run_id)
+            self._registry.stop(
+                research_run_id
+            )
+
         return result
+
 
     def run_status(self, research_run_id: str) -> dict[str, object]:
         self._require_pg()

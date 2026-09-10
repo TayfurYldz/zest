@@ -6,6 +6,7 @@ ticks and treats the persisted orchestration record as authoritative.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -93,6 +94,7 @@ class LocalRunSupervisor:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._execution_lock = threading.Lock()
         self._last_result: OrchestrationTickResult | None = None
         self._last_renewed_monotonic = time.monotonic()
         self._lease_lost = False
@@ -155,6 +157,93 @@ class LocalRunSupervisor:
         return False
 
     def tick(self) -> OrchestrationTickResult | None:
+        """Serialize one autonomous tick against synchronous controls."""
+        with self._execution_lock:
+            return self._tick_once()
+
+    def run_serialized_control(
+        self,
+        action: Callable[[], OrchestrationTickResult],
+        *,
+        timeout_seconds: float,
+    ) -> OrchestrationTickResult:
+        """Run one operator transition outside any in-flight tick.
+
+        The existing lease is renewed while the execution barrier is held,
+        so PAUSED cannot be claimed after silently giving ownership away.
+        """
+        if timeout_seconds <= 0:
+            raise ValueError(
+                "timeout_seconds must be positive"
+            )
+
+        acquired = self._execution_lock.acquire(
+            timeout=timeout_seconds
+        )
+
+        if not acquired:
+            raise TimeoutError(
+                "supervisor execution barrier timed out"
+            )
+
+        try:
+            # The control may have lost a race to an autonomous tick that
+            # terminalized the run immediately before this barrier was
+            # acquired. Terminal SoR is immutable and authoritative:
+            # return it directly rather than attempting an impossible
+            # lease renewal and misreporting a LEASE_CONFLICT.
+            with self.uow_factory.open() as uow:
+                current = uow.research_orchestrations.get(
+                    self.research_run_id
+                )
+                uow.rollback()
+
+            if current is None:
+                raise ApplicationError(
+                    "orchestration not found"
+                )
+
+            if current.state in _TERMINAL_STATES:
+                result = _result_from_persisted(
+                    current
+                )
+                self._last_result = result
+                self._stop_event.set()
+                return result
+
+            if self.owner_runtime_instance_id is not None:
+                with self.uow_factory.open() as uow:
+                    renewed = (
+                        uow.research_orchestrations.renew_lease(
+                            self.research_run_id,
+                            owner_runtime_instance_id=(
+                                self.owner_runtime_instance_id
+                            ),
+                            expected_lease_epoch=self.lease_epoch,
+                            ttl_seconds=(
+                                self.lease_config.lease_ttl_seconds
+                            ),
+                        )
+                    )
+                    uow.commit()
+
+                if not renewed:
+                    self._lease_lost = True
+                    self._stop_event.set()
+                    raise LeaseFencingError(
+                        "supervisor lost lease before "
+                        "operator control transition"
+                    )
+
+                self._last_renewed_monotonic = (
+                    time.monotonic()
+                )
+
+            return action()
+        finally:
+            self._execution_lock.release()
+
+    def _tick_once(self) -> OrchestrationTickResult | None:
         """Run at most one controller step after reloading durable state."""
 
         if self._lease_lost:

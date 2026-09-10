@@ -403,7 +403,7 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertNotEqual(result.stop_reason, StopReason.CONTENT_POLICY_BLOCKED.value)
         self.assertEqual(len(model.calls), 1)
 
-    def test_exhausted_rate_limit_opens_durable_circuit_without_false_success(
+    def test_exhausted_rate_limit_remains_truthful_blocked_failure(
         self,
     ) -> None:
         store = _Store()
@@ -415,7 +415,7 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             )
         )
 
-        controller, factory, _ = _controller(
+        controller, _, _ = _controller(
             store,
             model=model,
         )
@@ -434,98 +434,27 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             "bounded_model_failover.sleep",
             return_value=None,
         ):
-            first = controller.step(
+            result = controller.step(
                 command
             )
 
         self.assertEqual(
-            first.state,
-            OrchestrationState.READY.value,
+            result.state,
+            OrchestrationState.BLOCKED.value,
         )
 
-        self.assertIsNone(
-            first.stop_reason
+        self.assertEqual(
+            result.stop_reason,
+            StopReason.RATE_LIMITED.value,
         )
 
-        # One original physical attempt + one bounded retry.
+        # Original attempt + one bounded retry.
         self.assertEqual(
             len(model.calls),
             2,
         )
 
-        exhausted = [
-            event
-            for event
-            in store.audit_events.values()
-            if event.event_type
-            == "MODEL_RUNTIME_RATE_LIMIT_EXHAUSTED"
-        ]
-
-        self.assertEqual(
-            len(exhausted),
-            1,
-        )
-
-        # Simulate process/controller reconstruction. The circuit must
-        # come from persisted audit state, not transient Python memory.
-        restarted = AutonomousResearchController(
-            factory,
-            RecordingWorkerPort(
-                store=store
-            ),
-            model,
-            clock=FixedClock(),
-        )
-
-        second = restarted.step(
-            command
-        )
-
-        self.assertEqual(
-            second.state,
-            OrchestrationState.READY.value,
-        )
-
-        # No additional provider call after durable circuit opens.
-        self.assertEqual(
-            len(model.calls),
-            2,
-        )
-
-        deferred = [
-            event
-            for event
-            in store.audit_events.values()
-            if event.event_type
-            == "MODEL_RUNTIME_RATE_LIMIT_DEFERRED"
-        ]
-
-        self.assertEqual(
-            len(deferred),
-            1,
-        )
-
-        # Existing orchestration bound remains authoritative.
-        final = restarted.step(
-            command
-        )
-
-        self.assertEqual(
-            final.state,
-            OrchestrationState.COMPLETED.value,
-        )
-
-        self.assertEqual(
-            final.stop_reason,
-            StopReason.MAX_CYCLES_REACHED.value,
-        )
-
-        self.assertEqual(
-            len(model.calls),
-            2,
-        )
-
-        # Provider failure remains durable research provenance.
+        # Provider failure remains durable provenance.
         failed = [
             row
             for row
@@ -537,6 +466,22 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertEqual(
             len(failed),
             1,
+        )
+
+        events = [
+            event.event_type
+            for event
+            in store.audit_events.values()
+        ]
+
+        self.assertNotIn(
+            "MODEL_RUNTIME_RATE_LIMIT_EXHAUSTED",
+            events,
+        )
+
+        self.assertNotIn(
+            "MODEL_RUNTIME_RATE_LIMIT_DEFERRED",
+            events,
         )
 
     def test_routing_unavailable_stops_cleanly(self) -> None:

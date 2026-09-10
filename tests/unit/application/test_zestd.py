@@ -20,6 +20,10 @@ from zest.application.classify_runtime_recovery import (
     RuntimeRecoveryAction,
 )
 from zest.application.errors import ApplicationError
+from zest.application.operator_errors import (
+    OperatorError,
+    OperatorErrorCode,
+)
 from zest.application.lease_fencing import (
     LeaseFencedWorkerPort,
     SingleRunFencedUowFactory,
@@ -177,6 +181,7 @@ def _runtime(
     worker=None,
     *,
     cadence_seconds: float = 0.05,
+    lease_config: LeaseConfig | None = None,
 ) -> ZestdRuntime:
     factory = FakeUnitOfWorkFactory(store=store)
     return ZestdRuntime(
@@ -445,18 +450,431 @@ class ZestdRuntimeTests(unittest.TestCase):
 
     def test_pause_resume_cancel_and_terminal_reject(self) -> None:
         store = _seed()
-        self._runtime = _runtime(store, cadence_seconds=30)
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+        )
         self._runtime.start_process()
-        self._runtime.start_run("run-1")
-        paused = self._runtime.pause_run("run-1")
-        self.assertEqual(paused.state, OrchestrationState.PAUSED.value)
-        resumed = self._runtime.resume_run("run-1")
-        self.assertEqual(resumed.state, OrchestrationState.READY.value)
-        cancelled = self._runtime.cancel_run("run-1")
-        self.assertEqual(cancelled.state, OrchestrationState.COMPLETED.value)
-        again = self._runtime.cancel_run("run-1")
-        self.assertEqual(again.state, OrchestrationState.COMPLETED.value)
-        self.assertEqual(store.research_orchestrations["run-1"].stop_reason, "OPERATOR_CANCELLED")
+
+        # Operator lifecycle is the subject here. Disable autonomous
+        # research work while preserving the real supervisor barrier.
+        with patch.object(
+            LocalRunSupervisor,
+            "_tick_once",
+            return_value=None,
+        ):
+            self._runtime.start_run("run-1")
+
+            supervisor = (
+                self._runtime._registry.supervisor(
+                    "run-1"
+                )
+            )
+            self.assertIsNotNone(supervisor)
+
+            paused = self._runtime.pause_run(
+                "run-1"
+            )
+            self.assertEqual(
+                paused.state,
+                OrchestrationState.PAUSED.value,
+            )
+            self.assertTrue(
+                self._runtime.is_supervising(
+                    "run-1"
+                )
+            )
+
+            resumed = self._runtime.resume_run(
+                "run-1"
+            )
+            self.assertEqual(
+                resumed.state,
+                OrchestrationState.READY.value,
+            )
+            self.assertIs(
+                self._runtime._registry.supervisor(
+                    "run-1"
+                ),
+                supervisor,
+            )
+
+            cancelled = self._runtime.cancel_run(
+                "run-1"
+            )
+            self.assertEqual(
+                cancelled.state,
+                OrchestrationState.COMPLETED.value,
+            )
+
+            again = self._runtime.cancel_run(
+                "run-1"
+            )
+            self.assertEqual(
+                again.state,
+                OrchestrationState.COMPLETED.value,
+            )
+            self.assertEqual(
+                store.research_orchestrations[
+                    "run-1"
+                ].stop_reason,
+                "OPERATOR_CANCELLED",
+            )
+
+    def test_pause_waits_for_inflight_tick_before_claiming_paused(
+        self,
+    ) -> None:
+        store = _seed()
+        entered = threading.Event()
+        release = threading.Event()
+
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+        )
+        self._runtime.start_process()
+
+        results = []
+        errors = []
+        pause_called = threading.Event()
+
+        with patch.object(
+            LocalRunSupervisor,
+            "_tick_once",
+            new=_blocking_tick(
+                entered,
+                release,
+            ),
+        ):
+            self._runtime.start_run("run-1")
+            self.assertTrue(
+                entered.wait(timeout=10)
+            )
+
+            supervisor = (
+                self._runtime._registry.supervisor(
+                    "run-1"
+                )
+            )
+            self.assertIsNotNone(supervisor)
+
+            def _pause():
+                pause_called.set()
+                try:
+                    results.append(
+                        self._runtime.pause_run(
+                            "run-1"
+                        )
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            thread = threading.Thread(
+                target=_pause,
+            )
+            thread.start()
+
+            self.assertTrue(
+                pause_called.wait(timeout=5)
+            )
+
+            # The in-flight tick still owns the barrier. The operator
+            # command has been issued but PAUSED cannot yet be claimed.
+            self.assertTrue(thread.is_alive())
+            self.assertEqual(
+                store.research_orchestrations[
+                    "run-1"
+                ].state,
+                OrchestrationState.READY.value,
+            )
+
+            release.set()
+            thread.join(timeout=5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 1)
+            self.assertEqual(
+                results[0].state,
+                OrchestrationState.PAUSED.value,
+            )
+
+            persisted = (
+                store.research_orchestrations[
+                    "run-1"
+                ]
+            )
+
+            self.assertEqual(
+                persisted.state,
+                OrchestrationState.PAUSED.value,
+            )
+            self.assertEqual(
+                persisted.owner_runtime_instance_id,
+                self._runtime.runtime_instance_id,
+            )
+            self.assertTrue(supervisor.is_running)
+            self.assertTrue(
+                self._runtime.is_supervising(
+                    "run-1"
+                )
+            )
+
+    def test_pause_timeout_does_not_claim_paused(
+        self,
+    ) -> None:
+        store = _seed()
+        entered = threading.Event()
+        release = threading.Event()
+
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+            lease_config=LeaseConfig(
+                heartbeat_interval_seconds=0.05,
+                lease_ttl_seconds=0.20,
+            ),
+        )
+        self._runtime.start_process()
+
+        try:
+            with patch.object(
+                LocalRunSupervisor,
+                "_tick_once",
+                new=_blocking_tick(
+                    entered,
+                    release,
+                ),
+            ):
+                self._runtime.start_run("run-1")
+
+                self.assertTrue(
+                    entered.wait(timeout=10)
+                )
+
+                with self.assertRaises(
+                    OperatorError
+                ) as caught:
+                    self._runtime.pause_run(
+                        "run-1"
+                    )
+
+                self.assertEqual(
+                    caught.exception.code,
+                    OperatorErrorCode.RECONCILIATION_REQUIRED,
+                )
+                self.assertEqual(
+                    store.research_orchestrations[
+                        "run-1"
+                    ].state,
+                    OrchestrationState.READY.value,
+                )
+        finally:
+            release.set()
+
+    def test_cancel_waits_for_inflight_tick_before_terminalizing(
+        self,
+    ) -> None:
+        store = _seed()
+        entered = threading.Event()
+        release = threading.Event()
+
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+        )
+        self._runtime.start_process()
+
+        results = []
+        errors = []
+        cancel_called = threading.Event()
+
+        with patch.object(
+            LocalRunSupervisor,
+            "_tick_once",
+            new=_blocking_tick(
+                entered,
+                release,
+            ),
+        ):
+            self._runtime.start_run("run-1")
+
+            self.assertTrue(
+                entered.wait(timeout=10)
+            )
+
+            def _cancel():
+                cancel_called.set()
+                try:
+                    results.append(
+                        self._runtime.cancel_run(
+                            "run-1"
+                        )
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            thread = threading.Thread(
+                target=_cancel,
+            )
+            thread.start()
+
+            self.assertTrue(
+                cancel_called.wait(timeout=5)
+            )
+
+            self.assertTrue(thread.is_alive())
+            self.assertEqual(
+                store.research_orchestrations[
+                    "run-1"
+                ].state,
+                OrchestrationState.READY.value,
+            )
+
+            release.set()
+            thread.join(timeout=5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 1)
+            self.assertEqual(
+                results[0].state,
+                OrchestrationState.COMPLETED.value,
+            )
+            self.assertEqual(
+                results[0].stop_reason,
+                "OPERATOR_CANCELLED",
+            )
+
+    def test_resume_returns_authoritative_budget_exhausted_state(
+        self,
+    ) -> None:
+        store = _seed()
+
+        store.research_orchestrations[
+            "run-1"
+        ] = _orchestration_record(
+            state=OrchestrationState.PAUSED.value,
+            stop_reason="OPERATOR_PAUSED",
+            last_phase="operator",
+            current_phase="CYCLE_COMPLETE",
+        )
+
+        store.budget_consumptions[
+            "cons-resume-exhausted"
+        ] = BudgetConsumptionRecord(
+            consumption_id="cons-resume-exhausted",
+            budget_id="budget-1",
+            research_run_id="run-1",
+            resource_type="REQUEST",
+            amount=20,
+            unit="count",
+            occurred_at=CREATED_AT,
+            provenance="resume-authority-regression",
+            request_id="req-resume-exhausted",
+        )
+
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+        )
+        self._runtime.start_process()
+
+        resumed = self._runtime.resume_run(
+            "run-1"
+        )
+
+        persisted = (
+            store.research_orchestrations[
+                "run-1"
+            ]
+        )
+
+        self.assertEqual(
+            resumed.state,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+        )
+        self.assertEqual(
+            resumed.stop_reason,
+            "BUDGET_EXHAUSTED",
+        )
+        self.assertEqual(
+            persisted.state,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+        )
+        self.assertEqual(
+            persisted.stop_reason,
+            "BUDGET_EXHAUSTED",
+        )
+        self.assertFalse(
+            self._runtime.is_supervising(
+                "run-1"
+            )
+        )
+
+    def test_retained_supervisor_resume_checks_exhausted_budget(
+        self,
+    ) -> None:
+        store = _seed()
+
+        self._runtime = _runtime(
+            store,
+            cadence_seconds=30,
+        )
+        self._runtime.start_process()
+
+        with patch.object(
+            LocalRunSupervisor,
+            "_tick_once",
+            return_value=None,
+        ):
+            self._runtime.start_run("run-1")
+
+            paused = self._runtime.pause_run(
+                "run-1"
+            )
+            self.assertEqual(
+                paused.state,
+                OrchestrationState.PAUSED.value,
+            )
+            self.assertTrue(
+                self._runtime.is_supervising(
+                    "run-1"
+                )
+            )
+
+            store.budget_consumptions[
+                "cons-retained-exhausted"
+            ] = BudgetConsumptionRecord(
+                consumption_id="cons-retained-exhausted",
+                budget_id="budget-1",
+                research_run_id="run-1",
+                resource_type="REQUEST",
+                amount=20,
+                unit="count",
+                occurred_at=CREATED_AT,
+                provenance="retained-resume-regression",
+                request_id="req-retained-exhausted",
+            )
+
+            resumed = self._runtime.resume_run(
+                "run-1"
+            )
+
+            self.assertEqual(
+                resumed.state,
+                OrchestrationState.BUDGET_EXHAUSTED.value,
+            )
+            self.assertEqual(
+                resumed.stop_reason,
+                "BUDGET_EXHAUSTED",
+            )
+            self.assertEqual(
+                store.research_orchestrations[
+                    "run-1"
+                ].state,
+                OrchestrationState.BUDGET_EXHAUSTED.value,
+            )
 
     def test_two_daemons_only_one_owner(self) -> None:
         store = _seed()
