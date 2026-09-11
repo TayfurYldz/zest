@@ -154,6 +154,18 @@ class ZestdModelCompositionTests(unittest.TestCase):
             "secondary",
         )
 
+        self.assertIsNotNone(
+            model.capacity_domain_id
+        )
+        self.assertEqual(
+            model.capacity_domain_id,
+            fallback_models[0].capacity_domain_id,
+        )
+        self.assertNotIn(
+            "local-authenticated-cli-session",
+            model.capacity_domain_id,
+        )
+
         self.assertNotIsInstance(model, _UnavailableModel)
         self.assertEqual(model.adapter_identity, "codex.cli.session")
         self.assertIs(readiness.health.health, ComponentHealth.HEALTHY)

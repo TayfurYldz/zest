@@ -647,6 +647,29 @@ class CodexCliSessionAdapter:
     def runtime_identity(self):
         return self._identity
 
+    @property
+    def capacity_domain_id(self) -> str | None:
+        identity = self._identity
+
+        if identity.session_reference is None:
+            return None
+
+        raw = "\x1f".join(
+            (
+                identity.runtime_kind.value,
+                identity.adapter_id,
+                identity.auth_mode.value,
+                identity.session_reference,
+            )
+        )
+
+        return (
+            "capacity-domain:v1:"
+            + hashlib.sha256(
+                raw.encode("utf-8")
+            ).hexdigest()
+        )
+
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
         if CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY not in self._allowed:
             raise ModelPortError("requested agent capability is not allowlisted")

@@ -45,6 +45,21 @@ class _RateLimitOnceThenSuccess:
         return self._success.complete(request)
 
 
+class _CapacityDomainPort:
+    def __init__(
+        self,
+        inner,
+        capacity_domain_id: str,
+    ) -> None:
+        self.inner = inner
+        self.capacity_domain_id = (
+            capacity_domain_id
+        )
+
+    def complete(self, request):
+        return self.inner.complete(request)
+
+
 class BoundedRateLimitFailoverTests(
     unittest.TestCase
 ):
@@ -250,6 +265,156 @@ class BoundedRateLimitFailoverTests(
         )
         self.assertEqual(
             port.active_index,
+            1,
+        )
+
+    def test_usage_limit_does_not_burn_known_same_capacity_domain(
+        self,
+    ) -> None:
+        primary_inner = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "primary quota exhausted"
+            )
+        )
+        secondary_inner = ScriptedModelPort()
+
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                _CapacityDomainPort(
+                    primary_inner,
+                    "quota-domain-a",
+                ),
+                _CapacityDomainPort(
+                    secondary_inner,
+                    "quota-domain-a",
+                ),
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            port.complete(_request())
+
+        self.assertEqual(
+            len(primary_inner.calls),
+            1,
+        )
+        self.assertEqual(
+            len(secondary_inner.calls),
+            0,
+        )
+        self.assertEqual(
+            port.fallbacks_used,
+            0,
+        )
+        self.assertEqual(
+            port.usage_capacity_domain_skips,
+            1,
+        )
+        self.assertEqual(
+            port.active_index,
+            0,
+        )
+
+    def test_usage_limit_can_move_to_known_independent_capacity_domain(
+        self,
+    ) -> None:
+        primary_inner = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "primary quota exhausted"
+            )
+        )
+        secondary_inner = ScriptedModelPort()
+
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                _CapacityDomainPort(
+                    primary_inner,
+                    "quota-domain-a",
+                ),
+                _CapacityDomainPort(
+                    secondary_inner,
+                    "quota-domain-b",
+                ),
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=1,
+            retry_delay_seconds=0,
+        )
+
+        result = port.complete(_request())
+
+        self.assertIs(
+            result.role,
+            ModelRole.GENERATOR,
+        )
+        self.assertEqual(
+            len(primary_inner.calls),
+            1,
+        )
+        self.assertEqual(
+            len(secondary_inner.calls),
+            1,
+        )
+        self.assertEqual(
+            port.fallbacks_used,
+            1,
+        )
+        self.assertEqual(
+            port.usage_capacity_domain_skips,
+            0,
+        )
+        self.assertEqual(
+            port.active_index,
+            1,
+        )
+
+    def test_transient_rate_limit_keeps_existing_same_domain_fallback(
+        self,
+    ) -> None:
+        primary_inner = ScriptedModelPort(
+            error=ProviderRateLimitError(
+                "transient"
+            )
+        )
+        secondary_inner = ScriptedModelPort()
+
+        port = BoundedRateLimitFailoverModelPort(
+            (
+                _CapacityDomainPort(
+                    primary_inner,
+                    "quota-domain-a",
+                ),
+                _CapacityDomainPort(
+                    secondary_inner,
+                    "quota-domain-a",
+                ),
+            ),
+            max_fallback_attempts=1,
+            max_rate_limit_retries_per_runtime=0,
+            retry_delay_seconds=0,
+        )
+
+        result = port.complete(_request())
+
+        self.assertIs(
+            result.role,
+            ModelRole.GENERATOR,
+        )
+        self.assertEqual(
+            len(primary_inner.calls),
+            1,
+        )
+        self.assertEqual(
+            len(secondary_inner.calls),
+            1,
+        )
+        self.assertEqual(
+            port.fallbacks_used,
             1,
         )
 

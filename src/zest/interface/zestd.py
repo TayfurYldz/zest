@@ -183,6 +183,22 @@ class _ObservedModelPort:
         return self._inner.runtime_identity
 
     @property
+    def capacity_domain_id(self) -> str | None:
+        value = getattr(
+            self._inner,
+            "capacity_domain_id",
+            None,
+        )
+
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+        ):
+            return None
+
+        return value.strip()
+
+    @property
     def adapter_identity(self):
         return self._inner.adapter_identity
 

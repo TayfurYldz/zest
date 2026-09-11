@@ -76,6 +76,22 @@ class BudgetEnforcedModelPort:
         self._attempts = {ModelRole.GENERATOR: 0, ModelRole.FALSIFIER: 0}
         self.reserved_invocations: list[str] = []
 
+    @property
+    def capacity_domain_id(self) -> str | None:
+        value = getattr(
+            self._inner,
+            "capacity_domain_id",
+            None,
+        )
+
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+        ):
+            return None
+
+        return value.strip()
+
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
         self._attempts[request.role] = self._attempts.get(request.role, 0) + 1
         invocation_id = model_invocation_request_id(

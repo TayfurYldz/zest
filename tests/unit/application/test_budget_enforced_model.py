@@ -122,6 +122,35 @@ class PreInvocationBudgetTests(unittest.TestCase):
         self.assertEqual(totals.model_calls, 1)
         self.assertEqual(totals.worker_requests, 0)
 
+    def test_capacity_domain_metadata_passes_through_budget_decorator(
+        self,
+    ) -> None:
+        class CapacityInner:
+            capacity_domain_id = (
+                "capacity-domain:test"
+            )
+
+            def complete(self, request):
+                raise AssertionError(
+                    "complete is not used"
+                )
+
+        port = BudgetEnforcedModelPort(
+            CapacityInner(),
+            FakeUnitOfWorkFactory(
+                store=_Store()
+            ),
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-capacity-domain",
+            clock=FixedClock(),
+        )
+
+        self.assertEqual(
+            port.capacity_domain_id,
+            "capacity-domain:test",
+        )
+
     def test_failed_calls_still_consume(self) -> None:
         cases = (
             ContentPolicyBlockedError("blocked"),

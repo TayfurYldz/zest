@@ -21,6 +21,24 @@ from zest.research.model_port import (
 )
 
 
+def _capacity_domain_id(
+    port: ModelPort,
+) -> str | None:
+    value = getattr(
+        port,
+        "capacity_domain_id",
+        None,
+    )
+
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+    ):
+        return None
+
+    return value.strip()
+
+
 class BoundedRateLimitFailoverModelPort:
     """Retry rate limits boundedly, then move to the next configured runtime.
 
@@ -109,6 +127,7 @@ class BoundedRateLimitFailoverModelPort:
         self._active_index = 0
         self._fallbacks_used = 0
         self._rate_limit_retries_used = 0
+        self._usage_capacity_domain_skips = 0
 
     @property
     def active_index(self) -> int:
@@ -121,6 +140,50 @@ class BoundedRateLimitFailoverModelPort:
     @property
     def rate_limit_retries_used(self) -> int:
         return self._rate_limit_retries_used
+
+    @property
+    def usage_capacity_domain_skips(
+        self,
+    ) -> int:
+        return self._usage_capacity_domain_skips
+
+    def _next_usage_capacity_fallback_index(
+        self,
+    ) -> int | None:
+        current_domain = _capacity_domain_id(
+            self._ports[self._active_index]
+        )
+
+        # Legacy/third-party ports without declared capacity-domain
+        # semantics retain the previous immediate-next behavior.
+        if current_domain is None:
+            candidate = self._active_index + 1
+            return (
+                candidate
+                if candidate < len(self._ports)
+                else None
+            )
+
+        for index in range(
+            self._active_index + 1,
+            len(self._ports),
+        ):
+            candidate_domain = _capacity_domain_id(
+                self._ports[index]
+            )
+
+            # For a known exhausted capacity domain, independence
+            # must be positively known. Unknown is not proof of
+            # independent quota.
+            if (
+                candidate_domain is not None
+                and candidate_domain != current_domain
+            ):
+                return index
+
+            self._usage_capacity_domain_skips += 1
+
+        return None
 
     @property
     def reserved_invocations(self) -> tuple[str, ...]:
@@ -155,23 +218,30 @@ class BoundedRateLimitFailoverModelPort:
                 return port.complete(request)
 
             except ProviderUsageLimitError:
-                # An explicit account/session usage envelope is not expected
-                # to recover from a one-second retry. Skip only the immediate
-                # same-runtime retry. Existing bounded fallback remains
-                # available because a different configured model/runtime may
-                # still have usable capacity.
+                # Account/session usage exhaustion is a capacity-domain
+                # failure, not merely a model-id failure. Do not burn another
+                # physical attempt against a fallback that is known to share
+                # the same quota/session envelope.
+                #
+                # Generic/transient ProviderRateLimitError retains the
+                # existing bounded retry/fallback policy below.
                 can_fallback = (
                     self._fallbacks_used
                     < self._max_fallback_attempts
-                    and self._active_index + 1
-                    < len(self._ports)
                 )
 
                 if not can_fallback:
                     raise
 
+                next_index = (
+                    self._next_usage_capacity_fallback_index()
+                )
+
+                if next_index is None:
+                    raise
+
                 self._fallbacks_used += 1
-                self._active_index += 1
+                self._active_index = next_index
                 retries_for_active_runtime = 0
                 continue
 
