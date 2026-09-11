@@ -11,6 +11,7 @@ from zest.application.preflight import (
     _model_readiness_check,
 )
 from zest.integrations.models.cli_session import (
+    CodexAccountCapacitySnapshot,
     parse_codex_model_configurations,
     probe_codex_cli,
 )
@@ -86,7 +87,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
             requested_live.append(live_probe)
             return passive
 
-        model, fallback_models, probe_model, health_probe = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe, reconcile_model_health = _compose_codex_model(
             _configurations(),
             probe_codex=passive_only_probe,
         )
@@ -138,7 +139,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
             self.assertIs(kwargs["live_probe"], True)
             return probe_codex_cli(runner=runner, **kwargs)
 
-        model, fallback_models, probe_model, health_probe = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe, reconcile_model_health = _compose_codex_model(
             _configurations(),
             probe_codex=live_probe,
         )
@@ -370,6 +371,744 @@ class ZestdModelCompositionTests(unittest.TestCase):
         )
 
 
+    def test_usage_limit_health_recovers_from_account_capacity_metadata(
+        self,
+    ) -> None:
+        candidate = RuntimeCandidate(
+            identity=api_runtime_identity(
+                adapter_id="test",
+                runtime_id="primary",
+            ),
+            available=True,
+            authenticated=True,
+            structured_output_compatible=True,
+            locality=CandidateLocality.LOCAL,
+        )
+
+        now = [1000.0]
+        capacity_calls = []
+
+        snapshots = [
+            CodexAccountCapacitySnapshot(
+                available=True,
+                blocked=False,
+                reset_at=None,
+                detail="CAPACITY_AVAILABLE",
+            )
+        ]
+
+        def capacity_probe():
+            capacity_calls.append(
+                now[0]
+            )
+            return snapshots[0]
+
+        state = _ObservedModelReadinessState(
+            ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    ComponentHealth.HEALTHY,
+                    "startup-qualified",
+                ),
+            ),
+            capacity_probe=capacity_probe,
+            wall_clock=lambda: now[0],
+        )
+
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="corr-capacity",
+            context_fingerprint="fp-capacity",
+            instructions="generate",
+            payload={"diagnostic": True},
+        )
+
+        inner = ScriptedModelPort(
+            error=ProviderUsageLimitError(
+                "provider secret"
+            )
+        )
+
+        observed = _ObservedModelPort(
+            inner,
+            state,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            observed.complete(
+                request
+            )
+
+        self.assertEqual(
+            len(inner.calls),
+            1,
+        )
+
+        changed = (
+            state.reconcile_usage_capacity()
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            capacity_calls,
+            [1000.0],
+        )
+        self.assertEqual(
+            len(inner.calls),
+            1,
+        )
+
+        recovered = state.snapshot()
+
+        self.assertIs(
+            recovered.health.health,
+            ComponentHealth.HEALTHY,
+        )
+        self.assertEqual(
+            recovered.health.detail,
+            "provider_capacity_snapshot=AVAILABLE",
+        )
+        self.assertIsNotNone(
+            recovered.candidate
+        )
+        assert recovered.candidate is not None
+        self.assertTrue(
+            recovered.candidate.available
+        )
+
+    def test_usage_limit_capacity_reconcile_is_bounded_and_reset_aware(
+        self,
+    ) -> None:
+        candidate = RuntimeCandidate(
+            identity=api_runtime_identity(
+                adapter_id="test",
+                runtime_id="primary",
+            ),
+            available=True,
+            authenticated=True,
+            structured_output_compatible=True,
+            locality=CandidateLocality.LOCAL,
+        )
+
+        now = [1000.0]
+        capacity_calls = []
+
+        snapshots = [
+            CodexAccountCapacitySnapshot(
+                available=False,
+                blocked=True,
+                reset_at=1010,
+                detail="CAPACITY_BLOCKED",
+            ),
+            CodexAccountCapacitySnapshot(
+                available=True,
+                blocked=False,
+                reset_at=None,
+                detail="CAPACITY_AVAILABLE",
+            ),
+        ]
+
+        def capacity_probe():
+            capacity_calls.append(
+                now[0]
+            )
+
+            return snapshots[
+                len(capacity_calls) - 1
+            ]
+
+        state = _ObservedModelReadinessState(
+            ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    ComponentHealth.HEALTHY,
+                    "startup-qualified",
+                ),
+            ),
+            capacity_probe=capacity_probe,
+            wall_clock=lambda: now[0],
+        )
+
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="corr-capacity-reset",
+            context_fingerprint="fp-capacity-reset",
+            instructions="generate",
+            payload={"diagnostic": True},
+        )
+
+        observed = _ObservedModelPort(
+            ScriptedModelPort(
+                error=ProviderUsageLimitError(
+                    "quota"
+                )
+            ),
+            state,
+        )
+
+        with self.assertRaises(
+            ProviderUsageLimitError
+        ):
+            observed.complete(
+                request
+            )
+
+        self.assertFalse(
+            state.reconcile_usage_capacity()
+        )
+
+        now[0] = 1009.0
+
+        self.assertFalse(
+            state.reconcile_usage_capacity()
+        )
+        self.assertEqual(
+            capacity_calls,
+            [1000.0],
+        )
+
+        now[0] = 1010.0
+
+        self.assertTrue(
+            state.reconcile_usage_capacity()
+        )
+        self.assertEqual(
+            capacity_calls,
+            [1000.0, 1010.0],
+        )
+
+        self.assertIs(
+            state.snapshot().health.health,
+            ComponentHealth.HEALTHY,
+        )
+
+    def test_generic_rate_limit_does_not_trigger_account_capacity_probe(
+        self,
+    ) -> None:
+        candidate = RuntimeCandidate(
+            identity=api_runtime_identity(
+                adapter_id="test",
+                runtime_id="primary",
+            ),
+            available=True,
+            authenticated=True,
+            structured_output_compatible=True,
+            locality=CandidateLocality.LOCAL,
+        )
+
+        capacity_calls = []
+
+        state = _ObservedModelReadinessState(
+            ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    ComponentHealth.HEALTHY,
+                    "startup-qualified",
+                ),
+            ),
+            capacity_probe=lambda: (
+                capacity_calls.append(True)
+                or CodexAccountCapacitySnapshot(
+                    available=True,
+                    blocked=False,
+                    reset_at=None,
+                    detail="CAPACITY_AVAILABLE",
+                )
+            ),
+        )
+
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="corr-transient",
+            context_fingerprint="fp-transient",
+            instructions="generate",
+            payload={"diagnostic": True},
+        )
+
+        observed = _ObservedModelPort(
+            ScriptedModelPort(
+                error=ProviderRateLimitError(
+                    "transient"
+                )
+            ),
+            state,
+        )
+
+        with self.assertRaises(
+            ProviderRateLimitError
+        ):
+            observed.complete(
+                request
+            )
+
+        self.assertFalse(
+            state.reconcile_usage_capacity()
+        )
+        self.assertEqual(
+            capacity_calls,
+            [],
+        )
+
+    def test_startup_rate_limit_requires_live_requalification_before_ready(
+        self,
+    ) -> None:
+        exec_calls = []
+        capacity_calls = []
+
+        def runner(
+            argv,
+            stdin_bytes=None,
+        ):
+            del stdin_bytes
+
+            if argv[-1] == "--version":
+                return ArgvProcessResult(
+                    status=(
+                        ArgvProcessStatus.COMPLETED
+                    ),
+                    argv=argv,
+                    exit_code=0,
+                    stdout="codex 1.0",
+                )
+
+            if (
+                len(argv) >= 2
+                and argv[1] == "login"
+            ):
+                return ArgvProcessResult(
+                    status=(
+                        ArgvProcessStatus.COMPLETED
+                    ),
+                    argv=argv,
+                    exit_code=0,
+                    stdout="logged in",
+                )
+
+            exec_calls.append(
+                argv[
+                    argv.index("-m") + 1
+                ]
+            )
+
+            if len(exec_calls) == 1:
+                return ArgvProcessResult(
+                    status=(
+                        ArgvProcessStatus.PROCESS_FAILED
+                    ),
+                    argv=argv,
+                    exit_code=1,
+                    stderr=(
+                        "You have hit your usage limit"
+                    ),
+                )
+
+            return ArgvProcessResult(
+                status=(
+                    ArgvProcessStatus.COMPLETED
+                ),
+                argv=argv,
+                exit_code=0,
+                stdout='{"diagnostic":true}',
+            )
+
+        def live_probe(**kwargs):
+            return probe_codex_cli(
+                runner=runner,
+                **kwargs,
+            )
+
+        def capacity_probe(
+            *,
+            executable_name,
+        ):
+            capacity_calls.append(
+                executable_name
+            )
+
+            return CodexAccountCapacitySnapshot(
+                available=True,
+                blocked=False,
+                reset_at=None,
+                detail="CAPACITY_AVAILABLE",
+            )
+
+        (
+            model,
+            fallback_models,
+            probe_model,
+            health_probe,
+            reconcile_model_health,
+        ) = _compose_codex_model(
+            _configurations(),
+            probe_codex=live_probe,
+            probe_codex_capacity=(
+                capacity_probe
+            ),
+        )
+
+        self.assertNotIsInstance(
+            model,
+            _UnavailableModel,
+        )
+
+        self.assertEqual(
+            len(fallback_models),
+            1,
+        )
+
+        before = probe_model()
+
+        self.assertIs(
+            before.health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+
+        self.assertFalse(
+            _model_readiness_check(
+                before
+            ).passed
+        )
+
+        self.assertEqual(
+            exec_calls,
+            ["gpt-primary"],
+        )
+
+        self.assertTrue(
+            reconcile_model_health()
+        )
+
+        after = probe_model()
+        operational = health_probe()
+
+        self.assertIs(
+            after.health.health,
+            ComponentHealth.HEALTHY,
+        )
+
+        self.assertTrue(
+            _model_readiness_check(
+                after
+            ).passed
+        )
+
+        self.assertIs(
+            operational.health.health,
+            ComponentHealth.HEALTHY,
+        )
+
+        self.assertEqual(
+            operational.health.detail,
+            "startup_requalification=COMPLETED",
+        )
+
+        self.assertEqual(
+            exec_calls,
+            [
+                "gpt-primary",
+                "gpt-primary",
+            ],
+        )
+
+        self.assertEqual(
+            len(capacity_calls),
+            1,
+        )
+
+        self.assertEqual(
+            model.runtime_identity.runtime_id,
+            "primary",
+        )
+
+        self.assertEqual(
+            fallback_models[
+                0
+            ].runtime_identity.runtime_id,
+            "secondary",
+        )
+
+    def test_startup_capacity_metadata_alone_cannot_mark_model_ready(
+        self,
+    ) -> None:
+        exec_calls = []
+        capacity_calls = []
+
+        def runner(
+            argv,
+            stdin_bytes=None,
+        ):
+            del stdin_bytes
+
+            if argv[-1] == "--version":
+                return ArgvProcessResult(
+                    status=(
+                        ArgvProcessStatus.COMPLETED
+                    ),
+                    argv=argv,
+                    exit_code=0,
+                    stdout="codex 1.0",
+                )
+
+            if (
+                len(argv) >= 2
+                and argv[1] == "login"
+            ):
+                return ArgvProcessResult(
+                    status=(
+                        ArgvProcessStatus.COMPLETED
+                    ),
+                    argv=argv,
+                    exit_code=0,
+                    stdout="logged in",
+                )
+
+            exec_calls.append(True)
+
+            return ArgvProcessResult(
+                status=(
+                    ArgvProcessStatus.PROCESS_FAILED
+                ),
+                argv=argv,
+                exit_code=1,
+                stderr=(
+                    "You have hit your usage limit"
+                ),
+            )
+
+        def live_probe(**kwargs):
+            return probe_codex_cli(
+                runner=runner,
+                **kwargs,
+            )
+
+        def capacity_probe(
+            *,
+            executable_name,
+        ):
+            capacity_calls.append(
+                executable_name
+            )
+
+            return CodexAccountCapacitySnapshot(
+                available=True,
+                blocked=False,
+                reset_at=None,
+                detail="CAPACITY_AVAILABLE",
+            )
+
+        (
+            model,
+            fallback_models,
+            probe_model,
+            health_probe,
+            reconcile_model_health,
+        ) = _compose_codex_model(
+            _configurations(),
+            probe_codex=live_probe,
+            probe_codex_capacity=(
+                capacity_probe
+            ),
+        )
+
+        del model, fallback_models
+
+        self.assertFalse(
+            reconcile_model_health()
+        )
+
+        self.assertIs(
+            probe_model().health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+
+        self.assertFalse(
+            _model_readiness_check(
+                probe_model()
+            ).passed
+        )
+
+        self.assertIs(
+            health_probe().health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+
+        # Immediate second call is bounded and must not
+        # multiply metadata/diagnostic requests.
+        self.assertFalse(
+            reconcile_model_health()
+        )
+
+        self.assertEqual(
+            len(capacity_calls),
+            1,
+        )
+
+        self.assertEqual(
+            len(exec_calls),
+            2,
+        )
+
+    def test_explicit_runtime_requalification_uses_fresh_live_probe(
+        self,
+    ) -> None:
+        exec_models = []
+        capacity_calls = []
+
+        def runner(
+            argv,
+            stdin_bytes=None,
+        ):
+            del stdin_bytes
+
+            if argv[-1] == "--version":
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED,
+                    argv=argv,
+                    exit_code=0,
+                    stdout="codex 1.0",
+                )
+
+            if (
+                len(argv) >= 2
+                and argv[1] == "login"
+            ):
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED,
+                    argv=argv,
+                    exit_code=0,
+                    stdout="logged in",
+                )
+
+            exec_models.append(
+                argv[
+                    argv.index("-m") + 1
+                ]
+            )
+
+            if len(exec_models) == 2:
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.PROCESS_FAILED,
+                    argv=argv,
+                    exit_code=1,
+                    stderr=(
+                        "You have hit your usage limit"
+                    ),
+                )
+
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.COMPLETED,
+                argv=argv,
+                exit_code=0,
+                stdout='{"diagnostic":true}',
+            )
+
+        def live_probe(**kwargs):
+            return probe_codex_cli(
+                runner=runner,
+                **kwargs,
+            )
+
+        def capacity_probe(
+            *,
+            executable_name,
+        ):
+            capacity_calls.append(
+                executable_name
+            )
+
+            return CodexAccountCapacitySnapshot(
+                available=True,
+                blocked=False,
+                reset_at=None,
+                detail="CAPACITY_AVAILABLE",
+            )
+
+        (
+            model,
+            fallback_models,
+            probe_model,
+            health_probe,
+            reconcile_model_health,
+        ) = _compose_codex_model(
+            _configurations(),
+            probe_codex=live_probe,
+            probe_codex_capacity=capacity_probe,
+        )
+
+        del model, fallback_models
+
+        self.assertEqual(
+            exec_models,
+            ["gpt-primary"],
+        )
+
+        self.assertTrue(
+            _model_readiness_check(
+                probe_model()
+            ).passed
+        )
+
+        # Explicit recovery confirmation bypasses metadata and
+        # consumes one fresh diagnostic.
+        self.assertFalse(
+            reconcile_model_health(
+                require_live=True
+            )
+        )
+
+        self.assertEqual(
+            exec_models,
+            [
+                "gpt-primary",
+                "gpt-primary",
+            ],
+        )
+
+        self.assertEqual(
+            capacity_calls,
+            [],
+        )
+
+        self.assertIs(
+            health_probe().health.health,
+            ComponentHealth.RATE_LIMITED,
+        )
+
+        self.assertTrue(
+            reconcile_model_health(
+                require_live=True
+            )
+        )
+
+        self.assertEqual(
+            exec_models,
+            [
+                "gpt-primary",
+                "gpt-primary",
+                "gpt-primary",
+            ],
+        )
+
+        self.assertEqual(
+            capacity_calls,
+            [],
+        )
+
+        self.assertIs(
+            health_probe().health.health,
+            ComponentHealth.HEALTHY,
+        )
+
+        self.assertEqual(
+            health_probe().health.detail,
+            "capacity_requalification=COMPLETED",
+        )
+
     def test_failed_live_probe_fails_closed_without_secondary_fallback(self) -> None:
         secret = "SENTINEL-PROMPT-SECRET"
         exec_models: list[str] = []
@@ -401,7 +1140,7 @@ class ZestdModelCompositionTests(unittest.TestCase):
                 reason="non-zero exit",
             )
 
-        model, fallback_models, probe_model, health_probe = _compose_codex_model(
+        model, fallback_models, probe_model, health_probe, reconcile_model_health = _compose_codex_model(
             _configurations(),
             probe_codex=lambda **kwargs: probe_codex_cli(runner=runner, **kwargs),
         )

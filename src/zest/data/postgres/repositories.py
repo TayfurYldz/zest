@@ -2943,7 +2943,7 @@ class PostgresResearchOrchestrationRepository:
             rows = (
                 self._connection.execute(
                     select(tables.research_orchestration).where(
-                        tables.research_orchestration.c.state.in_(("READY", "RUNNING"))
+                        tables.research_orchestration.c.state.in_(("READY", "RUNNING", "BLOCKED"))
                     )
                 )
                 .mappings()

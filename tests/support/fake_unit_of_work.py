@@ -1728,7 +1728,7 @@ class _ResearchOrchestrationRepo:
         return [
             record
             for record in self._root.research_orchestrations.values()
-            if record.state in {"READY", "RUNNING"}
+            if record.state in {"READY", "RUNNING", "BLOCKED"}
         ]
 
 

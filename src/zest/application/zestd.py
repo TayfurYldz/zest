@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from zest.application.autonomous_research_controller import (
@@ -30,6 +30,9 @@ from zest.application.classify_runtime_recovery import (
     RuntimeRecoveryDecision,
 )
 from zest.application.errors import ApplicationError
+from zest.application.model_usage_capacity_recovery import (
+    RecoverModelUsageCapacity,
+)
 from zest.application.identity import new_opaque_id
 from zest.application.lease_fencing import (
     LeaseFencedWorkerPort,
@@ -79,15 +82,21 @@ from zest.data.errors import (
     PersistenceError,
 )
 from zest.data.records import AuditEventRecord, RuntimeInstanceRecord
+from zest.platform.health import ComponentHealth
 from zest.platform.worker import WorkerPort
 from zest.research.model_port import ModelPort
 from zest.tools.capabilities import BROWSER_PAGE_CAPABILITY
-from zest.research.orchestration import OrchestrationState
+from zest.research.orchestration import (
+    OrchestrationState,
+    StopReason,
+)
 from zest.safe_data import redact_secret_keys
 
 LOGGER = logging.getLogger("zest.zestd")
 
 ReadinessProbe = Callable[[], object]
+
+MODEL_CAPACITY_LIVE_RETRY_SECONDS = 60.0
 
 
 def _log(event: str, **fields: object) -> None:
@@ -112,6 +121,7 @@ class ZestdRuntime:
         probe_worker: Callable[[], WorkerReadinessInput],
         probe_model: Callable[[], ModelReadinessInput],
         probe_model_health: Callable[[], ModelReadinessInput] | None = None,
+        probe_model_recovery: Callable[[], bool] | None = None,
         required_worker_capabilities: frozenset[str] = frozenset(),
         engine_version: str = ENGINE_VERSION,
         host_identity: str = "zestd",
@@ -141,6 +151,9 @@ class ZestdRuntime:
         self._model_health_probe_separate = (
             probe_model_health is not None
         )
+        self._probe_model_recovery = (
+            probe_model_recovery
+        )
 
         self._required_worker_capabilities = required_worker_capabilities
         self._engine_version = engine_version
@@ -159,9 +172,18 @@ class ZestdRuntime:
         )
         self._preflight = Preflight(uow_factory, clock=self._clock)
         self._classifier = ClassifyRuntimeRecovery(uow_factory)
+        self._model_usage_capacity_recovery = (
+            RecoverModelUsageCapacity(
+                uow_factory,
+                clock=self._clock,
+            )
+        )
         self._stop = threading.Event()
         self._pg_unavailable = False
         self._lock = threading.Lock()
+        self._capacity_recovery_lock = threading.Lock()
+        self._capacity_live_retry_after: dict[str, datetime] = {}
+        self._pending_capacity_attaches: set[str] = set()
         self._heartbeat_thread: threading.Thread | None = None
 
     @property
@@ -244,13 +266,420 @@ class ZestdRuntime:
                 RuntimeRecoveryAction.SAFE_RESUME,
                 RuntimeRecoveryAction.SAFE_RETRY_AFTER_REAUTHORIZATION,
             }:
-                self._attach_supervisor(record.research_run_id, recovery=True)
+                self._attach_supervisor(
+                    record.research_run_id,
+                    recovery=True,
+                )
+            elif (
+                decision.action
+                is RuntimeRecoveryAction
+                .SAFE_RETRY_AFTER_MODEL_CAPACITY
+            ):
+                self._recover_model_usage_limited_run(
+                    record.research_run_id
+                )
             elif decision.action in {
                 RuntimeRecoveryAction.RECONCILIATION_REQUIRED,
                 RuntimeRecoveryAction.HUMAN_REQUIRED,
             }:
                 self._hold_for_human(record.research_run_id, decision)
         return tuple(decisions)
+
+    def recover_model_usage_limited_runs(
+        self,
+        *,
+        live_already_confirmed: bool = False,
+    ) -> tuple[str, ...]:
+        """Retry exact MODEL_USAGE_LIMITED blocks only.
+
+        Provider/model requalification remains a separate runtime fact.
+        This method grants no authority and performs no research work.
+        """
+
+        if (
+            self._pg_unavailable
+            or self._probe_model_recovery is None
+        ):
+            return ()
+
+        if not self._capacity_recovery_lock.acquire(
+            blocking=False
+        ):
+            return ()
+
+        recovered: list[str] = []
+
+        try:
+            self._retry_pending_capacity_attaches_locked()
+
+            try:
+                with self._uow_factory.open() as uow:
+                    records = (
+                        uow.research_orchestrations
+                        .list_recoverable()
+                    )
+                    uow.rollback()
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                return ()
+
+            for record in records:
+                if (
+                    record.state
+                    != OrchestrationState.BLOCKED.value
+                    or record.stop_reason
+                    != StopReason.RATE_LIMITED.value
+                ):
+                    continue
+
+                if (
+                    self.is_supervising(
+                        record.research_run_id
+                    )
+                    or self._lease_held_by_other(
+                        record
+                    )
+                ):
+                    continue
+
+                if (
+                    self
+                    ._recover_model_usage_limited_run_locked(
+                        record.research_run_id,
+                        live_already_confirmed=(
+                            live_already_confirmed
+                        ),
+                    )
+                ):
+                    recovered.append(
+                        record.research_run_id
+                    )
+
+            return tuple(recovered)
+
+        finally:
+            self._capacity_recovery_lock.release()
+
+    def _recover_model_usage_limited_run(
+        self,
+        research_run_id: str,
+        *,
+        live_already_confirmed: bool = False,
+    ) -> bool:
+        if not self._capacity_recovery_lock.acquire(
+            blocking=False
+        ):
+            return False
+
+        try:
+            return (
+                self
+                ._recover_model_usage_limited_run_locked(
+                    research_run_id,
+                    live_already_confirmed=(
+                        live_already_confirmed
+                    ),
+                )
+            )
+        finally:
+            self._capacity_recovery_lock.release()
+
+    def _recover_model_usage_limited_run_locked(
+        self,
+        research_run_id: str,
+        *,
+        live_already_confirmed: bool = False,
+    ) -> bool:
+        if self._probe_model_recovery is None:
+            return False
+
+        if self.is_supervising(
+            research_run_id
+        ):
+            return False
+
+        try:
+            decision = self._classifier.execute(
+                research_run_id
+            )
+        except DatabaseUnavailableError as exc:
+            self._mark_pg_unavailable(exc)
+            return False
+
+        if (
+            decision.action
+            is not RuntimeRecoveryAction
+            .SAFE_RETRY_AFTER_MODEL_CAPACITY
+        ):
+            return False
+
+        now = self._clock.now()
+
+        retry_after = (
+            self._capacity_live_retry_after.get(
+                research_run_id
+            )
+        )
+
+        if (
+            not live_already_confirmed
+            and retry_after is not None
+            and now < retry_after
+        ):
+            return False
+
+        # Passive health read: no provider request.
+        operational = self._probe_model_health()
+
+        if (
+            operational.health.health
+            is not ComponentHealth.HEALTHY
+        ):
+            return False
+
+        # Run ordinary non-reconciliation preflight before spending
+        # another provider diagnostic request.
+        try:
+            command = reconstruct_start_command(
+                self._uow_factory,
+                research_run_id,
+                recovery=True,
+            )
+
+            report = self._run_preflight(
+                command,
+                check_reconciliation=False,
+            )
+        except DatabaseUnavailableError as exc:
+            self._mark_pg_unavailable(exc)
+            return False
+        except ApplicationError:
+            return False
+
+        if (
+            report.status
+            is not PreflightStatus.READY_TO_START
+        ):
+            return False
+
+        # A reconciliation iteration may already have produced a
+        # request-consuming live proof. Reuse that proof once instead
+        # of immediately consuming a duplicate diagnostic.
+        if live_already_confirmed:
+            self._capacity_live_retry_after.pop(
+                research_run_id,
+                None,
+            )
+        else:
+            # Metadata availability alone is insufficient. A fresh
+            # diagnostic must prove the configured model path works.
+            try:
+                live_confirmed = (
+                    self._probe_model_recovery()
+                )
+            except Exception as exc:
+                self._capacity_live_retry_after[
+                    research_run_id
+                ] = (
+                    now
+                    + timedelta(
+                        seconds=(
+                            MODEL_CAPACITY_LIVE_RETRY_SECONDS
+                        )
+                    )
+                )
+
+                _log(
+                    "runtime.model_capacity_live_confirmation_failed",
+                    runtime_instance_id=(
+                        self.runtime_instance_id
+                    ),
+                    research_run_id=(
+                        research_run_id
+                    ),
+                    failure_type=(
+                        exc.__class__.__name__
+                    ),
+                )
+
+                return False
+
+            if live_confirmed is not True:
+                self._capacity_live_retry_after[
+                    research_run_id
+                ] = (
+                    now
+                    + timedelta(
+                        seconds=(
+                            MODEL_CAPACITY_LIVE_RETRY_SECONDS
+                        )
+                    )
+                )
+
+                return False
+
+            self._capacity_live_retry_after.pop(
+                research_run_id,
+                None,
+            )
+
+        try:
+            result = (
+                self._model_usage_capacity_recovery
+                .execute(
+                    research_run_id
+                )
+            )
+        except DatabaseUnavailableError as exc:
+            self._mark_pg_unavailable(exc)
+            return False
+        except (
+            LeaseFencingError,
+            PersistenceConflictError,
+            ApplicationError,
+        ):
+            return False
+
+        if not result.recovered:
+            return False
+
+        # The durable row is READY now. From this point onward either
+        # this runtime acquires a supervisor lease, another runtime owns
+        # it, or the id stays in the explicit pending-attach set.
+        self._pending_capacity_attaches.add(
+            research_run_id
+        )
+
+        attached = self._attach_supervisor(
+            research_run_id,
+            recovery=True,
+            command=command,
+        )
+
+        if (
+            attached is not None
+            or self.is_supervising(
+                research_run_id
+            )
+        ):
+            self._pending_capacity_attaches.discard(
+                research_run_id
+            )
+
+        return True
+
+    def _retry_pending_capacity_attaches_locked(
+        self,
+    ) -> tuple[str, ...]:
+        attached_ids: list[str] = []
+
+        for research_run_id in tuple(
+            sorted(
+                self._pending_capacity_attaches
+            )
+        ):
+            if self.is_supervising(
+                research_run_id
+            ):
+                self._pending_capacity_attaches.discard(
+                    research_run_id
+                )
+                attached_ids.append(
+                    research_run_id
+                )
+                continue
+
+            try:
+                with self._uow_factory.open() as uow:
+                    current = (
+                        uow.research_orchestrations.get(
+                            research_run_id
+                        )
+                    )
+                    uow.rollback()
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                break
+
+            if (
+                current is None
+                or current.state
+                != OrchestrationState.READY.value
+            ):
+                self._pending_capacity_attaches.discard(
+                    research_run_id
+                )
+                continue
+
+            if self._lease_held_by_other(
+                current
+            ):
+                # Another runtime owns the continuation. It is not
+                # locally pending anymore.
+                self._pending_capacity_attaches.discard(
+                    research_run_id
+                )
+                continue
+
+            try:
+                command = reconstruct_start_command(
+                    self._uow_factory,
+                    research_run_id,
+                    recovery=True,
+                )
+
+                attached = self._attach_supervisor(
+                    research_run_id,
+                    recovery=True,
+                    command=command,
+                )
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                break
+            except (
+                ApplicationError,
+                OperatorError,
+            ):
+                continue
+
+            if (
+                attached is not None
+                or self.is_supervising(
+                    research_run_id
+                )
+            ):
+                self._pending_capacity_attaches.discard(
+                    research_run_id
+                )
+                attached_ids.append(
+                    research_run_id
+                )
+                continue
+
+            # _attach_supervisor may have terminalized budget state.
+            try:
+                with self._uow_factory.open() as uow:
+                    after = (
+                        uow.research_orchestrations.get(
+                            research_run_id
+                        )
+                    )
+                    uow.rollback()
+            except DatabaseUnavailableError as exc:
+                self._mark_pg_unavailable(exc)
+                break
+
+            if (
+                after is None
+                or after.state
+                != OrchestrationState.READY.value
+                or self._lease_held_by_other(after)
+            ):
+                self._pending_capacity_attaches.discard(
+                    research_run_id
+                )
+
+        return tuple(attached_ids)
 
     def start_run(self, research_run_id: str) -> OrchestrationTickResult:
         self._require_pg()

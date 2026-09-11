@@ -10,7 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import select
+import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from os import environ
 from pathlib import Path
@@ -221,6 +224,350 @@ class CliRuntimeAvailability:
             payload["benchmark_compatible"] = mapping["benchmark_compatible"]
             payload["stage"] = mapping["stage"]
         return payload
+
+
+@dataclass(frozen=True)
+class CodexAccountCapacitySnapshot:
+    available: bool | None
+    blocked: bool | None
+    reset_at: int | None
+    detail: str
+
+
+CODEX_CAPACITY_PROBE_TIMEOUT_SECONDS = 15.0
+
+
+def classify_codex_account_capacity(
+    payload: object,
+) -> CodexAccountCapacitySnapshot:
+    if not isinstance(payload, dict):
+        return CodexAccountCapacitySnapshot(
+            available=None,
+            blocked=None,
+            reset_at=None,
+            detail="CAPACITY_SNAPSHOT_INVALID",
+        )
+
+    rate_limits = payload.get("rateLimits")
+
+    if not isinstance(rate_limits, dict):
+        return CodexAccountCapacitySnapshot(
+            available=None,
+            blocked=None,
+            reset_at=None,
+            detail="CAPACITY_RATE_LIMITS_MISSING",
+        )
+
+    primary = rate_limits.get("primary")
+    secondary = rate_limits.get("secondary")
+
+    windows = tuple(
+        item
+        for item in (primary, secondary)
+        if isinstance(item, dict)
+    )
+
+    exhausted_windows = []
+
+    for window in windows:
+        used = window.get("usedPercent")
+
+        if (
+            isinstance(used, (int, float))
+            and not isinstance(used, bool)
+            and used >= 100
+        ):
+            exhausted_windows.append(window)
+
+    reached_type = rate_limits.get(
+        "rateLimitReachedType"
+    )
+
+    spend_control_reached = rate_limits.get(
+        "spendControlReached"
+    )
+
+    blocked = bool(
+        reached_type is not None
+        or spend_control_reached is True
+        or exhausted_windows
+    )
+
+    if not blocked:
+        return CodexAccountCapacitySnapshot(
+            available=True,
+            blocked=False,
+            reset_at=None,
+            detail="CAPACITY_AVAILABLE",
+        )
+
+    reset_candidates = []
+
+    # Only attach a reset time to a window whose exhaustion is
+    # explicitly visible. Do not invent which window caused a
+    # reached-type-only block.
+    for window in exhausted_windows:
+        reset_at = window.get("resetsAt")
+
+        if (
+            isinstance(reset_at, int)
+            and not isinstance(reset_at, bool)
+            and reset_at > 0
+        ):
+            reset_candidates.append(
+                reset_at
+            )
+
+    return CodexAccountCapacitySnapshot(
+        available=False,
+        blocked=True,
+        reset_at=(
+            min(reset_candidates)
+            if reset_candidates
+            else None
+        ),
+        detail="CAPACITY_BLOCKED",
+    )
+
+
+def probe_codex_account_capacity(
+    *,
+    executable_name: str = DEFAULT_CODEX_EXECUTABLE,
+    timeout_seconds: float = (
+        CODEX_CAPACITY_PROBE_TIMEOUT_SECONDS
+    ),
+    popen_factory=None,
+    select_fn=None,
+) -> CodexAccountCapacitySnapshot:
+    """Read account capacity without starting a Codex model turn."""
+
+    if (
+        not isinstance(timeout_seconds, (int, float))
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds <= 0
+    ):
+        return CodexAccountCapacitySnapshot(
+            available=None,
+            blocked=None,
+            reset_at=None,
+            detail="CAPACITY_PROBE_CONFIGURATION_INVALID",
+        )
+
+    if popen_factory is None:
+        executable = resolve_executable(
+            executable_name
+        )
+
+        if executable is None:
+            return CodexAccountCapacitySnapshot(
+                available=None,
+                blocked=None,
+                reset_at=None,
+                detail="CAPACITY_PROBE_EXECUTABLE_UNAVAILABLE",
+            )
+
+        process_factory = subprocess.Popen
+    else:
+        executable = executable_name
+        process_factory = popen_factory
+
+    selector = (
+        select.select
+        if select_fn is None
+        else select_fn
+    )
+
+    process = None
+
+    try:
+        process = process_factory(
+            (
+                executable,
+                "app-server",
+                "--stdio",
+            ),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+            shell=False,
+        )
+
+        if (
+            process.stdin is None
+            or process.stdout is None
+        ):
+            raise RuntimeError(
+                "capacity probe pipe setup failed"
+            )
+
+        deadline = (
+            time.monotonic()
+            + float(timeout_seconds)
+        )
+
+        def send(payload):
+            process.stdin.write(
+                json.dumps(
+                    payload,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            )
+            process.stdin.flush()
+
+        def response_for(request_id):
+            while True:
+                remaining = (
+                    deadline
+                    - time.monotonic()
+                )
+
+                if remaining <= 0:
+                    raise TimeoutError(
+                        "capacity probe timed out"
+                    )
+
+                ready, _, _ = selector(
+                    [process.stdout],
+                    [],
+                    [],
+                    remaining,
+                )
+
+                if not ready:
+                    raise TimeoutError(
+                        "capacity probe timed out"
+                    )
+
+                line = process.stdout.readline()
+
+                if line == "":
+                    raise RuntimeError(
+                        "capacity probe ended early"
+                    )
+
+                line = line.strip()
+
+                if not line:
+                    continue
+
+                message = json.loads(line)
+
+                if not isinstance(
+                    message,
+                    dict,
+                ):
+                    raise RuntimeError(
+                        "capacity probe protocol invalid"
+                    )
+
+                if (
+                    message.get("id")
+                    == request_id
+                ):
+                    if "error" in message:
+                        raise RuntimeError(
+                            "capacity probe request failed"
+                        )
+
+                    return message.get(
+                        "result"
+                    )
+
+                # Notifications have no request id.
+                if "id" not in message:
+                    continue
+
+                # Fail closed on an unexpected server request/response.
+                raise RuntimeError(
+                    "capacity probe protocol unexpected"
+                )
+
+        send(
+            {
+                "method": "initialize",
+                "id": 1,
+                "params": {
+                    "clientInfo": {
+                        "name": "zest_capacity_probe",
+                        "title": "Zest Capacity Probe",
+                        "version": "1",
+                    }
+                },
+            }
+        )
+
+        init_result = response_for(1)
+
+        if not isinstance(
+            init_result,
+            dict,
+        ):
+            raise RuntimeError(
+                "capacity probe initialize invalid"
+            )
+
+        send(
+            {
+                "method": "initialized",
+            }
+        )
+
+        send(
+            {
+                "method": (
+                    "account/rateLimits/read"
+                ),
+                "id": 2,
+            }
+        )
+
+        result = response_for(2)
+
+        return classify_codex_account_capacity(
+            result
+        )
+
+    except (
+        OSError,
+        RuntimeError,
+        TimeoutError,
+        TypeError,
+        ValueError,
+        subprocess.SubprocessError,
+    ):
+        return CodexAccountCapacitySnapshot(
+            available=None,
+            blocked=None,
+            reset_at=None,
+            detail="CAPACITY_PROBE_FAILED",
+        )
+
+    finally:
+        if process is not None:
+            try:
+                if process.stdin is not None:
+                    process.stdin.close()
+            except Exception:
+                pass
+
+            try:
+                if process.poll() is None:
+                    process.terminate()
+
+                    try:
+                        process.wait(
+                            timeout=2
+                        )
+                    except Exception:
+                        process.kill()
+                        process.wait(
+                            timeout=2
+                        )
+            except Exception:
+                pass
 
 
 def derive_codex_configuration_id(model: str) -> str:

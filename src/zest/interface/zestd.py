@@ -10,6 +10,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 from zest.application.orchestration_lease import LeaseConfig
@@ -46,6 +47,10 @@ def _alembic_ini() -> str:
     return str(resolve_alembic_ini(os.environ, source_file=Path(__file__)))
 
 
+MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS = 60.0
+MODEL_CAPACITY_RECONCILE_LOOP_SECONDS = 5.0
+
+
 class _ObservedModelReadinessState:
     """Thread-safe last-observed operational ModelRuntime health.
 
@@ -57,13 +62,32 @@ class _ObservedModelReadinessState:
     def __init__(
         self,
         initial: ModelReadinessInput,
+        *,
+        capacity_probe=None,
+        wall_clock=None,
     ) -> None:
         self._lock = threading.Lock()
         self._value = initial
+        self._capacity_probe = capacity_probe
+        self._wall_clock = (
+            wall_clock
+            if wall_clock is not None
+            else time.time
+        )
+        self._next_capacity_probe_at = 0.0
 
     def snapshot(self) -> ModelReadinessInput:
         with self._lock:
             return self._value
+
+    def publish_readiness(
+        self,
+        readiness: ModelReadinessInput,
+    ) -> None:
+        """Publish externally re-qualified runtime truth atomically."""
+        with self._lock:
+            self._value = readiness
+            self._next_capacity_probe_at = 0.0
 
     def record_success(self) -> None:
         with self._lock:
@@ -86,6 +110,109 @@ class _ObservedModelReadinessState:
                     "last_runtime_outcome=COMPLETED",
                 ),
             )
+            self._next_capacity_probe_at = 0.0
+
+    def reconcile_usage_capacity(self) -> bool:
+        """Reconcile stale usage-limit health from provider metadata.
+
+        No model turn is started. False means either no reconciliation
+        was due or the provider did not prove capacity available.
+        """
+        if self._capacity_probe is None:
+            return False
+
+        now = float(
+            self._wall_clock()
+        )
+
+        with self._lock:
+            current = self._value
+
+            if not (
+                current.health.health
+                is ComponentHealth.RATE_LIMITED
+                and current.health.detail
+                == "last_runtime_outcome=MODEL_USAGE_LIMITED"
+            ):
+                return False
+
+            if (
+                now
+                < self._next_capacity_probe_at
+            ):
+                return False
+
+            # Reserve the next probe slot before the network read.
+            # This prevents concurrent callers from multiplying reads.
+            self._next_capacity_probe_at = (
+                now
+                + MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS
+            )
+
+        snapshot = self._capacity_probe()
+
+        with self._lock:
+            current = self._value
+
+            # A real ModelPort success/failure may have superseded this
+            # metadata read while it was in flight.
+            if not (
+                current.health.health
+                is ComponentHealth.RATE_LIMITED
+                and current.health.detail
+                == "last_runtime_outcome=MODEL_USAGE_LIMITED"
+            ):
+                return False
+
+            if snapshot.available is True:
+                candidate = current.candidate
+
+                if candidate is not None:
+                    candidate = replace(
+                        candidate,
+                        available=True,
+                    )
+
+                self._value = ModelReadinessInput(
+                    candidate=candidate,
+                    health=HealthCheck(
+                        "model",
+                        ComponentHealth.HEALTHY,
+                        "provider_capacity_snapshot=AVAILABLE",
+                    ),
+                )
+                self._next_capacity_probe_at = 0.0
+                return True
+
+            next_probe_at = (
+                now
+                + MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS
+            )
+
+            reset_at = getattr(
+                snapshot,
+                "reset_at",
+                None,
+            )
+
+            if (
+                isinstance(reset_at, int)
+                and not isinstance(
+                    reset_at,
+                    bool,
+                )
+                and reset_at > now
+            ):
+                next_probe_at = min(
+                    next_probe_at,
+                    float(reset_at),
+                )
+
+            self._next_capacity_probe_at = (
+                next_probe_at
+            )
+
+            return False
 
     def record_failure(
         self,
@@ -166,6 +293,12 @@ class _ObservedModelReadinessState:
                 ),
             )
 
+            if isinstance(
+                exc,
+                ProviderUsageLimitError,
+            ):
+                self._next_capacity_probe_at = 0.0
+
 
 class _ObservedModelPort:
     """Transparent ModelPort wrapper that publishes operational health."""
@@ -217,12 +350,18 @@ class _ObservedModelPort:
         return result
 
 
-def _compose_codex_model(configurations, *, probe_codex=None):
+def _compose_codex_model(
+    configurations,
+    *,
+    probe_codex=None,
+    probe_codex_capacity=None,
+):
     """Qualify once; observe later runtime health without active health probes."""
 
     from zest.integrations.models.cli_session import (
         CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
         CodexCliSessionAdapter,
+        probe_codex_account_capacity,
         probe_codex_cli,
     )
     from zest.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
@@ -246,6 +385,7 @@ def _compose_codex_model(configurations, *, probe_codex=None):
             (),
             static_probe,
             static_probe,
+            (lambda: False),
         )
 
     probe = probe_codex or probe_codex_cli
@@ -259,6 +399,14 @@ def _compose_codex_model(configurations, *, probe_codex=None):
         and runtime_readiness.modelport_compatible is True
         and runtime_readiness.benchmark_compatible is True
         and availability.outcome is RuntimeOutcome.COMPLETED
+    )
+
+    recoverable_startup_rate_limit = (
+        not qualified
+        and availability.outcome
+        is RuntimeOutcome.RATE_LIMITED
+        and runtime_readiness is not None
+        and runtime_readiness.auth_ready is True
     )
 
     if qualified:
@@ -296,16 +444,53 @@ def _compose_codex_model(configurations, *, probe_codex=None):
             for item in configurations[1:]
         )
     else:
-        model = _UnavailableModel()
-        fallback_models = ()
-        identity = cli_session_runtime_identity(
-            adapter_id="codex.cli.session",
-            runtime_id=configuration.configuration_id,
-            runtime_version=availability.version,
-            session_reference="local-authenticated-cli-session",
-            model_id=configuration.model,
-            runtime_configuration=configuration.runtime_configuration(),
-        )
+        if recoverable_startup_rate_limit:
+            model = CodexCliSessionAdapter(
+                allowed_capabilities=(
+                    CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+                ),
+                executable=configuration.executable,
+                version=availability.version,
+                model=configuration.model,
+                configuration_id=(
+                    configuration.configuration_id
+                ),
+            )
+
+            fallback_models = tuple(
+                CodexCliSessionAdapter(
+                    allowed_capabilities=(
+                        CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+                    ),
+                    executable=item.executable,
+                    version=availability.version,
+                    model=item.model,
+                    configuration_id=(
+                        item.configuration_id
+                    ),
+                )
+                for item in configurations[1:]
+            )
+
+            identity = model.runtime_identity
+        else:
+            model = _UnavailableModel()
+            fallback_models = ()
+            identity = cli_session_runtime_identity(
+                adapter_id="codex.cli.session",
+                runtime_id=(
+                    configuration.configuration_id
+                ),
+                runtime_version=availability.version,
+                session_reference=(
+                    "local-authenticated-cli-session"
+                ),
+                model_id=configuration.model,
+                runtime_configuration=(
+                    configuration.runtime_configuration()
+                ),
+            )
+
         health_by_outcome = {
             RuntimeOutcome.AUTH_FAILED: ComponentHealth.AUTH_REQUIRED,
             RuntimeOutcome.RATE_LIMITED: ComponentHealth.RATE_LIMITED,
@@ -333,16 +518,272 @@ def _compose_codex_model(configurations, *, probe_codex=None):
         lambda readiness=readiness: readiness
     )
 
-    if not qualified:
+    if (
+        not qualified
+        and not recoverable_startup_rate_limit
+    ):
         return (
             model,
             fallback_models,
             startup_probe,
             startup_probe,
+            (lambda: False),
+        )
+
+    capacity_probe = (
+        probe_codex_capacity
+        if probe_codex_capacity is not None
+        else probe_codex_account_capacity
+    )
+
+    if recoverable_startup_rate_limit:
+        qualification_state = (
+            _ObservedModelReadinessState(
+                readiness
+            )
+        )
+
+        observed = _ObservedModelReadinessState(
+            readiness
+        )
+
+        model = _ObservedModelPort(
+            model,
+            observed,
+        )
+
+        fallback_models = tuple(
+            _ObservedModelPort(
+                item,
+                observed,
+            )
+            for item in fallback_models
+        )
+
+        startup_recovery_lock = (
+            threading.Lock()
+        )
+
+        startup_next_probe_at = [0.0]
+
+        def _publish_startup_requalification(
+            refreshed,
+        ) -> bool:
+            refreshed_runtime = (
+                refreshed.readiness
+            )
+
+            requalified = (
+                refreshed.available is True
+                and refreshed_runtime
+                is not None
+                and refreshed_runtime.auth_ready
+                is True
+                and refreshed_runtime.diagnostic_ready
+                is True
+                and refreshed_runtime.modelport_compatible
+                is True
+                and refreshed_runtime.benchmark_compatible
+                is True
+                and refreshed.outcome
+                is RuntimeOutcome.COMPLETED
+            )
+
+            health_by_outcome = {
+                RuntimeOutcome.AUTH_FAILED:
+                    ComponentHealth.AUTH_REQUIRED,
+                RuntimeOutcome.RATE_LIMITED:
+                    ComponentHealth.RATE_LIMITED,
+                RuntimeOutcome.CONTENT_POLICY_BLOCKED:
+                    ComponentHealth.BLOCKED_POLICY,
+            }
+
+            refreshed_health = HealthCheck(
+                "model",
+                (
+                    ComponentHealth.HEALTHY
+                    if requalified
+                    else health_by_outcome.get(
+                        refreshed.outcome,
+                        ComponentHealth.UNAVAILABLE,
+                    )
+                ),
+                (
+                    "startup_requalification=COMPLETED"
+                    if requalified
+                    else refreshed.detail
+                ),
+            )
+
+            refreshed_candidate = (
+                RuntimeCandidate(
+                    identity=identity,
+                    available=(
+                        refreshed.available is True
+                    ),
+                    authenticated=(
+                        refreshed_runtime
+                        is not None
+                        and refreshed_runtime.auth_ready
+                        is True
+                    ),
+                    structured_output_compatible=(
+                        requalified
+                    ),
+                    locality=CandidateLocality.LOCAL,
+                )
+            )
+
+            refreshed_readiness = (
+                ModelReadinessInput(
+                    candidate=refreshed_candidate,
+                    health=refreshed_health,
+                )
+            )
+
+            qualification_state.publish_readiness(
+                refreshed_readiness
+            )
+
+            observed.publish_readiness(
+                refreshed_readiness
+            )
+
+            return requalified
+
+        def reconcile_startup_rate_limit(
+            *,
+            require_live: bool = False,
+        ) -> bool:
+            if require_live:
+                try:
+                    refreshed = probe(
+                        configuration=configuration,
+                        live_probe=True,
+                    )
+                except Exception:
+                    return False
+
+                return _publish_startup_requalification(
+                    refreshed
+                )
+
+            now = time.time()
+
+            with startup_recovery_lock:
+                current_qualification = (
+                    qualification_state.snapshot()
+                )
+
+                if (
+                    current_qualification.health.health
+                    is not ComponentHealth.RATE_LIMITED
+                ):
+                    return False
+
+                if (
+                    now
+                    < startup_next_probe_at[0]
+                ):
+                    return False
+
+                startup_next_probe_at[0] = (
+                    now
+                    + MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS
+                )
+
+            try:
+                capacity = capacity_probe(
+                    executable_name=(
+                        configuration.executable
+                    )
+                )
+            except Exception:
+                return False
+
+            if capacity.available is not True:
+                reset_at = getattr(
+                    capacity,
+                    "reset_at",
+                    None,
+                )
+
+                next_probe_at = (
+                    now
+                    + MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS
+                )
+
+                if (
+                    isinstance(
+                        reset_at,
+                        int,
+                    )
+                    and not isinstance(
+                        reset_at,
+                        bool,
+                    )
+                    and reset_at > now
+                ):
+                    next_probe_at = min(
+                        next_probe_at,
+                        float(reset_at),
+                    )
+
+                with startup_recovery_lock:
+                    startup_next_probe_at[0] = (
+                        next_probe_at
+                    )
+
+                return False
+
+            # Provider metadata is only a capacity hint.
+            # A request-consuming live diagnostic is still required
+            # before startup qualification can become READY.
+            try:
+                refreshed = probe(
+                    configuration=configuration,
+                    live_probe=True,
+                )
+            except Exception:
+                return False
+
+            requalified = (
+                _publish_startup_requalification(
+                    refreshed
+                )
+            )
+
+            with startup_recovery_lock:
+                if requalified:
+                    startup_next_probe_at[0] = 0.0
+                elif (
+                    refreshed.outcome
+                    is RuntimeOutcome.RATE_LIMITED
+                ):
+                    startup_next_probe_at[0] = (
+                        now
+                        + MODEL_CAPACITY_RECONCILE_MAX_INTERVAL_SECONDS
+                    )
+
+            return requalified
+
+        return (
+            model,
+            fallback_models,
+            qualification_state.snapshot,
+            observed.snapshot,
+            reconcile_startup_rate_limit,
         )
 
     observed = _ObservedModelReadinessState(
-        readiness
+        readiness,
+        capacity_probe=(
+            lambda: capacity_probe(
+                executable_name=(
+                    configuration.executable
+                )
+            )
+        ),
     )
 
     model = _ObservedModelPort(
@@ -358,12 +799,139 @@ def _compose_codex_model(configurations, *, probe_codex=None):
         for item in fallback_models
     )
 
+    def reconcile_model_health(
+        *,
+        require_live: bool = False,
+    ) -> bool:
+        if not require_live:
+            return (
+                observed.reconcile_usage_capacity()
+            )
+
+        try:
+            refreshed = probe(
+                configuration=configuration,
+                live_probe=True,
+            )
+        except Exception:
+            return False
+
+        runtime = refreshed.readiness
+
+        requalified = (
+            refreshed.available is True
+            and runtime is not None
+            and runtime.auth_ready is True
+            and runtime.diagnostic_ready is True
+            and runtime.modelport_compatible is True
+            and runtime.benchmark_compatible is True
+            and refreshed.outcome
+            is RuntimeOutcome.COMPLETED
+        )
+
+        health_by_outcome = {
+            RuntimeOutcome.AUTH_FAILED:
+                ComponentHealth.AUTH_REQUIRED,
+            RuntimeOutcome.RATE_LIMITED:
+                ComponentHealth.RATE_LIMITED,
+            RuntimeOutcome.CONTENT_POLICY_BLOCKED:
+                ComponentHealth.BLOCKED_POLICY,
+        }
+
+        current = observed.snapshot()
+        candidate = current.candidate
+
+        if candidate is not None:
+            candidate = replace(
+                candidate,
+                available=(
+                    refreshed.available is True
+                ),
+                authenticated=(
+                    runtime is not None
+                    and runtime.auth_ready is True
+                ),
+                structured_output_compatible=(
+                    requalified
+                ),
+            )
+
+        observed.publish_readiness(
+            ModelReadinessInput(
+                candidate=candidate,
+                health=HealthCheck(
+                    "model",
+                    (
+                        ComponentHealth.HEALTHY
+                        if requalified
+                        else health_by_outcome.get(
+                            refreshed.outcome,
+                            ComponentHealth.UNAVAILABLE,
+                        )
+                    ),
+                    (
+                        "capacity_requalification=COMPLETED"
+                        if requalified
+                        else refreshed.detail
+                    ),
+                ),
+            )
+        )
+
+        return requalified
+
     return (
         model,
         fallback_models,
         startup_probe,
         observed.snapshot,
+        reconcile_model_health,
     )
+
+
+def _model_capacity_reconcile_loop(
+    stop_event,
+    reconcile,
+    recover,
+    *,
+    reconcile_success_proves_live: bool = False,
+    interval_seconds: float = (
+        MODEL_CAPACITY_RECONCILE_LOOP_SECONDS
+    ),
+) -> None:
+    while not stop_event.wait(
+        interval_seconds
+    ):
+        reconciled = False
+
+        try:
+            reconciled = (
+                reconcile() is True
+            )
+        except Exception as exc:
+            logging.getLogger(
+                "zest.zestd"
+            ).warning(
+                "model.capacity_reconcile_failed "
+                "type=%s",
+                exc.__class__.__name__,
+            )
+
+        try:
+            recover(
+                live_already_confirmed=(
+                    reconciled
+                    and reconcile_success_proves_live
+                )
+            )
+        except Exception as exc:
+            logging.getLogger(
+                "zest.zestd"
+            ).warning(
+                "model.capacity_run_recovery_failed "
+                "type=%s",
+                exc.__class__.__name__,
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -396,8 +964,17 @@ def main(argv: list[str] | None = None) -> int:
         fallback_models,
         model_probe,
         model_health_probe,
+        reconcile_model_health,
     ) = _compose_codex_model(
         configurations
+    )
+
+    # Only the startup-under-rate-limit reconciler performs a
+    # request-consuming live diagnostic in its default path.
+    # Normal runtime reconciliation is metadata-only.
+    reconcile_success_proves_live = (
+        model_probe().health.health
+        is ComponentHealth.RATE_LIMITED
     )
 
     def probe_schema() -> SchemaHealthInput:
@@ -464,6 +1041,11 @@ def main(argv: list[str] | None = None) -> int:
         probe_worker=probe_worker,
         probe_model=model_probe,
         probe_model_health=model_health_probe,
+        probe_model_recovery=(
+            lambda: reconcile_model_health(
+                require_live=True
+            )
+        ),
         host_identity=os.uname().nodename or "zestd",
         process_id=str(os.getpid()),
         engine_version=settings.release_version,
@@ -488,11 +1070,36 @@ def main(argv: list[str] | None = None) -> int:
         f"zestd listening on http://{bound_host}:{bound_port}",
         flush=True,
     )
+
+    model_reconcile_thread = threading.Thread(
+        target=_model_capacity_reconcile_loop,
+        args=(
+            stop,
+            reconcile_model_health,
+            runtime.recover_model_usage_limited_runs,
+        ),
+        kwargs={
+            "reconcile_success_proves_live": (
+                reconcile_success_proves_live
+            ),
+        },
+        name="zest-model-capacity-reconciler",
+        daemon=True,
+    )
+
     try:
+        model_reconcile_thread.start()
         stop.wait()
     except KeyboardInterrupt:
         stop.set()
     finally:
+        stop.set()
+
+        if model_reconcile_thread.is_alive():
+            model_reconcile_thread.join(
+                timeout=20
+            )
+
         server.shutdown()
         runtime.drain()
         worker.shutdown()

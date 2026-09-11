@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 from zest.application.errors import ApplicationError
+from zest.application.model_usage_capacity_recovery import (
+    model_usage_capacity_recovery_proof,
+)
 from zest.application.ports import UnitOfWorkFactory
 from zest.application.reconcile_research_run import (
     ReconcileResearchRun,
@@ -37,6 +40,7 @@ _NON_RESUMABLE_STATES = frozenset(
 class RuntimeRecoveryAction(Enum):
     SAFE_RESUME = "SAFE_RESUME"
     SAFE_RETRY_AFTER_REAUTHORIZATION = "SAFE_RETRY_AFTER_REAUTHORIZATION"
+    SAFE_RETRY_AFTER_MODEL_CAPACITY = "SAFE_RETRY_AFTER_MODEL_CAPACITY"
     RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
     HUMAN_REQUIRED = "HUMAN_REQUIRED"
     DO_NOT_RESUME = "DO_NOT_RESUME"
@@ -63,6 +67,9 @@ class ClassifyRuntimeRecovery:
                 raise ApplicationError("research run not found")
             orchestration = uow.research_orchestrations.get(research_run_id)
             attempts = uow.execution_attempts.list_for_research_run(research_run_id)
+            admissions = uow.research_admissions.list_for_research_run(
+                research_run_id
+            )
             uow.rollback()
         if orchestration is None:
             return RuntimeRecoveryDecision(
@@ -71,6 +78,27 @@ class ClassifyRuntimeRecovery:
                 "no orchestration checkpoint",
                 (),
             )
+        usage_capacity_proof = (
+            model_usage_capacity_recovery_proof(
+                orchestration,
+                admissions,
+                attempts,
+            )
+        )
+
+        if usage_capacity_proof is not None:
+            return RuntimeRecoveryDecision(
+                research_run_id,
+                RuntimeRecoveryAction.SAFE_RETRY_AFTER_MODEL_CAPACITY,
+                (
+                    "exact completed MODEL_USAGE_LIMITED block "
+                    "requires independent model-capacity requalification; "
+                    "admission="
+                    + usage_capacity_proof.admission_record_id
+                ),
+                (),
+            )
+
         if orchestration.state in _NON_RESUMABLE_STATES:
             return RuntimeRecoveryDecision(
                 research_run_id,
