@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.research_truth_provenance import (
+    require_promotable_hypothesis,
+)
 from zest.data.errors import PersistenceConflictError
 from zest.data.records import CandidateAdmissionRecord, CandidateRecord, EvidenceRecord
 from zest.data.uniqueness import (
@@ -66,6 +69,12 @@ class ProposeCandidateFromEvidence:
             evidence = uow.evidence.get(command.evidence_id)
             if evidence is None:
                 raise ApplicationError("evidence not found")
+
+            require_promotable_hypothesis(
+                uow,
+                evidence.hypothesis_id,
+            )
+
             existing = [
                 item
                 for item in uow.candidates.list_for_research_run(evidence.research_run_id)

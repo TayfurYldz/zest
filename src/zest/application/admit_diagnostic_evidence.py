@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from zest.application.errors import ApplicationError
 from zest.application.identity import new_opaque_id
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.research_truth_provenance import (
+    require_promotable_hypothesis,
+)
 from zest.data.errors import PersistenceConflictError
 from zest.data.records import (
     EvidenceAdmissionRecord,
@@ -77,6 +80,12 @@ class AdmitDiagnosticEvidence:
             experiment = uow.experiments.get(command.experiment_id)
             if experiment is None:
                 raise ApplicationError("experiment not found")
+
+            require_promotable_hypothesis(
+                uow,
+                experiment.hypothesis_id,
+            )
+
             plan = uow.experiment_plans.get(command.experiment_id)
             if plan is None:
                 raise ApplicationError("durable experiment plan not found")

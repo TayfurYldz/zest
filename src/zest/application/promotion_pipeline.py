@@ -42,6 +42,11 @@ from zest.application.execute_planned_experiment import (
 from zest.application.identity import new_opaque_id
 from zest.application.plan_records import experiment_plan_from_record
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.research_truth_provenance import (
+    NonPromotableHypothesisOrigin,
+    RESEARCH_WORK_FABRIC_PROMOTION_BLOCK_REASON,
+    require_promotable_hypothesis,
+)
 from zest.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
@@ -84,6 +89,9 @@ class PromotionOutcome(Enum):
     SKIPPED_ALREADY_ATTEMPTED = "SKIPPED_ALREADY_ATTEMPTED"
     SKIPPED_MISSING_ASSESSMENT = "SKIPPED_MISSING_ASSESSMENT"
     SKIPPED_REPRODUCTION_EXPERIMENT = "SKIPPED_REPRODUCTION_EXPERIMENT"
+    SKIPPED_NON_PROMOTABLE_HYPOTHESIS = (
+        "SKIPPED_NON_PROMOTABLE_HYPOTHESIS"
+    )
     SKIPPED_NO_WORKER = "SKIPPED_NO_WORKER"
     PENDING_INDEPENDENT_VERIFICATION = "PENDING_INDEPENDENT_VERIFICATION"
 
@@ -214,6 +222,24 @@ class PromotionPipeline:
                 assessment_id=feedback.assessment_id,
                 experiment_id=feedback.experiment_id,
             )
+
+        try:
+            self._require_promotable_hypothesis(
+                feedback.hypothesis_id
+            )
+        except NonPromotableHypothesisOrigin:
+            return PromotionResult(
+                outcome=(
+                    PromotionOutcome
+                    .SKIPPED_NON_PROMOTABLE_HYPOTHESIS
+                ),
+                assessment_id=feedback.assessment_id,
+                experiment_id=feedback.experiment_id,
+                reason_codes=(
+                    RESEARCH_WORK_FABRIC_PROMOTION_BLOCK_REASON,
+                ),
+            )
+
         existing = self._get_by_assessment(feedback.assessment_id)
         admitted = self._admit.execute(
             AdmitDiagnosticEvidenceCommand(
@@ -278,6 +304,19 @@ class PromotionPipeline:
                 for item in targets
             )
         return tuple(self._advance_one(item, command) for item in targets)
+
+    def _require_promotable_hypothesis(
+        self,
+        hypothesis_id: str,
+    ) -> None:
+        with self._uow_factory.open() as uow:
+            try:
+                require_promotable_hypothesis(
+                    uow,
+                    hypothesis_id,
+                )
+            finally:
+                uow.rollback()
 
     def _promote_candidate(
         self,
@@ -391,6 +430,39 @@ class PromotionPipeline:
                 run,
                 ("MISSING_CANDIDATE",),
             )
+
+        candidate = self._get_candidate(
+            run.candidate_id
+        )
+
+        if candidate is not None:
+            try:
+                self._require_promotable_hypothesis(
+                    candidate.hypothesis_id
+                )
+            except NonPromotableHypothesisOrigin:
+                run = self._save(
+                    replace(
+                        run,
+                        stage="STOPPED",
+                        stop_reason=(
+                            RESEARCH_WORK_FABRIC_PROMOTION_BLOCK_REASON
+                        ),
+                        updated_at=self._clock.now(),
+                    )
+                )
+                return _result_from_run(
+                    (
+                        PromotionOutcome
+                        .SKIPPED_NON_PROMOTABLE_HYPOTHESIS
+                    ),
+                    _feedback_stub(run),
+                    run,
+                    (
+                        RESEARCH_WORK_FABRIC_PROMOTION_BLOCK_REASON,
+                    ),
+                )
+
         existing_verifications = self._verifications_for(run.candidate_id)
         if existing_verifications:
             latest = existing_verifications[-1]

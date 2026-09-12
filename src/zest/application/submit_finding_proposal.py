@@ -14,6 +14,9 @@ from zest.application.impact.proof_resolver import (
     rebuild_impact_chain,
 )
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from zest.application.research_truth_provenance import (
+    require_promotable_hypothesis,
+)
 from zest.application.validation_audit import read_validation_audit_view
 from zest.core.enums import ActorType
 from zest.data.errors import PersistenceConflictError
@@ -72,6 +75,12 @@ class SubmitFindingProposal:
             candidate = uow.candidates.get(command.candidate_id)
             if candidate is None:
                 raise ApplicationError("candidate not found")
+
+            require_promotable_hypothesis(
+                uow,
+                candidate.hypothesis_id,
+            )
+
             try:
                 state = CandidateState(candidate.state)
             except ValueError as exc:
