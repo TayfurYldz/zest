@@ -3355,7 +3355,15 @@ def _orchestration_values(record: ResearchOrchestrationRecord) -> dict[str, obje
         "last_worker_result_id": record.last_worker_result_id,
         "routing_policy_version": record.routing_policy_version,
         "scope_fingerprint": record.scope_fingerprint,
-        "owner_runtime_instance_id": record.owner_runtime_instance_id,
+        "compiled_scope_fingerprint": (
+            record.compiled_scope_fingerprint
+        ),
+        "program_policy_fingerprint": (
+            record.program_policy_fingerprint
+        ),
+        "owner_runtime_instance_id": (
+            record.owner_runtime_instance_id
+        ),
         "lease_epoch": record.lease_epoch,
         "lease_expires_at": record.lease_expires_at,
         "created_at": record.created_at,

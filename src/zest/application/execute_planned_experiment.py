@@ -25,6 +25,11 @@ from zest.application.authorized_network_envelope import AuthorizedNetworkEnvelo
 from zest.application.program_research_context import (
     ProgramPolicyView,
     action_policy_reason_code,
+    load_program_research_context,
+)
+from zest.application.orchestration_config import (
+    compiled_scope_fingerprint,
+    program_policy_fingerprint,
 )
 from zest.application.identity import (
     attempt_id_for,
@@ -164,6 +169,8 @@ class AuthorizedDispatch:
     core_reason_code: ReasonCode
     resolved_secret_values: Mapping[str, str] | None = None
     network_envelope: AuthorizedNetworkEnvelope | None = None
+    program_policy_fingerprint: str | None = None
+    compiled_scope_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +254,22 @@ class ExecutePlannedExperiment:
             if isinstance(loaded, ResearchLoopOutcome):
                 return loaded
             experiment, hypothesis_id, source, issued = loaded
+            (
+                effective_program_policy,
+                effective_compiled_scope,
+                durable_program_policy_fp,
+                durable_compiled_scope_fp,
+            ) = _resolve_authoritative_program_context(
+                uow,
+                experiment.research_run_id,
+                supplied_program_policy=(
+                    command.program_policy
+                ),
+                supplied_compiled_scope=(
+                    command.compiled_scope
+                ),
+                now=now,
+            )
             plan_error = self._ensure_plan(uow, experiment, command.plan)
             if plan_error is not None:
                 uow.rollback()
@@ -285,8 +308,9 @@ class ExecutePlannedExperiment:
                 )
             http_decision = authorize_http_transaction_plan(
                 bound_plan,
-                command.compiled_scope,
-                program_policy=command.program_policy,
+                effective_compiled_scope,
+                program_policy=effective_program_policy,
+                evaluated_at=now,
             )
             if http_decision.input_rejected:
                 uow.rollback()
@@ -300,7 +324,7 @@ class ExecutePlannedExperiment:
                 )
             rate_limit_outcome = self._check_rate_limit(
                 uow,
-                command.program_policy,
+                effective_program_policy,
                 experiment,
                 hypothesis_id,
                 bound_plan,
@@ -314,7 +338,7 @@ class ExecutePlannedExperiment:
                 uow.commit()
                 return rate_limit_outcome
             if bound_plan.required_capability in HTTP_SCOPE_CAPABILITIES:
-                if command.compiled_scope is None or http_decision.scope_check is None:
+                if effective_compiled_scope is None or http_decision.scope_check is None:
                     core_scope: ScopeEvaluationInput = ScopeEvaluationInput(
                         matches=(),
                         ambiguous=False,
@@ -322,7 +346,7 @@ class ExecutePlannedExperiment:
                 else:
                     core_scope = scope_evaluation_from_compiled_check(
                         http_decision.scope_check,
-                        command.compiled_scope,
+                        effective_compiled_scope,
                     )
             else:
                 core_scope = command.scope
@@ -340,8 +364,8 @@ class ExecutePlannedExperiment:
                 )
             )
             if (
-                command.program_policy is not None
-                and not command.program_policy.allows_action(
+                effective_program_policy is not None
+                and not effective_program_policy.allows_action(
                     bound_plan.action
                 )
             ):
@@ -547,6 +571,12 @@ class ExecutePlannedExperiment:
             core_reason_code=decision.reason_code,
             resolved_secret_values=session_decision.resolved_secrets,
             network_envelope=envelope,
+            program_policy_fingerprint=(
+                durable_program_policy_fp
+            ),
+            compiled_scope_fingerprint=(
+                durable_compiled_scope_fp
+            ),
         )
 
     def dispatch(self, authorized: AuthorizedDispatch) -> ResearchLoopOutcome:
@@ -670,6 +700,20 @@ class ExecutePlannedExperiment:
                 experiment.experiment_id,
                 ExperimentExecutionState.RUNNING.value,
             )
+            context_denied = (
+                self._check_dispatch_program_context(
+                    uow,
+                    authorized=authorized,
+                    attempt=attempt,
+                    experiment=experiment,
+                    run=run,
+                    now=now,
+                )
+            )
+
+            if context_denied is not None:
+                return context_denied
+
             try:
                 request_amount = _request_consumption_amount(
                     uow,
@@ -736,6 +780,263 @@ class ExecutePlannedExperiment:
                     uow, experiment, attempt, authorized.hypothesis_id
                 )
         return self._record_outcome(authorized, invocation)
+
+    def _check_dispatch_program_context(
+        self,
+        uow: UnitOfWork,
+        *,
+        authorized: AuthorizedDispatch,
+        attempt: ExecutionAttemptRecord,
+        experiment: ExperimentRecord,
+        run,
+        now: datetime,
+    ) -> ResearchLoopOutcome | None:
+        expected_policy = (
+            authorized.program_policy_fingerprint
+        )
+        expected_scope = (
+            authorized.compiled_scope_fingerprint
+        )
+
+        if (
+            expected_policy is None
+            and expected_scope is None
+        ):
+            return None
+
+        if run is None:
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=(
+                    ReasonCode.PROGRAM_POLICY_DENIED
+                ),
+                detail="research_run_missing",
+                now=now,
+            )
+
+        context = load_program_research_context(
+            uow,
+            run.program_id,
+            now=now,
+        )
+
+        if context is None:
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=(
+                    ReasonCode.PROGRAM_POLICY_DENIED
+                ),
+                detail="program_context_missing",
+                now=now,
+            )
+
+        current_policy_fp = (
+            program_policy_fingerprint(
+                context.policy
+            )
+        )
+
+        current_scope_fp = (
+            compiled_scope_fingerprint(
+                context.compiled_scope
+            )
+        )
+
+        if (
+            expected_policy is not None
+            and current_policy_fp
+            != expected_policy
+        ):
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=(
+                    ReasonCode.PROGRAM_POLICY_DENIED
+                ),
+                detail="program_policy_changed",
+                now=now,
+            )
+
+        if (
+            expected_scope is not None
+            and current_scope_fp
+            != expected_scope
+        ):
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=(
+                    ReasonCode
+                    .SCOPE_NOT_EXPLICITLY_ALLOWED
+                ),
+                detail="compiled_scope_changed",
+                now=now,
+            )
+
+        persisted_plan = (
+            uow.experiment_plans.get(
+                experiment.experiment_id
+            )
+        )
+
+        if persisted_plan is None:
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=ReasonCode.SCHEMA_MISMATCH,
+                detail="durable_plan_missing",
+                now=now,
+            )
+
+        bound_plan = experiment_plan_from_record(
+            persisted_plan
+        )
+
+        if (
+            expected_policy is not None
+            and not context.policy.allows_action(
+                bound_plan.action
+            )
+        ):
+            return self._deny_dispatch_program_context(
+                uow,
+                authorized=authorized,
+                attempt=attempt,
+                experiment=experiment,
+                reason_code=(
+                    ReasonCode.PROGRAM_POLICY_DENIED
+                ),
+                detail="program_action_denied",
+                now=now,
+            )
+
+        if (
+            expected_scope is not None
+            and bound_plan.required_capability
+            in HTTP_SCOPE_CAPABILITIES
+        ):
+            fresh_http = (
+                authorize_http_transaction_plan(
+                    bound_plan,
+                    context.compiled_scope,
+                    program_policy=context.policy,
+                    evaluated_at=now,
+                )
+            )
+
+            if (
+                fresh_http.input_rejected
+                or not fresh_http.accepted
+            ):
+                return self._deny_dispatch_program_context(
+                    uow,
+                    authorized=authorized,
+                    attempt=attempt,
+                    experiment=experiment,
+                    reason_code=(
+                        fresh_http.reason_code
+                        or ReasonCode
+                        .SCOPE_NOT_EXPLICITLY_ALLOWED
+                    ),
+                    detail="fresh_scope_denied",
+                    now=now,
+                )
+
+        return None
+
+    def _deny_dispatch_program_context(
+        self,
+        uow: UnitOfWork,
+        *,
+        authorized: AuthorizedDispatch,
+        attempt: ExecutionAttemptRecord,
+        experiment: ExperimentRecord,
+        reason_code: ReasonCode,
+        detail: str,
+        now: datetime,
+    ) -> ResearchLoopOutcome:
+        audit_id = execution_decision_audit_id(
+            new_opaque_id()
+        )
+
+        uow.audit_events.insert(
+            AuditEventRecord(
+                audit_event_id=audit_id,
+                occurred_at=now,
+                actor_id=self._actor_id,
+                actor_type=(
+                    ActorType.CONTROL_PLANE.value
+                ),
+                event_type=(
+                    "EXECUTION_DISPATCH_"
+                    "PROGRAM_CONTEXT_RECHECK"
+                ),
+                subject_type="execution_attempt",
+                subject_id=attempt.attempt_id,
+                correlation_id=(
+                    attempt.correlation_id
+                ),
+                payload={
+                    "decision": "DENY",
+                    "reason_code": (
+                        reason_code.value
+                    ),
+                    "detail": detail,
+                    "prior_authorization_decision_reference": (
+                        authorized
+                        .authorization_decision_reference
+                    ),
+                    "request_id": (
+                        authorized.request_id
+                    ),
+                    "dispatched": False,
+                },
+            )
+        )
+
+        uow.execution_attempts.set_state(
+            attempt.attempt_id,
+            ExecutionAttemptState.CANCELLED.value,
+            completed_at=now,
+        )
+
+        uow.experiments.set_execution_state(
+            experiment.experiment_id,
+            ExperimentExecutionState.BLOCKED.value,
+        )
+
+        uow.commit()
+
+        return ResearchLoopOutcome(
+            status=ResearchLoopStatus.DISPATCH_DENIED,
+            hypothesis_id=authorized.hypothesis_id,
+            experiment_id=authorized.experiment_id,
+            experiment_execution_state=(
+                ExperimentExecutionState.BLOCKED.value
+            ),
+            core_decision=ExecutionDecisionKind.DENY,
+            core_reason_code=reason_code,
+            authorization_decision_reference=(
+                audit_id
+            ),
+            request_id=authorized.request_id,
+            attempt_id=authorized.attempt_id,
+            attempt_state=(
+                ExecutionAttemptState.CANCELLED.value
+            ),
+        )
 
     def _check_dispatch_rate_limit(
         self,
@@ -1375,6 +1676,108 @@ class ExecutePlannedExperiment:
             authorization_decision_reference=audit_id,
         )
 
+
+
+def _resolve_authoritative_program_context(
+    uow: UnitOfWork,
+    research_run_id: str,
+    *,
+    supplied_program_policy: ProgramPolicyView | None,
+    supplied_compiled_scope: CompiledScope | None,
+    now: datetime,
+) -> tuple[
+    ProgramPolicyView | None,
+    CompiledScope | None,
+    str | None,
+    str | None,
+]:
+    """Prefer durable program authority when it exists.
+
+    Legacy/direct tests without durable program policy/scope keep their
+    explicitly supplied context, but no durable revision pin is invented.
+    """
+
+    run = uow.research_runs.get(
+        research_run_id
+    )
+
+    if run is None:
+        return (
+            supplied_program_policy,
+            supplied_compiled_scope,
+            None,
+            None,
+        )
+
+    policy_record = uow.program_policies.get(
+        run.program_id
+    )
+
+    scope_records = (
+        uow.scope_rules_v2.list_for_program(
+            run.program_id
+        )
+    )
+
+    if (
+        policy_record is None
+        and not scope_records
+    ):
+        return (
+            supplied_program_policy,
+            supplied_compiled_scope,
+            None,
+            None,
+        )
+
+    context = load_program_research_context(
+        uow,
+        run.program_id,
+        now=now,
+    )
+
+    if context is None:
+        return (
+            supplied_program_policy,
+            supplied_compiled_scope,
+            None,
+            None,
+        )
+
+    effective_policy = (
+        context.policy
+        if policy_record is not None
+        else supplied_program_policy
+    )
+
+    effective_scope = (
+        context.compiled_scope
+        if scope_records
+        else supplied_compiled_scope
+    )
+
+    policy_fp = (
+        program_policy_fingerprint(
+            context.policy
+        )
+        if policy_record is not None
+        else None
+    )
+
+    scope_fp = (
+        compiled_scope_fingerprint(
+            context.compiled_scope
+        )
+        if scope_records
+        else None
+    )
+
+    return (
+        effective_policy,
+        effective_scope,
+        policy_fp,
+        scope_fp,
+    )
 
 def _authorization_view(
     record: AuthorizationSourceRecord | None,

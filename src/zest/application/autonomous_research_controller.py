@@ -21,8 +21,10 @@ from zest.application.budget_consumption import (
 from zest.application.errors import ApplicationError
 from zest.application.orchestration_config import (
     assert_command_matches_configuration,
+    compiled_scope_fingerprint,
     configuration_from_record,
     fingerprint_for_start,
+    program_policy_fingerprint,
     scope_fingerprint,
 )
 from zest.application.orchestration_obligations import (
@@ -297,10 +299,43 @@ class AutonomousResearchController:
                 raise ApplicationError("research run not found")
             existing = uow.research_orchestrations.get(command.research_run_id)
             if existing is not None:
+                assert_command_matches_configuration(
+                    config=configuration_from_record(
+                        existing
+                    ),
+                    bounds=command.bounds,
+                    budget_id=command.budget_id,
+                    target_reference=(
+                        command.target_reference
+                    ),
+                    research_question=(
+                        command.research_question
+                    ),
+                    scope=command.scope,
+                    compiled_scope=(
+                        command.compiled_scope
+                    ),
+                    program_policy=(
+                        command.program_policy
+                    ),
+                )
                 uow.rollback()
-                return _result_from_record(existing, CycleOutcome.CONTINUE)
+                return _result_from_record(
+                    existing,
+                    CycleOutcome.CONTINUE,
+                )
             zero = command.bounds.max_cycles == 0
             scope_fp = scope_fingerprint(command.scope)
+            compiled_scope_fp = (
+                compiled_scope_fingerprint(
+                    command.compiled_scope
+                )
+            )
+            program_policy_fp = (
+                program_policy_fingerprint(
+                    command.program_policy
+                )
+            )
             routing_version = (
                 ROUTING_POLICY_VERSION if command.routing_request is not None else None
             )
@@ -313,6 +348,8 @@ class AutonomousResearchController:
                 bounds=command.bounds,
                 routing_policy_version=routing_version,
                 scope_fp=scope_fp,
+                compiled_scope_fp=compiled_scope_fp,
+                program_policy_fp=program_policy_fp,
             )
             record = ResearchOrchestrationRecord(
                 research_run_id=command.research_run_id,
@@ -350,6 +387,12 @@ class AutonomousResearchController:
                 current_phase=OrchestrationPhase.CYCLE_READY.value,
                 routing_policy_version=routing_version,
                 scope_fingerprint=scope_fp,
+                compiled_scope_fingerprint=(
+                    compiled_scope_fp
+                ),
+                program_policy_fingerprint=(
+                    program_policy_fp
+                ),
             )
             uow.research_orchestrations.insert(record)
             persist_research_identities(
@@ -686,6 +729,45 @@ class AutonomousResearchController:
     def step(self, command: StartAutonomousResearchCommand) -> OrchestrationTickResult:
         current = self._reload(command.research_run_id)
         config = configuration_from_record(current)
+
+        authority_context_not_pinned = (
+            (
+                current.compiled_scope_fingerprint
+                is None
+                and command.compiled_scope
+                is not None
+            )
+            or (
+                current.program_policy_fingerprint
+                is None
+                and command.program_policy
+                is not None
+            )
+        )
+
+        if authority_context_not_pinned:
+            # Non-runnable states keep their durable truth.
+            # If execution later resumes, the missing pin
+            # will be enforced before any new work.
+            if current.state in {
+                OrchestrationState.COMPLETED.value,
+                OrchestrationState.BUDGET_EXHAUSTED.value,
+                OrchestrationState.FAILED_OPERATIONAL.value,
+                OrchestrationState.BLOCKED.value,
+                OrchestrationState.WAITING_HUMAN.value,
+                OrchestrationState.PAUSED.value,
+            }:
+                return _result_from_record(
+                    current,
+                    CycleOutcome.CONTINUE,
+                )
+
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "authority_context_not_pinned",
+            )
+
         assert_command_matches_configuration(
             config=config,
             bounds=command.bounds,
@@ -693,6 +775,8 @@ class AutonomousResearchController:
             target_reference=command.target_reference,
             research_question=command.research_question,
             scope=command.scope,
+            compiled_scope=command.compiled_scope,
+            program_policy=command.program_policy,
         )
         close_expired_oast_arms(
             self._uow_factory,

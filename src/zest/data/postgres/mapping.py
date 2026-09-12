@@ -864,6 +864,12 @@ def research_orchestration_from_row(row: Mapping[str, Any]) -> ResearchOrchestra
         last_worker_result_id=data["last_worker_result_id"],
         routing_policy_version=data["routing_policy_version"],
         scope_fingerprint=data["scope_fingerprint"],
+        compiled_scope_fingerprint=data.get(
+            "compiled_scope_fingerprint"
+        ),
+        program_policy_fingerprint=data.get(
+            "program_policy_fingerprint"
+        ),
         owner_runtime_instance_id=data["owner_runtime_instance_id"],
         lease_epoch=data["lease_epoch"],
         lease_expires_at=data["lease_expires_at"],

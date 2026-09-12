@@ -508,9 +508,13 @@ class CrashRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(
             result.last_phase,
-            "resume_network_envelope_not_durable",
+            "authority_context_not_pinned",
         )
 
+        # Stronger authority invariant: this run never
+        # durably pinned the later supplied scope/policy,
+        # so recovery fails closed before attempting to
+        # reconstruct dispatch authority.
         # Critical invariant: no second dispatch.
         self.assertEqual(
             len(port.calls),

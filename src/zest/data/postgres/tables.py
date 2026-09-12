@@ -1287,6 +1287,8 @@ research_orchestration = Table(
     Column("last_worker_result_id", Text, nullable=True),
     Column("routing_policy_version", Text, nullable=True),
     Column("scope_fingerprint", Text, nullable=True),
+    Column("compiled_scope_fingerprint", Text, nullable=True),
+    Column("program_policy_fingerprint", Text, nullable=True),
     Column("owner_runtime_instance_id", Text, nullable=True),
     Column("lease_epoch", Integer, nullable=False, server_default="0"),
     Column("lease_expires_at", DateTime(timezone=True), nullable=True),

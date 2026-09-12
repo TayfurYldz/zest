@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import urlencode, urlsplit
 
 from zest.application.authorized_network_envelope import (
@@ -57,6 +58,8 @@ def authorize_http_transaction_plan(
     plan: ExperimentPlan,
     compiled_scope: CompiledScope | None,
     program_policy: ProgramPolicyView | None = None,
+    *,
+    evaluated_at: datetime | None = None,
 ) -> HttpTransactionScopeDecision:
     """Evaluate the typed HTTP destination. authorized_origin is not itself authority."""
 
@@ -64,28 +67,28 @@ def authorize_http_transaction_plan(
         issue = validate_http_authentication_arguments(plan.action, plan.arguments)
         if issue is not None:
             return _from_argument_issue(issue)
-        return _authorize_origin_path(plan, compiled_scope, program_policy)
+        return _authorize_origin_path(plan, compiled_scope, program_policy, evaluated_at=evaluated_at)
     if plan.required_capability == BROWSER_PAGE_CAPABILITY:
         issue = validate_browser_page_arguments(plan.action, plan.arguments)
         if issue is not None:
             return _from_argument_issue(issue)
-        return _authorize_origin_path(plan, compiled_scope, program_policy)
+        return _authorize_origin_path(plan, compiled_scope, program_policy, evaluated_at=evaluated_at)
     if plan.required_capability in {
         HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
         HTTP_STATE_TRANSITION_CAPABILITY,
     }:
-        return _authorize_origin_path(plan, compiled_scope, program_policy)
+        return _authorize_origin_path(plan, compiled_scope, program_policy, evaluated_at=evaluated_at)
     if plan.required_capability == HTTP_RAW_EXCHANGE_CAPABILITY:
         issue = validate_http_raw_exchange_arguments(plan.action, plan.arguments)
         if issue is not None:
             return _from_argument_issue(issue)
-        return _authorize_origin_path(plan, compiled_scope, program_policy)
+        return _authorize_origin_path(plan, compiled_scope, program_policy, evaluated_at=evaluated_at)
     if plan.required_capability != HTTP_TRANSACTION_CAPABILITY:
         return HttpTransactionScopeDecision(accepted=True, reason_code=None)
     issue = validate_http_transaction_arguments(plan.action, plan.arguments)
     if issue is not None:
         return _from_argument_issue(issue)
-    return _authorize_origin_path(plan, compiled_scope, program_policy)
+    return _authorize_origin_path(plan, compiled_scope, program_policy, evaluated_at=evaluated_at)
 
 
 def scope_evaluation_from_compiled_check(
@@ -113,6 +116,8 @@ def _authorize_origin_path(
     plan: ExperimentPlan,
     compiled_scope: CompiledScope | None,
     program_policy: ProgramPolicyView | None = None,
+    *,
+    evaluated_at: datetime | None = None,
 ) -> HttpTransactionScopeDecision:
     if compiled_scope is None:
         return HttpTransactionScopeDecision(
@@ -122,7 +127,7 @@ def _authorize_origin_path(
     origin = str(plan.arguments["authorized_origin"]).strip().rstrip("/")
     path = str(plan.arguments.get("path", "/"))
     candidate = normalize_url(_request_url(origin, path))
-    check = evaluate_scope_candidate(candidate, compiled_scope)
+    check = evaluate_scope_candidate(candidate, compiled_scope, now=evaluated_at)
     if check.decision is ScopeDecision.ALLOW:
         loopback_only = derive_loopback_only(
             program_policy=program_policy,

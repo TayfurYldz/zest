@@ -2426,6 +2426,8 @@ class ResearchOrchestrationRecord:
     last_worker_result_id: str | None = None
     routing_policy_version: str | None = None
     scope_fingerprint: str | None = None
+    compiled_scope_fingerprint: str | None = None
+    program_policy_fingerprint: str | None = None
     owner_runtime_instance_id: str | None = None
     lease_epoch: int = 0
     lease_expires_at: datetime | None = None
@@ -2488,9 +2490,32 @@ class ResearchOrchestrationRecord:
         ):
             raise PersistenceInputError("routing_policy_version must be a non-empty string when set")
         if self.scope_fingerprint is not None and (
-            not isinstance(self.scope_fingerprint, str) or len(self.scope_fingerprint) != 64
+            not isinstance(self.scope_fingerprint, str)
+            or len(self.scope_fingerprint) != 64
         ):
-            raise PersistenceInputError("scope_fingerprint must be a SHA-256 hex digest when set")
+            raise PersistenceInputError(
+                "scope_fingerprint must be a "
+                "SHA-256 hex digest when set"
+            )
+
+        for field_name, value in (
+            (
+                "compiled_scope_fingerprint",
+                self.compiled_scope_fingerprint,
+            ),
+            (
+                "program_policy_fingerprint",
+                self.program_policy_fingerprint,
+            ),
+        ):
+            if value is not None and (
+                not isinstance(value, str)
+                or len(value) != 64
+            ):
+                raise PersistenceInputError(
+                    f"{field_name} must be a "
+                    "SHA-256 hex digest when set"
+                )
 
 
 class LeaseAcquireOutcome(Enum):

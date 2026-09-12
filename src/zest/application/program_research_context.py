@@ -30,6 +30,7 @@ class ProgramPolicyView:
     timeout_ms: int
     action_policy: Mapping[str, Any]
     rate_limit_profile: RateLimitProfileRecord | None = None
+    daily_llm_budget_microdollars: int | None = None
 
     def allows_action(self, action_name: str) -> bool:
         """Default-allow unless the canonical action is explicitly denied.
@@ -150,6 +151,9 @@ def _policy_view(
         timeout_ms=record.timeout_ms,
         action_policy=record.action_policy or {},
         rate_limit_profile=rate_limit_profile,
+        daily_llm_budget_microdollars=(
+            record.daily_llm_budget_microdollars
+        ),
     )
 
 
