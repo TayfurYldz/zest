@@ -432,8 +432,26 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             factory, RecordingWorkerPort(store=store), ScriptedModelPort(), clock=FixedClock()
         )
         reloaded = second.step(_command())
-        self.assertIn(reloaded.state, {OrchestrationState.READY.value, OrchestrationState.COMPLETED.value})
-        self.assertEqual(len(store.hypotheses), 2)
+        self.assertIn(
+            reloaded.state,
+            {
+                OrchestrationState.READY.value,
+                OrchestrationState.COMPLETED.value,
+            },
+        )
+
+        # Restart must reload durable orchestration state without manufacturing
+        # a research-work control-flow placeholder as Research truth.
+        self.assertEqual(len(store.hypotheses), 1)
+        self.assertFalse(
+            any(
+                (item.origin_reference or "").startswith(
+                    "research-work-fabric.v1:"
+                )
+                for item in store.hypotheses.values()
+            )
+        )
+        self.assertEqual(len(store.research_orchestrations), 1)
 
     def test_core_deny_stops_dispatch(self) -> None:
         store = _Store()

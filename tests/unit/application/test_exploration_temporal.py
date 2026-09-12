@@ -51,7 +51,7 @@ from zest.core.enums import ExecutionDecisionKind, ScopeRuleEffect, SideEffectLe
 from zest.core.execution import evaluate_execution
 from zest.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from zest.data.errors import PersistenceError
-from zest.data.records import HypothesisAssessmentRecord
+from zest.data.records import HypothesisAssessmentRecord, HypothesisRecord
 from zest.research.admission import AdmissionOutcome
 from zest.research.differential import (
     DifferentialCase,
@@ -285,6 +285,43 @@ class ExplorationTemporalApplicationTests(unittest.TestCase):
         self.assertEqual(
             store.experiments["exp-1"].execution_state,
             "BLOCKED",
+        )
+
+    def test_research_work_fabric_anchor_is_not_hypothesis_followup_source(
+        self,
+    ) -> None:
+        store = _Store()
+        _seed(store)
+
+        store.hypotheses["work-anchor-1"] = HypothesisRecord(
+            hypothesis_id="work-anchor-1",
+            research_run_id="run-1",
+            claim="Execute selected research work under Core authorization.",
+            origin_reference="research-work-fabric.v1:opportunity-1",
+            created_at=CREATED_AT,
+        )
+
+        result = SelectResearchOpportunities(
+            FakeUnitOfWorkFactory(store),
+            clock=FixedClock(),
+        ).execute(
+            SelectResearchOpportunitiesCommand(
+                research_run_id="run-1"
+            )
+        )
+
+        recursive = [
+            item
+            for item in result.decisions
+            if item.opportunity.opportunity_kind.value
+            == "HYPOTHESIS_FOLLOWUP"
+            and item.opportunity.source_refs == ("work-anchor-1",)
+        ]
+
+        self.assertFalse(
+            recursive,
+            "research-work execution anchors must never recursively become "
+            "research hypotheses",
         )
 
     def test_zero_and_negative_exploration_budget(self) -> None:

@@ -2816,38 +2816,56 @@ class AutonomousResearchController:
                 for item in hypotheses
                 if item.origin_reference == origin_reference
             ]
-            if tagged:
-                hypothesis_id = tagged[-1].hypothesis_id
-            else:
-                hypothesis_id = new_opaque_id()
-                identity_id = None
-                if (
-                    opportunity.opportunity_kind == OpportunityKind.OAST_INTERACTION.value
-                    and len(opportunity.source_refs) > 2
-                ):
-                    identity_id = opportunity.source_refs[2]
-                uow.hypotheses.insert(
-                    HypothesisRecord(
-                        hypothesis_id=hypothesis_id,
-                        research_run_id=command.research_run_id,
-                        claim=(
-                            "Execute selected research work under Core authorization."
-                        ),
-                        created_at=self._clock.now(),
-                        origin_reference=origin_reference,
-                        identity_id=identity_id,
-                    )
-                )
+
+            # Some execution compilers require a hypothesis identifier while
+            # compiling a plan.  That identifier is provisional until the
+            # planner proves that executable work actually exists.  Do not
+            # turn selection/control-flow into Research truth before then.
+            provisional_hypothesis_id = (
+                tagged[-1].hypothesis_id if tagged else new_opaque_id()
+            )
+
             decision = self._work_planners.plan(
                 uow,
                 opportunity,
-                hypothesis_id=hypothesis_id,
+                hypothesis_id=provisional_hypothesis_id,
                 budget_id=config.budget_id,
                 target_reference=config.target_reference,
                 bounds=config.bounds,
                 compiled_scope=command.compiled_scope,
                 program_policy=command.program_policy,
             )
+
+            # Native planners may already own a real hypothesis (for example a
+            # Hunter queue hypothesis).  Prefer that truth.  A synthetic
+            # research-work anchor is persisted only when an actual executable
+            # plan needs the provisional identifier.
+            hypothesis_id = decision.hypothesis_id
+            if (
+                decision.status is ResearchCompileStatus.EXECUTE_PLAN
+                and hypothesis_id is None
+            ):
+                hypothesis_id = provisional_hypothesis_id
+                if not tagged:
+                    identity_id = None
+                    if (
+                        opportunity.opportunity_kind
+                        == OpportunityKind.OAST_INTERACTION.value
+                        and len(opportunity.source_refs) > 2
+                    ):
+                        identity_id = opportunity.source_refs[2]
+                    uow.hypotheses.insert(
+                        HypothesisRecord(
+                            hypothesis_id=hypothesis_id,
+                            research_run_id=command.research_run_id,
+                            claim=(
+                                "Execute selected research work under Core authorization."
+                            ),
+                            created_at=self._clock.now(),
+                            origin_reference=origin_reference,
+                            identity_id=identity_id,
+                        )
+                    )
             event_type = {
                 ResearchCompileStatus.DEFERRED_ENGINE_WIRING: (
                     "RESEARCH_WORK_DEFERRED_ENGINE_WIRING"

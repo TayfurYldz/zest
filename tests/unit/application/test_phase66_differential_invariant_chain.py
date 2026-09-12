@@ -393,6 +393,17 @@ class Phase66DicTests(unittest.TestCase):
         self.assertTrue(compiled)
         self.assertEqual(compiled[-1].payload.get("compile_status"), "EVALUATE_EXISTING")
         self.assertFalse(port.calls)
+        fabricated = [
+            item
+            for item in store.hypotheses.values()
+            if (item.origin_reference or "").startswith(
+                "research-work-fabric.v1:"
+            )
+        ]
+        self.assertFalse(
+            fabricated,
+            "EVALUATE_EXISTING must not manufacture a HypothesisRecord",
+        )
         evaluated = [item for item in store.audit_events.values() if item.event_type == DIFFERENTIAL_EVALUATED]
         self.assertTrue(evaluated)
         self.assertIn(evaluated[-1].payload.get("judgement"), {"EQUIVALENT", "NOISE_ONLY"})

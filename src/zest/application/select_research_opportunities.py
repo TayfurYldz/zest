@@ -48,6 +48,7 @@ from zest.research.scheduler.fairness import (
 # cycle instead of being silently discarded because this cycle's budget/
 # negative-knowledge context happened not to select it.
 _SURFACE_DISCOVERY_HYPOTHESIS_ORIGIN = "surface-discovery-v1"
+_RESEARCH_WORK_FABRIC_HYPOTHESIS_ORIGIN_PREFIX = "research-work-fabric.v1:"
 
 
 _CANDIDATE_TERMINAL_OUTCOMES = {
@@ -264,6 +265,9 @@ class SelectResearchOpportunities:
                         item.hypothesis_id
                         for item in hypotheses
                         if item.hypothesis_id not in blocked_hypothesis_ids
+                        and not (item.origin_reference or "").startswith(
+                            _RESEARCH_WORK_FABRIC_HYPOTHESIS_ORIGIN_PREFIX
+                        )
                     ),
                     negative_knowledge=tuple(negatives),
                 ),
