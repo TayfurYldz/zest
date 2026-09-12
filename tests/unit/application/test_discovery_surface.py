@@ -435,6 +435,193 @@ class RunnerConfigTests(unittest.TestCase):
         self.assertEqual(result.stop_reason, "MAX_BROWSER_ACTIONS")
         self.assertEqual(len(worker.calls), 0)
 
+    def test_run_side_effect_ceiling_zero_blocks_se1_before_worker(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        start = SurfaceDiscoveryStart(config=_config())
+
+        runner.ensure_started(start)
+        store.frontier_items.clear()
+        store.frontier_events.clear()
+
+        store.frontier_items["front-se1"] = _frontier(frontier_id="front-se1")
+        store.frontier_events["ev-se1-created"] = FrontierEventRecord(
+            event_id="ev-se1-created",
+            frontier_id="front-se1",
+            research_run_id="run-1",
+            event_kind="CREATED",
+            sequence=1,
+            created_at=CREATED_AT,
+        )
+        store.frontier_events["ev-se1-eligible"] = FrontierEventRecord(
+            event_id="ev-se1-eligible",
+            frontier_id="front-se1",
+            research_run_id="run-1",
+            event_kind="ELIGIBLE",
+            sequence=2,
+            created_at=CREATED_AT,
+        )
+
+        result = runner.run_cycle(
+            start,
+            budget_id="budget-1",
+            target_reference="target-1",
+            scope=_scope(),
+            side_effect_ceiling=0,
+        )
+
+        self.assertFalse(result.worker_invoked)
+        self.assertEqual(len(worker.calls), 0)
+
+        events = sorted(
+            (
+                item
+                for item in store.frontier_events.values()
+                if item.frontier_id == "front-se1"
+            ),
+            key=lambda item: item.sequence,
+        )
+        self.assertEqual(events[-1].event_kind, "BLOCKED_AUTH")
+        self.assertEqual(events[-1].reason_code, "RUN_SIDE_EFFECT_CEILING")
+
+    def test_compiled_plan_cannot_cross_run_side_effect_ceiling(self) -> None:
+        from unittest.mock import patch
+        from zest.research.types import ExperimentPlan
+
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        start = SurfaceDiscoveryStart(config=_config())
+
+        runner.ensure_started(start)
+        store.frontier_items.clear()
+        store.frontier_events.clear()
+
+        store.frontier_items["front-se0"] = _frontier(
+            frontier_id="front-se0",
+            goal_kind="CHARACTERIZE_HTTP_OPERATION",
+            proposed_capability="http.transaction",
+            proposed_action="read",
+            expected_side_effect=0,
+            budget_class=0,
+            attributes={"method": "GET"},
+        )
+        store.frontier_events["ev-se0-created"] = FrontierEventRecord(
+            event_id="ev-se0-created",
+            frontier_id="front-se0",
+            research_run_id="run-1",
+            event_kind="CREATED",
+            sequence=1,
+            created_at=CREATED_AT,
+        )
+        store.frontier_events["ev-se0-eligible"] = FrontierEventRecord(
+            event_id="ev-se0-eligible",
+            frontier_id="front-se0",
+            research_run_id="run-1",
+            event_kind="ELIGIBLE",
+            sequence=2,
+            created_at=CREATED_AT,
+        )
+
+        widened_plan = ExperimentPlan(
+            hypothesis_id="hyp-1",
+            required_capability="http.transaction",
+            action="mutate",
+            target_reference="target-1",
+            side_effect_level=1,
+            arguments={},
+            requested_budget_id="budget-1",
+            expected_observation="expected",
+            disconfirming_observation="disconfirming",
+            evaluation_strategy="test.v1",
+        )
+
+        with patch(
+            "zest.application.discovery.runner.compile_frontier_plan",
+            return_value=widened_plan,
+        ):
+            result = runner.run_cycle(
+                start,
+                budget_id="budget-1",
+                target_reference="target-1",
+                scope=_scope(),
+                side_effect_ceiling=0,
+            )
+
+        self.assertFalse(result.worker_invoked)
+        self.assertEqual(len(worker.calls), 0)
+        self.assertEqual(len(store.experiments), 0)
+
+        events = sorted(
+            (
+                item
+                for item in store.frontier_events.values()
+                if item.frontier_id == "front-se0"
+            ),
+            key=lambda item: item.sequence,
+        )
+        self.assertEqual(events[-1].event_kind, "BLOCKED_AUTH")
+        self.assertEqual(events[-1].reason_code, "RUN_SIDE_EFFECT_CEILING")
+
+    def test_run_side_effect_ceiling_one_preserves_se1_selection(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        start = SurfaceDiscoveryStart(config=_config())
+
+        runner.ensure_started(start)
+        store.frontier_items.clear()
+        store.frontier_events.clear()
+
+        store.frontier_items["front-se1"] = _frontier(frontier_id="front-se1")
+        store.frontier_events["ev-se1-created"] = FrontierEventRecord(
+            event_id="ev-se1-created",
+            frontier_id="front-se1",
+            research_run_id="run-1",
+            event_kind="CREATED",
+            sequence=1,
+            created_at=CREATED_AT,
+        )
+        store.frontier_events["ev-se1-eligible"] = FrontierEventRecord(
+            event_id="ev-se1-eligible",
+            frontier_id="front-se1",
+            research_run_id="run-1",
+            event_kind="ELIGIBLE",
+            sequence=2,
+            created_at=CREATED_AT,
+        )
+
+        runner.run_cycle(
+            start,
+            budget_id="budget-1",
+            target_reference="target-1",
+            scope=_scope(),
+            side_effect_ceiling=1,
+        )
+
+        events = [
+            item
+            for item in store.frontier_events.values()
+            if item.frontier_id == "front-se1"
+        ]
+        kinds = [item.event_kind for item in events]
+
+        self.assertIn("SELECTED", kinds)
+        self.assertFalse(
+            any(
+                item.event_kind == "BLOCKED_AUTH"
+                and item.reason_code == "RUN_SIDE_EFFECT_CEILING"
+                for item in events
+            )
+        )
+
     def test_browser_invocation_start_failure_is_terminal_without_projection(self) -> None:
         store = _Store()
         seed_authorization_run(store)

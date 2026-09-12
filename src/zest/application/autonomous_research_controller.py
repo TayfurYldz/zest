@@ -1482,6 +1482,7 @@ class AutonomousResearchController:
             scope=command.scope,
             approval=command.approval,
             program_policy=command.program_policy,
+            side_effect_ceiling=current.side_effect_ceiling,
         )
         self._record_surface_discovery_cycle(command, current, start, result)
         if result.stop_reason == "UNKNOWN_OUTCOME":

@@ -163,6 +163,7 @@ class SurfaceDiscoveryRunner:
         scope: ScopeEvaluationInput,
         approval: ApprovalView | None = None,
         program_policy: ProgramPolicyView | None = None,
+        side_effect_ceiling: int = SURFACE_DISCOVERY_MAX_SIDE_EFFECT,
     ) -> SurfaceDiscoveryCycleResult:
         self.ensure_started(start)
         now = self._clock.now()
@@ -187,6 +188,42 @@ class SurfaceDiscoveryRunner:
                 return SurfaceDiscoveryCycleResult(
                     research_run_id, bound_stop, None, None, False
                 )
+            effective_side_effect_ceiling = min(
+                SURFACE_DISCOVERY_MAX_SIDE_EFFECT,
+                side_effect_ceiling,
+            )
+
+            # Run policy is stronger than the discovery engine's own maximum.
+            # Eligible work above the persisted run ceiling must become
+            # terminal policy-blocked work before it can be selected.
+            for candidate in tuple(
+                uow.frontier_items.list_for_research_run(research_run_id)
+            ):
+                if (
+                    candidate.expected_side_effect <= effective_side_effect_ceiling
+                    and candidate.budget_class <= effective_side_effect_ceiling
+                ):
+                    continue
+                candidate_events = tuple(
+                    _domain_events(
+                        uow.frontier_events.list_for_frontier(candidate.frontier_id)
+                    )
+                )
+                if not candidate_events:
+                    continue
+                latest = max(
+                    candidate_events,
+                    key=lambda item: (item.sequence, item.event_id),
+                )
+                if latest.event_kind is FrontierEventKind.ELIGIBLE:
+                    self._append_event(
+                        uow,
+                        candidate.frontier_id,
+                        "BLOCKED_AUTH",
+                        now,
+                        reason_code="RUN_SIDE_EFFECT_CEILING",
+                    )
+
             items = uow.frontier_items.list_for_research_run(research_run_id)
             events_by = {
                 item.frontier_id: tuple(
@@ -197,7 +234,9 @@ class SurfaceDiscoveryRunner:
             domain_items = tuple(_domain_item(item) for item in items)
             eligible_before = _eligible_count(domain_items, events_by)
             chosen = select_eligible_frontier(
-                domain_items, events_by, max_side_effect=SURFACE_DISCOVERY_MAX_SIDE_EFFECT
+                domain_items,
+                events_by,
+                max_side_effect=effective_side_effect_ceiling,
             )
             if chosen is None:
                 apply_discovery_exit_dispositions(uow, research_run_id, created_at=now)
@@ -311,6 +350,32 @@ class SurfaceDiscoveryRunner:
                 selected_path=record.candidate_path,
                 compiled_capability=record.proposed_capability,
             )
+        # Second fail-closed barrier: compilation must never be able to
+        # increase side effect beyond the run policy after frontier selection.
+        if int(plan.side_effect_level) > effective_side_effect_ceiling:
+            with self._uow_factory.open() as uow:
+                self._append_event(
+                    uow,
+                    record.frontier_id,
+                    "BLOCKED_AUTH",
+                    now,
+                    reason_code="RUN_SIDE_EFFECT_CEILING",
+                )
+                eligible_after = _snapshot_eligible_count(uow, research_run_id)
+                uow.commit()
+            return SurfaceDiscoveryCycleResult(
+                research_run_id,
+                None,
+                record.frontier_id,
+                None,
+                False,
+                eligible_before=eligible_before,
+                eligible_after=eligible_after,
+                selected_goal_kind=record.goal_kind,
+                selected_path=record.candidate_path,
+                compiled_capability=plan.required_capability,
+            )
+
         scope_decision = authorize_http_transaction_plan(
             plan,
             start.compiled_scope,
