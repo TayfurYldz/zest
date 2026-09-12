@@ -9,7 +9,12 @@ import pathsetup  # noqa: F401
 
 from zest.core.enums import ReasonCode
 from zest.core.errors import CoreInputError
-from zest.core.rate_limit import RateLimitProfile, check_rate_limit
+from zest.core.rate_limit import (
+    RateLimitProfile,
+    RequestReservation,
+    check_rate_limit,
+    check_rate_limit_reservation,
+)
 
 
 class RateLimitCheckTests(unittest.TestCase):
@@ -86,6 +91,130 @@ class RateLimitCheckTests(unittest.TestCase):
                 max_requests_per_window=-1,
                 window_seconds=60,
             )
+
+
+class WeightedRateLimitReservationTests(unittest.TestCase):
+    def test_browser_partial_reservation(self) -> None:
+        now = datetime(
+            2026, 8, 19, 12, 0, 0,
+            tzinfo=timezone.utc,
+        )
+        profile = RateLimitProfile(
+            profile_id="rl-1",
+            program_id="prog-1",
+            max_requests_per_window=10,
+            window_seconds=60,
+        )
+
+        check = check_rate_limit_reservation(
+            profile,
+            (),
+            64,
+            now,
+            allow_partial=True,
+        )
+
+        self.assertTrue(check.allowed)
+        self.assertEqual(
+            check.permitted_requests,
+            10,
+        )
+
+    def test_non_partial_four_request_reservation_denied(self) -> None:
+        now = datetime(
+            2026, 8, 19, 12, 0, 0,
+            tzinfo=timezone.utc,
+        )
+        profile = RateLimitProfile(
+            profile_id="rl-1",
+            program_id="prog-1",
+            max_requests_per_window=3,
+            window_seconds=60,
+        )
+
+        check = check_rate_limit_reservation(
+            profile,
+            (),
+            4,
+            now,
+        )
+
+        self.assertFalse(check.allowed)
+        self.assertEqual(
+            check.reason_code,
+            ReasonCode.RATE_LIMIT_DENIED,
+        )
+
+    def test_weighted_window_exhaustion(self) -> None:
+        now = datetime(
+            2026, 8, 19, 12, 0, 0,
+            tzinfo=timezone.utc,
+        )
+        profile = RateLimitProfile(
+            profile_id="rl-1",
+            program_id="prog-1",
+            max_requests_per_window=20,
+            window_seconds=60,
+        )
+
+        reservations = (
+            RequestReservation(
+                occurred_at=(
+                    now - timedelta(seconds=10)
+                ),
+                amount=20,
+            ),
+        )
+
+        check = check_rate_limit_reservation(
+            profile,
+            reservations,
+            1,
+            now,
+        )
+
+        self.assertFalse(check.allowed)
+        self.assertEqual(
+            check.used_requests,
+            20,
+        )
+        self.assertIsNotNone(
+            check.next_allowed_at
+        )
+
+    def test_expired_reservation_not_counted(self) -> None:
+        now = datetime(
+            2026, 8, 19, 12, 0, 0,
+            tzinfo=timezone.utc,
+        )
+        profile = RateLimitProfile(
+            profile_id="rl-1",
+            program_id="prog-1",
+            max_requests_per_window=10,
+            window_seconds=60,
+        )
+
+        reservations = (
+            RequestReservation(
+                occurred_at=(
+                    now - timedelta(seconds=61)
+                ),
+                amount=10,
+            ),
+        )
+
+        check = check_rate_limit_reservation(
+            profile,
+            reservations,
+            10,
+            now,
+        )
+
+        self.assertTrue(check.allowed)
+        self.assertEqual(
+            check.used_requests,
+            0,
+        )
 
 
 if __name__ == "__main__":

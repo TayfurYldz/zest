@@ -386,6 +386,32 @@ class PostgresRateLimitProfileRepository:
             map_row.rate_limit_profile_from_row,
         )
 
+    def get_for_program_for_update(
+        self,
+        program_id: str,
+    ) -> RateLimitProfileRecord | None:
+        require_opaque_id(program_id, "program_id")
+
+        try:
+            row = self._connection.execute(
+                select(tables.rate_limit_profile)
+                .where(
+                    tables.rate_limit_profile.c.program_id
+                    == program_id
+                )
+                .with_for_update()
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise_if_unavailable(exc)
+            raise PersistenceError(
+                "persistence read failed"
+            ) from exc
+
+        if row is None:
+            return None
+
+        return map_row.rate_limit_profile_from_row(row)
+
     def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]:
         require_opaque_id(program_id, "program_id")
         try:
@@ -3063,6 +3089,101 @@ class PostgresBudgetConsumptionRepository:
             self.insert(record)
         except PersistenceConflictError:
             return
+
+    def list_program_request_reservations(
+        self,
+        program_id: str,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        worker_capabilities: tuple[str, ...],
+    ) -> list[BudgetConsumptionRecord]:
+        require_opaque_id(program_id, "program_id")
+
+        if (
+            not isinstance(window_start, datetime)
+            or window_start.tzinfo is None
+            or window_start.utcoffset() is None
+            or not isinstance(window_end, datetime)
+            or window_end.tzinfo is None
+            or window_end.utcoffset() is None
+        ):
+            raise PersistenceInputError(
+                "rate-limit window datetimes must be aware"
+            )
+
+        capabilities = tuple(
+            sorted(
+                {
+                    item
+                    for item in worker_capabilities
+                    if isinstance(item, str) and item
+                }
+            )
+        )
+
+        if not capabilities:
+            return []
+
+        consumption = tables.budget_consumption
+        attempt = tables.execution_attempt
+        run = tables.research_run
+
+        try:
+            rows = self._connection.execute(
+                select(consumption)
+                .select_from(
+                    consumption.join(
+                        attempt,
+                        (
+                            consumption.c.request_id
+                            == attempt.c.request_id
+                        )
+                        & (
+                            consumption.c.research_run_id
+                            == attempt.c.research_run_id
+                        ),
+                    ).join(
+                        run,
+                        consumption.c.research_run_id
+                        == run.c.research_run_id,
+                    )
+                )
+                .where(
+                    run.c.program_id == program_id
+                )
+                .where(
+                    consumption.c.resource_type
+                    == "REQUEST"
+                )
+                .where(
+                    consumption.c.occurred_at
+                    > window_start
+                )
+                .where(
+                    consumption.c.occurred_at
+                    <= window_end
+                )
+                .where(
+                    attempt.c.worker_capability.in_(
+                        capabilities
+                    )
+                )
+                .order_by(
+                    consumption.c.occurred_at,
+                    consumption.c.consumption_id,
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise_if_unavailable(exc)
+            raise PersistenceError(
+                "persistence read failed"
+            ) from exc
+
+        return [
+            map_row.budget_consumption_from_row(row)
+            for row in rows
+        ]
 
     def get(self, consumption_id: str) -> BudgetConsumptionRecord | None:
         require_opaque_id(consumption_id, "consumption_id")

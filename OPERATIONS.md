@@ -573,8 +573,11 @@ All variants are plans only; execution still flows through the existing
 
 - `RateLimitProfile` is stored in `rate_limit_profile` table.
 - `ProgramResearchContext.policy.rate_limit_profile` exposes it to dispatch.
-- `ExecutePlannedExperiment._check_rate_limit` counts authorized attempts in the
-  rolling window and returns `RATE_LIMIT_DENIED` before Core execution.
+- `ExecutePlannedExperiment._check_rate_limit` performs an early,
+  non-authoritative program-wide network-request reservation check.
+- `dispatch()` performs the authoritative recheck while holding the unique
+  program rate-limit profile row lock. Only network-capability `REQUEST`
+  reservations count; browser fan-out may be capped to remaining capacity.
 - Clock is injected; production code never calls `datetime.now()` directly.
 
 ### Live Infrastructure Boundary

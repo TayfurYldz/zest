@@ -262,6 +262,13 @@ class _RateLimitProfileRepo(_Repo):
         super().__init__(store.rate_limit_profiles, fail_on_insert=fail_on_insert)
         self._root = store
 
+    def get_for_program_for_update(
+        self,
+        program_id: str,
+    ) -> RateLimitProfileRecord | None:
+        records = self.list_for_program(program_id)
+        return records[0] if records else None
+
     def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]:
         return sorted(
             [
@@ -1798,6 +1805,67 @@ class _BudgetConsumptionRepo(_Repo):
             for record in self._root.budget_consumptions.values()
             if record.research_run_id == research_run_id
         ]
+
+    def list_program_request_reservations(
+        self,
+        program_id: str,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        worker_capabilities: tuple[str, ...],
+    ) -> list[BudgetConsumptionRecord]:
+        capabilities = set(worker_capabilities)
+        result: list[BudgetConsumptionRecord] = []
+
+        for record in self._root.budget_consumptions.values():
+            if record.resource_type != "REQUEST":
+                continue
+            if not (
+                record.occurred_at > window_start
+                and record.occurred_at <= window_end
+            ):
+                continue
+            if record.request_id is None:
+                continue
+
+            attempt_id = (
+                self._root.execution_attempts_by_request.get(
+                    record.request_id
+                )
+            )
+            if attempt_id is None:
+                continue
+
+            attempt = self._root.execution_attempts.get(
+                attempt_id
+            )
+            if attempt is None:
+                continue
+
+            if (
+                attempt.worker_capability
+                not in capabilities
+            ):
+                continue
+
+            run = self._root.research_runs.get(
+                record.research_run_id
+            )
+            if (
+                run is None
+                or run.program_id != program_id
+            ):
+                continue
+
+            result.append(record)
+
+        return sorted(
+            result,
+            key=lambda item: (
+                item.occurred_at,
+                item.consumption_id,
+            ),
+        )
 
 
 class _SessionContextRepo(_RunScopedRepo):

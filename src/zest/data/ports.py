@@ -107,6 +107,9 @@ class SensorObservationRepository(Protocol):
 class RateLimitProfileRepository(Protocol):
     def insert(self, record: RateLimitProfileRecord) -> None: ...
     def get(self, profile_id: str) -> RateLimitProfileRecord | None: ...
+    def get_for_program_for_update(
+        self, program_id: str
+    ) -> RateLimitProfileRecord | None: ...
     def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]: ...
 
 
@@ -458,6 +461,14 @@ class BudgetConsumptionRepository(Protocol):
     def list_for_budget(self, budget_id: str) -> list[BudgetConsumptionRecord]: ...
     def list_for_research_run(
         self, research_run_id: str, *, limit: int | None = None
+    ) -> list[BudgetConsumptionRecord]: ...
+    def list_program_request_reservations(
+        self,
+        program_id: str,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        worker_capabilities: tuple[str, ...],
     ) -> list[BudgetConsumptionRecord]: ...
 
 

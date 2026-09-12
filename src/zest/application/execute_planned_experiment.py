@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Mapping
 
@@ -61,7 +61,11 @@ from zest.core.enums import (
     ReasonCode,
 )
 from zest.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
-from zest.core.rate_limit import RateLimitProfile, check_rate_limit
+from zest.core.rate_limit import (
+    RateLimitProfile,
+    RequestReservation,
+    check_rate_limit_reservation,
+)
 from zest.core.scope import ScopeEvaluationInput
 from zest.core.scope_compiler import CompiledScope
 from zest.data.budget_ledger import remaining_for_resource, usage_from_consumptions
@@ -84,7 +88,12 @@ from zest.platform.worker import InvocationStatus, WorkerInvocationOutcome, Work
 from zest.research.identity_session import HttpFormLoginProfile, Identity
 from zest.research.types import ExperimentPlan
 from zest.tools.browser_page_policy import browser_page_max_network_requests
-from zest.tools.capabilities import BROWSER_PAGE_CAPABILITY, HTTP_RAW_EXCHANGE_CAPABILITY
+from zest.tools.capabilities import (
+    BROWSER_PAGE_CAPABILITY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_RAW_EXCHANGE_CAPABILITY,
+    HTTP_STATE_TRANSITION_CAPABILITY,
+)
 
 WORKER_CONTRACT_VERSION = "v1"
 AUDIT_EXECUTION_DECISION = "EXECUTION_DECISION"
@@ -294,6 +303,7 @@ class ExecutePlannedExperiment:
                 command.program_policy,
                 experiment,
                 hypothesis_id,
+                bound_plan,
                 now,
             )
             if rate_limit_outcome is not None:
@@ -661,9 +671,34 @@ class ExecutePlannedExperiment:
                 ExperimentExecutionState.RUNNING.value,
             )
             try:
-                request_amount = _request_consumption_amount(uow, attempt, issued)
+                request_amount = _request_consumption_amount(
+                    uow,
+                    attempt,
+                    issued,
+                )
+
+                (
+                    request_amount,
+                    rate_limit_denied,
+                ) = self._check_dispatch_rate_limit(
+                    uow,
+                    authorized=authorized,
+                    attempt=attempt,
+                    experiment=experiment,
+                    run=run,
+                    requested_amount=request_amount,
+                    now=now,
+                )
+
+                if rate_limit_denied is not None:
+                    return rate_limit_denied
+
                 _record_dispatch_consumption(
-                    uow, attempt, issued, occurred_at=now, request_amount=request_amount
+                    uow,
+                    attempt,
+                    issued,
+                    occurred_at=now,
+                    request_amount=request_amount,
                 )
             except BudgetOverspendError:
                 uow.rollback()
@@ -701,6 +736,200 @@ class ExecutePlannedExperiment:
                     uow, experiment, attempt, authorized.hypothesis_id
                 )
         return self._record_outcome(authorized, invocation)
+
+    def _check_dispatch_rate_limit(
+        self,
+        uow: UnitOfWork,
+        *,
+        authorized: AuthorizedDispatch,
+        attempt: ExecutionAttemptRecord,
+        experiment: ExperimentRecord,
+        run,
+        requested_amount: int,
+        now: datetime,
+    ) -> tuple[int, ResearchLoopOutcome | None]:
+        """Authoritative program-wide request limit.
+
+        The unique program profile row is locked before the
+        program-wide request reservation ledger is evaluated.
+        The outer dispatch transaction holds that lock until
+        reservation insertion and commit.
+        """
+
+        if (
+            attempt.worker_capability
+            not in HTTP_SCOPE_CAPABILITIES
+        ):
+            return requested_amount, None
+
+        if run is None:
+            return (
+                requested_amount,
+                self._deny_dispatch_rate_limit(
+                    uow,
+                    authorized=authorized,
+                    attempt=attempt,
+                    experiment=experiment,
+                    profile_id=None,
+                    requested_requests=requested_amount,
+                    used_requests=0,
+                    next_allowed_at=None,
+                    detail="research_run_missing",
+                    now=now,
+                ),
+            )
+
+        profile_record = (
+            uow.rate_limit_profiles
+            .get_for_program_for_update(
+                run.program_id
+            )
+        )
+
+        # No program rate-limit profile means there is no
+        # rate-limit policy to enforce. Full policy-revision
+        # pinning is a separate P0 stage.
+        if profile_record is None:
+            return requested_amount, None
+
+        profile = _rate_limit_profile_from_record(
+            profile_record
+        )
+
+        window_start = now - timedelta(
+            seconds=profile.window_seconds
+        )
+
+        records = (
+            uow.budget_consumptions
+            .list_program_request_reservations(
+                run.program_id,
+                window_start=window_start,
+                window_end=now,
+                worker_capabilities=tuple(
+                    sorted(HTTP_SCOPE_CAPABILITIES)
+                ),
+            )
+        )
+
+        reservations = tuple(
+            RequestReservation(
+                occurred_at=item.occurred_at,
+                amount=item.amount,
+            )
+            for item in records
+        )
+
+        check = check_rate_limit_reservation(
+            profile,
+            reservations,
+            requested_amount,
+            now,
+            allow_partial=(
+                attempt.worker_capability
+                == BROWSER_PAGE_CAPABILITY
+            ),
+        )
+
+        if not check.allowed:
+            return (
+                requested_amount,
+                self._deny_dispatch_rate_limit(
+                    uow,
+                    authorized=authorized,
+                    attempt=attempt,
+                    experiment=experiment,
+                    profile_id=profile_record.profile_id,
+                    requested_requests=requested_amount,
+                    used_requests=check.used_requests,
+                    next_allowed_at=check.next_allowed_at,
+                    detail=(
+                        "program_request_window_exhausted"
+                    ),
+                    now=now,
+                ),
+            )
+
+        return check.permitted_requests, None
+
+    def _deny_dispatch_rate_limit(
+        self,
+        uow: UnitOfWork,
+        *,
+        authorized: AuthorizedDispatch,
+        attempt: ExecutionAttemptRecord,
+        experiment: ExperimentRecord,
+        profile_id: str | None,
+        requested_requests: int,
+        used_requests: int,
+        next_allowed_at: datetime | None,
+        detail: str,
+        now: datetime,
+    ) -> ResearchLoopOutcome:
+        audit_id = execution_decision_audit_id(
+            new_opaque_id()
+        )
+
+        uow.audit_events.insert(
+            AuditEventRecord(
+                audit_event_id=audit_id,
+                occurred_at=now,
+                actor_id=self._actor_id,
+                actor_type=ActorType.CONTROL_PLANE.value,
+                event_type="RATE_LIMIT_DENIED",
+                subject_type="execution_attempt",
+                subject_id=attempt.attempt_id,
+                correlation_id=attempt.correlation_id,
+                payload={
+                    "phase": "DISPATCH",
+                    "profile_id": profile_id,
+                    "reason_code": (
+                        ReasonCode.RATE_LIMIT_DENIED.value
+                    ),
+                    "requested_requests": (
+                        requested_requests
+                    ),
+                    "used_requests": used_requests,
+                    "next_allowed_at": (
+                        next_allowed_at.isoformat()
+                        if next_allowed_at is not None
+                        else None
+                    ),
+                    "detail": detail,
+                    "dispatched": False,
+                },
+            )
+        )
+
+        uow.execution_attempts.set_state(
+            attempt.attempt_id,
+            ExecutionAttemptState.CANCELLED.value,
+            completed_at=now,
+        )
+
+        uow.experiments.set_execution_state(
+            experiment.experiment_id,
+            ExperimentExecutionState.BLOCKED.value,
+        )
+
+        uow.commit()
+
+        return ResearchLoopOutcome(
+            status=ResearchLoopStatus.DISPATCH_DENIED,
+            hypothesis_id=authorized.hypothesis_id,
+            experiment_id=authorized.experiment_id,
+            experiment_execution_state=(
+                ExperimentExecutionState.BLOCKED.value
+            ),
+            core_decision=ExecutionDecisionKind.DENY,
+            core_reason_code=ReasonCode.RATE_LIMIT_DENIED,
+            authorization_decision_reference=audit_id,
+            request_id=authorized.request_id,
+            attempt_id=authorized.attempt_id,
+            attempt_state=(
+                ExecutionAttemptState.CANCELLED.value
+            ),
+        )
 
     def _fail_closed_existing(self, experiment_id: str) -> ResearchLoopOutcome | None:
         with self._uow_factory.open() as uow:
@@ -1023,23 +1252,82 @@ class ExecutePlannedExperiment:
         program_policy: ProgramPolicyView | None,
         experiment: ExperimentRecord,
         hypothesis_id: str,
+        plan,
         now: datetime,
     ) -> ResearchLoopOutcome | None:
-        """Fail-closed rate-limit gate before Core execution. D4 clock injection."""
-        if program_policy is None or program_policy.rate_limit_profile is None:
+        """Early, non-authoritative program request-limit check."""
+
+        if (
+            program_policy is None
+            or program_policy.rate_limit_profile is None
+            or plan.required_capability
+            not in HTTP_SCOPE_CAPABILITIES
+        ):
             return None
-        profile_record = program_policy.rate_limit_profile
-        profile = _rate_limit_profile_from_record(profile_record)
-        attempts = uow.execution_attempts.list_for_research_run(experiment.research_run_id)
-        authorized_times = tuple(
-            attempt.authorized_at
-            for attempt in attempts
-            if attempt.authorized_at is not None
+
+        profile_record = (
+            program_policy.rate_limit_profile
         )
-        check = check_rate_limit(profile, authorized_times, now)
-        if check.allowed:
+        profile = _rate_limit_profile_from_record(
+            profile_record
+        )
+
+        run = uow.research_runs.get(
+            experiment.research_run_id
+        )
+
+        if (
+            run is None
+            or profile_record.program_id
+            != run.program_id
+        ):
+            allowed = False
+            used_requests = 0
+            next_allowed_at = None
+        else:
+            window_start = now - timedelta(
+                seconds=profile.window_seconds
+            )
+
+            records = (
+                uow.budget_consumptions
+                .list_program_request_reservations(
+                    run.program_id,
+                    window_start=window_start,
+                    window_end=now,
+                    worker_capabilities=tuple(
+                        sorted(HTTP_SCOPE_CAPABILITIES)
+                    ),
+                )
+            )
+
+            reservations = tuple(
+                RequestReservation(
+                    occurred_at=item.occurred_at,
+                    amount=item.amount,
+                )
+                for item in records
+            )
+
+            check = check_rate_limit_reservation(
+                profile,
+                reservations,
+                1,
+                now,
+                allow_partial=True,
+            )
+
+            allowed = check.allowed
+            used_requests = check.used_requests
+            next_allowed_at = check.next_allowed_at
+
+        if allowed:
             return None
-        audit_id = execution_decision_audit_id(new_opaque_id())
+
+        audit_id = execution_decision_audit_id(
+            new_opaque_id()
+        )
+
         uow.audit_events.insert(
             AuditEventRecord(
                 audit_event_id=audit_id,
@@ -1051,25 +1339,39 @@ class ExecutePlannedExperiment:
                 subject_id=experiment.experiment_id,
                 correlation_id=experiment.research_run_id,
                 payload={
-                    "profile_id": profile_record.profile_id,
-                    "max_requests_per_window": profile.max_requests_per_window,
-                    "window_seconds": profile.window_seconds,
-                    "reason_code": check.reason_code.value,
+                    "phase": "AUTHORIZE_PRECHECK",
+                    "profile_id": (
+                        profile_record.profile_id
+                    ),
+                    "max_requests_per_window": (
+                        profile.max_requests_per_window
+                    ),
+                    "window_seconds": (
+                        profile.window_seconds
+                    ),
+                    "used_requests": used_requests,
+                    "requested_requests": 1,
+                    "reason_code": (
+                        ReasonCode.RATE_LIMIT_DENIED.value
+                    ),
                     "next_allowed_at": (
-                        check.next_allowed_at.isoformat()
-                        if check.next_allowed_at is not None
+                        next_allowed_at.isoformat()
+                        if next_allowed_at is not None
                         else None
                     ),
                 },
             )
         )
+
         return ResearchLoopOutcome(
             status=ResearchLoopStatus.DISPATCH_DENIED,
             hypothesis_id=hypothesis_id,
             experiment_id=experiment.experiment_id,
-            experiment_execution_state=ExperimentExecutionState.BLOCKED.value,
+            experiment_execution_state=(
+                ExperimentExecutionState.BLOCKED.value
+            ),
             core_decision=ExecutionDecisionKind.DENY,
-            core_reason_code=check.reason_code,
+            core_reason_code=ReasonCode.RATE_LIMIT_DENIED,
             authorization_decision_reference=audit_id,
         )
 
@@ -1415,6 +1717,11 @@ def _request_consumption_amount(
     attempt: ExecutionAttemptRecord,
     issued: IssuedBudgetRecord,
 ) -> int:
+    if attempt.worker_capability in {
+        HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+        HTTP_STATE_TRANSITION_CAPABILITY,
+    }:
+        return 4
     if attempt.worker_capability == HTTP_RAW_EXCHANGE_CAPABILITY:
         plan = uow.experiment_plans.get(attempt.experiment_id)
         profile = None

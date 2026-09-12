@@ -818,77 +818,41 @@ class UnknownOutcomeTests(unittest.TestCase):
 class RateLimitEnforcementTests(unittest.TestCase):
     def test_no_rate_limit_profile_allows_dispatch(self) -> None:
         use_case, _, port = _use_case()
+
         outcome = use_case.execute(_command())
-        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.OBSERVATION_PRODUCED,
+        )
         self.assertEqual(len(port.calls), 1)
 
-    def test_rate_limit_under_limit_allows_dispatch(self) -> None:
+    def test_network_rate_limit_does_not_count_diagnostic_echo(self) -> None:
         store = _Store()
         seed_spine(store)
-        store.execution_attempts["ea-1"] = ExecutionAttemptRecord(
-            attempt_id="ea-1",
-            request_id="req-1",
-            experiment_id="exp-other",
-            research_run_id="run-1",
-            correlation_id="corr-1",
-            worker_capability="http.transaction",
-            action="read",
-            target_reference="target-1",
-            budget_id="budget-1",
-            side_effect_level=0,
-            authorization_decision_reference="ad-1",
-            state=ExecutionAttemptState.AUTHORIZED.value,
-            created_at=CREATED_AT,
-            authorized_at=CREATED_AT,
+
+        policy = _rate_limit_policy(
+            max_requests=0,
+            window_seconds=60,
         )
+
+        assert policy.rate_limit_profile is not None
+
+        store.rate_limit_profiles[
+            policy.rate_limit_profile.profile_id
+        ] = policy.rate_limit_profile
+
         use_case, _, port = _use_case(store)
-        policy = _rate_limit_policy(max_requests=2, window_seconds=60)
-        outcome = use_case.execute(_command(program_policy=policy))
-        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+
+        outcome = use_case.execute(
+            _command(program_policy=policy)
+        )
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.OBSERVATION_PRODUCED,
+        )
         self.assertEqual(len(port.calls), 1)
-
-    def test_rate_limit_over_limit_denies_dispatch(self) -> None:
-        store = _Store()
-        seed_spine(store)
-        for index in range(2):
-            store.execution_attempts[f"ea-{index}"] = ExecutionAttemptRecord(
-                attempt_id=f"ea-{index}",
-                request_id=f"req-{index}",
-                experiment_id="exp-other",
-                research_run_id="run-1",
-                correlation_id="corr-1",
-                worker_capability="http.transaction",
-                action="read",
-                target_reference="target-1",
-                budget_id="budget-1",
-                side_effect_level=0,
-                authorization_decision_reference=f"ad-{index}",
-                state=ExecutionAttemptState.AUTHORIZED.value,
-                created_at=CREATED_AT,
-                authorized_at=CREATED_AT,
-            )
-        use_case, _, port = _use_case(store)
-        policy = _rate_limit_policy(max_requests=2, window_seconds=60)
-        outcome = use_case.execute(_command(program_policy=policy))
-        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
-        self.assertEqual(outcome.core_reason_code, ReasonCode.RATE_LIMIT_DENIED)
-        self.assertEqual(len(port.calls), 0)
-        self.assertEqual(store.experiments["exp-1"].execution_state, "BLOCKED")
-        audit = next(
-            (a for a in store.audit_events.values() if a.event_type == "RATE_LIMIT_DENIED"),
-            None,
-        )
-        self.assertIsNotNone(audit)
-
-    def test_rate_limit_zero_max_requests_denies_dispatch(self) -> None:
-        store = _Store()
-        seed_spine(store)
-        use_case, _, port = _use_case(store)
-        policy = _rate_limit_policy(max_requests=0, window_seconds=60)
-        outcome = use_case.execute(_command(program_policy=policy))
-        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
-        self.assertEqual(outcome.core_reason_code, ReasonCode.RATE_LIMIT_DENIED)
-        self.assertEqual(len(port.calls), 0)
 
 
 class LocalProcessLogicalLoopTests(unittest.TestCase):

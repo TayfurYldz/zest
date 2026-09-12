@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -38,6 +38,7 @@ from zest.data.postgres.engine import create_sync_engine
 from zest.data.postgres.unit_of_work import PostgresUnitOfWork
 from zest.data.records import (
     AuditEventRecord,
+    BudgetConsumptionRecord,
     ExecutionAttemptRecord,
     ExperimentRecord,
     ProgramPolicyRecord,
@@ -110,13 +111,11 @@ class SDG6RateLimitIntegrationTests(unittest.TestCase):
             )
             uow.commit()
 
-    def test_rate_limit_denies_after_window_exhausted(self) -> None:
-        factory = PostgresUnitOfWorkFactory(self.engine)
-        # Record one authorized attempt for a different experiment in the same run.
+    def test_program_request_query_and_profile_lock(self) -> None:
         with PostgresUnitOfWork(self.engine) as uow:
             uow.audit_events.insert(
                 AuditEventRecord(
-                    audit_event_id="ad-2",
+                    audit_event_id="ad-rate-2",
                     occurred_at=NOW,
                     actor_id="control-plane",
                     actor_type="CONTROL_PLANE",
@@ -126,57 +125,85 @@ class SDG6RateLimitIntegrationTests(unittest.TestCase):
                     payload={"decision": "ALLOW"},
                 )
             )
+
             uow.execution_attempts.insert(
                 ExecutionAttemptRecord(
-                    attempt_id="ea-2",
-                    request_id="req-2",
+                    attempt_id="ea-rate-2",
+                    request_id="req-rate-2",
                     experiment_id="exp-2",
                     research_run_id="run-1",
-                    correlation_id="corr-2",
-                    worker_capability="diagnostic.echo",
-                    action="echo",
+                    correlation_id="corr-rate-2",
+                    worker_capability="http.transaction",
+                    action="read",
                     target_reference="target-1",
                     budget_id="budget-1",
                     side_effect_level=0,
-                    authorization_decision_reference="ad-2",
+                    authorization_decision_reference=(
+                        "ad-rate-2"
+                    ),
                     state="AUTHORIZED",
                     created_at=NOW,
                     authorized_at=NOW,
                 )
             )
+
+            uow.budget_consumptions.insert(
+                BudgetConsumptionRecord(
+                    consumption_id="cons-rate-2",
+                    budget_id="budget-1",
+                    research_run_id="run-1",
+                    resource_type="REQUEST",
+                    amount=1,
+                    unit="count",
+                    occurred_at=NOW,
+                    provenance="sd-g6-rate-limit",
+                    experiment_id="exp-2",
+                    request_id="req-rate-2",
+                )
+            )
+
             uow.commit()
 
-        policy_view = ProgramPolicyView(
-            loopback_fixture=False,
-            max_response_bytes=4096,
-            timeout_ms=2000,
-            action_policy={},
-            rate_limit_profile=RateLimitProfileRecord(
-                profile_id="rl-1",
-                program_id="prog-1",
-                max_requests_per_window=1,
-                window_seconds=3600,
-                created_at=NOW,
-            ),
-        )
-        plan = plan_diagnostic_echo(
-            "hyp-1",
-            budget_id="budget-1",
-            target_reference="target-1",
-            message="ping",
-        )
-        use_case = ExecutePlannedExperiment(factory, RecordingWorkerPort(), clock=FixedClock())
-        outcome = use_case.execute(
-            ExecutePlannedExperimentCommand(
-                experiment_id="exp-1",
-                plan=plan,
-                scope=_allow_scope(),
-                compiled_scope=None,
-                program_policy=policy_view,
+        with PostgresUnitOfWork(self.engine) as uow:
+            profile = (
+                uow.rate_limit_profiles
+                .get_for_program_for_update(
+                    "prog-1"
+                )
             )
-        )
-        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
-        self.assertEqual(outcome.core_reason_code, ReasonCode.RATE_LIMIT_DENIED)
+
+            self.assertIsNotNone(profile)
+
+            reservations = (
+                uow.budget_consumptions
+                .list_program_request_reservations(
+                    "prog-1",
+                    window_start=(
+                        NOW
+                        - timedelta(seconds=3600)
+                    ),
+                    window_end=NOW,
+                    worker_capabilities=(
+                        "http.transaction",
+                    ),
+                )
+            )
+
+            self.assertEqual(
+                len(reservations),
+                1,
+            )
+            self.assertEqual(
+                reservations[0].amount,
+                1,
+            )
+            self.assertEqual(
+                reservations[0].request_id,
+                "req-rate-2",
+            )
+
+            uow.rollback()
+
 
 
 if __name__ == "__main__":
