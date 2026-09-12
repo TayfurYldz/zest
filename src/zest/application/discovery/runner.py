@@ -21,6 +21,9 @@ from zest.application.discovery.config import (
     record_from_config,
 )
 from zest.application.discovery.control_events import ingest_control_event_from_worker_result
+from zest.application.discovery.reauthorization_followup import (
+    compile_allowed_same_origin_redirect_frontier,
+)
 from zest.application.discovery.project import (
     reconcile_missing_projections,
 )
@@ -388,6 +391,8 @@ class SurfaceDiscoveryRunner:
                 research_run_id, "UNKNOWN_OUTCOME", record.frontier_id, experiment_id, True
             )
         reauthorization_explicit_oos = False
+        reauthorization_resolved = False
+        reauthorization_followup = None
         if (
             loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED
             and start.compiled_scope is not None
@@ -397,11 +402,25 @@ class SurfaceDiscoveryRunner:
                 loop.reauthorization_request, start.compiled_scope
             )
             reauthorization_explicit_oos = _explicit_out_of_scope(reauthorization_check)
+            reauthorization_followup = compile_allowed_same_origin_redirect_frontier(
+                loop.reauthorization_request,
+                reauthorization_check,
+                record=record,
+                normalized_origin=start.config.normalized_origin,
+            )
         with self._uow_factory.open() as uow:
+            reauthorization_control_event_id = None
             for result in uow.worker_results.list_for_research_run(research_run_id):
-                ingest_control_event_from_worker_result(
+                control_event = ingest_control_event_from_worker_result(
                     uow, result, created_at=now, target_reference=target_reference
                 )
+                if (
+                    loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED
+                    and loop.worker_result_id is not None
+                    and result.worker_result_id == loop.worker_result_id
+                    and control_event is not None
+                ):
+                    reauthorization_control_event_id = control_event.control_event_id
             reconcile_missing_projections(
                 uow, research_run_id, created_at=now, target_reference=target_reference
             )
@@ -430,6 +449,48 @@ class SurfaceDiscoveryRunner:
                             now,
                             reason_code="REAUTHORIZATION_TARGET_OUT_OF_SCOPE",
                         )
+                    elif (
+                        reauthorization_followup is not None
+                        and reauthorization_control_event_id is not None
+                    ):
+                        # The original request has already stopped at the redirect.
+                        # Close that control branch; never redispatch its attempt.
+                        uow.experiments.set_execution_state(
+                            experiment_id, ExperimentExecutionState.BLOCKED.value
+                        )
+                        self._append_event(
+                            uow,
+                            record.frontier_id,
+                            "AWAITING_REAUTHORIZATION",
+                            now,
+                            reason_code="CORE_REEVALUATION_REQUIRED",
+                        )
+                        existing_followup = next(
+                            (
+                                item
+                                for item in uow.frontier_items.list_for_research_run(
+                                    research_run_id
+                                )
+                                if item.dedupe_identity
+                                == reauthorization_followup.dedupe_identity
+                            ),
+                            None,
+                        )
+                        if existing_followup is None:
+                            self._insert_control_frontier(
+                                uow,
+                                reauthorization_followup,
+                                created_at=now,
+                                control_event_id=reauthorization_control_event_id,
+                            )
+                        self._append_event(
+                            uow,
+                            record.frontier_id,
+                            "SUPERSEDED",
+                            now,
+                            reason_code="REAUTHORIZATION_ALLOWED_FRESH_WORK",
+                        )
+                        reauthorization_resolved = True
                     else:
                         self._append_event(
                             uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now
@@ -470,13 +531,18 @@ class SurfaceDiscoveryRunner:
                     observation_id = observations[-1].observation_id
             uow.commit()
         if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+            reauthorization_stop_reason = (
+                "BLOCKED_SCOPE"
+                if reauthorization_explicit_oos
+                else (
+                    bound_stop
+                    if reauthorization_resolved
+                    else "REAUTHORIZATION_REQUIRED"
+                )
+            )
             return SurfaceDiscoveryCycleResult(
                 research_run_id,
-                (
-                    "BLOCKED_SCOPE"
-                    if reauthorization_explicit_oos
-                    else "REAUTHORIZATION_REQUIRED"
-                ),
+                reauthorization_stop_reason,
                 record.frontier_id,
                 experiment_id,
                 worker_invoked,
@@ -487,7 +553,12 @@ class SurfaceDiscoveryRunner:
                 compiled_capability=plan.required_capability,
                 worker_status=loop.status.value,
                 observation_id=observation_id,
-                discovery_exhausted=False,
+                discovery_exhausted=(
+                    audit.discovery_exit_allowed
+                    if reauthorization_resolved
+                    and reauthorization_stop_reason is None
+                    else False
+                ),
             )
         if loop.status is ResearchLoopStatus.HUMAN_REVIEW_REQUIRED:
             return SurfaceDiscoveryCycleResult(
@@ -606,6 +677,51 @@ class SurfaceDiscoveryRunner:
                 frontier_id=item.frontier_id,
                 created_at=created_at,
                 seed_config_run_id=seed_run_id,
+            )
+        )
+        self._append_event(uow, item.frontier_id, "CREATED", created_at, sequence=1)
+        self._append_event(uow, item.frontier_id, "ELIGIBLE", created_at, sequence=2)
+
+    def _insert_control_frontier(
+        self,
+        uow,
+        item: FrontierItem,
+        *,
+        created_at,
+        control_event_id: str,
+    ) -> None:
+        """Persist fresh work derived from a control event, not from seed authority."""
+
+        uow.frontier_items.insert(
+            FrontierItemRecord(
+                frontier_id=item.frontier_id,
+                research_run_id=item.research_run_id,
+                strategy_version=item.strategy_version,
+                goal_kind=item.goal_kind.value,
+                candidate_origin=item.candidate_origin,
+                candidate_path=item.candidate_path,
+                identity_id=item.identity_id,
+                proposed_capability=item.proposed_capability,
+                proposed_action=item.proposed_action,
+                expected_side_effect=item.expected_side_effect,
+                budget_class=item.budget_class,
+                structural_signature=item.structural_signature,
+                dedupe_identity=item.dedupe_identity,
+                created_at=created_at,
+                session_context_id=item.session_context_id,
+                scope_hint=item.scope_hint,
+                attributes=item.attributes,
+                current_state="ELIGIBLE",
+                state_version=2,
+            )
+        )
+        uow.frontier_sources.insert(
+            FrontierSourceRecord(
+                source_row_id=new_opaque_id(),
+                research_run_id=item.research_run_id,
+                frontier_id=item.frontier_id,
+                created_at=created_at,
+                control_event_id=control_event_id,
             )
         )
         self._append_event(uow, item.frontier_id, "CREATED", created_at, sequence=1)
