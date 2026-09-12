@@ -26,6 +26,7 @@ from zest.data.records import (
     HypothesisAssessmentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
+    ResearchOpportunityRecord,
     ResearchOrchestrationRecord,
 )
 from zest.research.orchestration import OrchestrationBounds, OrchestrationPhase, OrchestrationState
@@ -240,18 +241,46 @@ class CrashRecoveryTests(unittest.TestCase):
         )
         store.execution_attempts_by_request["req-resume-1"] = "ea-resume-1"
 
-    def test_crash_after_opportunity_selection_does_not_duplicate_hypothesis(self) -> None:
+    def test_crash_after_opportunity_selection_recompiles_durable_selected_work(self) -> None:
         store = self._start()
         hyp_id = self._plant_hypothesis(store)
+
+        store.research_opportunities["opp-1"] = ResearchOpportunityRecord(
+            opportunity_id="opp-1",
+            research_run_id="run-1",
+            opportunity_kind="SURFACE_DISCOVERY",
+            mode="EXPLORATION",
+            source_refs=("source-1",),
+            proposed_direction="Continue durable selected research work.",
+            unresolved_question="What should the selected work evaluate?",
+            expected_information_value_description="Recovery-path regression fixture.",
+            assumptions=(),
+            dimensions={},
+            context_signature="ctx-opp-1",
+            novelty_composition_marker=False,
+            prior_attempt_refs=(),
+            structural_identity="struct-opp-1",
+            strategy_version="crash-recovery.v1",
+            created_at=CREATED_AT,
+        )
+
         self._set_phase(
             store,
             OrchestrationPhase.OPPORTUNITY_SELECTED.value,
             last_opportunity_id="opp-1",
+            last_hypothesis_id=hyp_id,
         )
-        restarted, _ = _controller2(store)
+
+        restarted, port = _controller2(store)
         restarted.step(_command(bounds=_bounds(max_cycles=2)))
+
         self.assertEqual(len(store.hypotheses), 1)
         self.assertEqual(next(iter(store.hypotheses)), hyp_id)
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(
+            store.research_orchestrations["run-1"].last_opportunity_id,
+            "opp-1",
+        )
 
     def test_crash_after_hypothesis_persistence_reuses_hypothesis(self) -> None:
         store = self._start()
@@ -266,13 +295,50 @@ class CrashRecoveryTests(unittest.TestCase):
         self.assertEqual(len(store.hypotheses), 1)
         self.assertLessEqual(len(store.experiments), 2)
 
-    def test_orphan_hypothesis_before_checkpoint_is_resumed(self) -> None:
+    def test_bootstrap_checkpoint_without_opportunity_can_resume_hypothesis(self) -> None:
         store = self._start()
-        self._plant_hypothesis(store)
-        self._set_phase(store, OrchestrationPhase.OPPORTUNITY_SELECTED.value)
+        hyp_id = self._plant_hypothesis(store)
+
+        self._set_phase(
+            store,
+            OrchestrationPhase.OPPORTUNITY_SELECTED.value,
+            last_opportunity_id=None,
+            last_hypothesis_id=hyp_id,
+        )
+
         restarted, _ = _controller2(store)
         restarted.step(_command(bounds=_bounds(max_cycles=2)))
+
         self.assertEqual(len(store.hypotheses), 1)
+        self.assertEqual(
+            next(iter(store.hypotheses)),
+            hyp_id,
+        )
+
+    def test_opportunity_selected_with_missing_durable_record_fails_closed(self) -> None:
+        store = self._start()
+        hyp_id = self._plant_hypothesis(store)
+
+        self._set_phase(
+            store,
+            OrchestrationPhase.OPPORTUNITY_SELECTED.value,
+            last_opportunity_id="opp-missing",
+            last_hypothesis_id=hyp_id,
+        )
+
+        restarted, port = _controller2(store)
+        result = restarted.step(_command(bounds=_bounds(max_cycles=2)))
+
+        self.assertEqual(
+            result.state,
+            OrchestrationState.FAILED_OPERATIONAL.value,
+        )
+        self.assertEqual(
+            result.last_phase,
+            "selected_opportunity_missing",
+        )
+        self.assertEqual(len(store.hypotheses), 1)
+        self.assertEqual(len(port.calls), 0)
 
     def test_crash_after_experiment_planned_reuses_experiment(self) -> None:
         store = self._start()

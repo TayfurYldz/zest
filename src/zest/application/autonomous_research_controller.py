@@ -731,19 +731,58 @@ class AutonomousResearchController:
         if phase == OrchestrationPhase.HYPOTHESIS_ADMITTED.value and current.last_hypothesis_id:
             return self._resume_admitted_hypothesis(command, current, config)
         if phase == OrchestrationPhase.OPPORTUNITY_SELECTED.value:
-            if self._opportunity_is_exploratory(current.last_opportunity_id):
-                if current.last_hypothesis_id and self._hypothesis_is_exploratory(
-                    command.research_run_id, current.last_hypothesis_id
-                ):
-                    current = self._checkpoint(
-                        current,
-                        phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
-                        hypothesis_id=current.last_hypothesis_id,
+            if current.last_opportunity_id:
+                # A durable selected opportunity is the recovery authority.
+                # Never replace it with an unrelated/latest hypothesis from an
+                # earlier cycle.
+                with self._uow_factory.open() as uow:
+                    selected_opportunity = uow.research_opportunities.get(
+                        current.last_opportunity_id
                     )
-                    return self._resume_admitted_hypothesis(command, current, config)
+                    uow.rollback()
+
+                if selected_opportunity is None:
+                    return self._stop(
+                        current,
+                        StopReason.OPERATIONAL_FAILURE,
+                        "selected_opportunity_missing",
+                        opportunity_id=current.last_opportunity_id,
+                    )
+
+                if (
+                    selected_opportunity.opportunity_kind
+                    == OpportunityKind.REGISTRY_EXTERNAL_EXPLORATORY.value
+                ):
+                    if (
+                        current.last_hypothesis_id
+                        and self._hypothesis_is_exploratory(
+                            command.research_run_id,
+                            current.last_hypothesis_id,
+                        )
+                    ):
+                        current = self._checkpoint(
+                            current,
+                            phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
+                            hypothesis_id=current.last_hypothesis_id,
+                        )
+                        return self._resume_admitted_hypothesis(
+                            command,
+                            current,
+                            config,
+                        )
+
+                # All other durable selected work falls through to the normal
+                # skip_discovery path and recompiles last_opportunity_id.
             else:
-                existing_hypothesis = current.last_hypothesis_id or self._latest_hypothesis_id(
-                    command.research_run_id
+                # OPPORTUNITY_SELECTED is also the durable checkpoint used by
+                # bootstrap/model retry when no research opportunity exists.
+                # In that state there is no selected work to overwrite, so an
+                # already-admitted hypothesis may be resumed exactly as before.
+                existing_hypothesis = (
+                    current.last_hypothesis_id
+                    or self._latest_hypothesis_id(
+                        command.research_run_id
+                    )
                 )
                 if existing_hypothesis:
                     current = self._checkpoint(
@@ -751,7 +790,11 @@ class AutonomousResearchController:
                         phase=OrchestrationPhase.HYPOTHESIS_ADMITTED,
                         hypothesis_id=existing_hypothesis,
                     )
-                    return self._resume_admitted_hypothesis(command, current, config)
+                    return self._resume_admitted_hypothesis(
+                        command,
+                        current,
+                        config,
+                    )
         if phase in {
             OrchestrationPhase.EXPERIMENT_PLANNED.value,
             OrchestrationPhase.AUTHORIZATION_REQUESTED.value,
