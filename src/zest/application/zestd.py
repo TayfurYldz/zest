@@ -1374,6 +1374,7 @@ class ZestdRuntime:
         def _controller_factory(lease_epoch: int) -> AutonomousResearchController:
             fenced_factory = SingleRunFencedUowFactory(
                 self._uow_factory,
+                research_run_id=research_run_id,
                 owner_runtime_instance_id=owner_id,
                 lease_epoch=lease_epoch,
             )

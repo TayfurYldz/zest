@@ -411,6 +411,13 @@ class CoverageDebtSnapshotRepository(Protocol):
 class ResearchOrchestrationRepository(Protocol):
     def insert(self, record: ResearchOrchestrationRecord) -> None: ...
     def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None: ...
+    def assert_lease_current_for_update(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+    ) -> ResearchOrchestrationRecord: ...
     def save(
         self,
         record: ResearchOrchestrationRecord,

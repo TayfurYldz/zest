@@ -26,6 +26,9 @@ if str(_REPO / "tests") not in sys.path:
 
 from sqlalchemy import update
 
+from zest.application.lease_fencing import (
+    SingleRunFencedUowFactory,
+)
 from zest.data.errors import LeaseFencingError
 from zest.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
@@ -35,9 +38,14 @@ from zest.data.postgres.engine import (
 )
 from zest.data.postgres.tables import research_orchestration as research_orchestration_table
 from zest.data.postgres.unit_of_work import PostgresUnitOfWork
-from zest.data.records import LeaseAcquireOutcome, ResearchOrchestrationRecord
+from zest.data.records import (
+    AuditEventRecord,
+    LeaseAcquireOutcome,
+    ResearchOrchestrationRecord,
+)
 from integration.harness import (
     NOW,
+    PostgresUnitOfWorkFactory,
     alembic_upgrade,
     seed_authorized_spine,
     truncate_spine,
@@ -366,6 +374,115 @@ class OrchestrationLeaseFencingTests(unittest.TestCase):
             )
             uow.commit()
         self.assertEqual(reacquired.outcome, LeaseAcquireOutcome.ACQUIRED)
+
+
+    def test_superseded_fenced_uow_cannot_commit_unrelated_row(self) -> None:
+        assert self.engine is not None
+
+        with PostgresUnitOfWork(
+            self.engine
+        ) as uow:
+            first = (
+                uow.research_orchestrations
+                .acquire_lease(
+                    "run-1",
+                    owner_runtime_instance_id=(
+                        "owner-a"
+                    ),
+                    ttl_seconds=90,
+                )
+            )
+            uow.commit()
+
+        self.assertEqual(
+            first.outcome,
+            LeaseAcquireOutcome.ACQUIRED,
+        )
+        assert first.record is not None
+        self.assertEqual(
+            first.record.lease_epoch,
+            1,
+        )
+
+        self._force_expire()
+
+        with PostgresUnitOfWork(
+            self.engine
+        ) as uow:
+            second = (
+                uow.research_orchestrations
+                .acquire_lease(
+                    "run-1",
+                    owner_runtime_instance_id=(
+                        "owner-b"
+                    ),
+                    ttl_seconds=90,
+                )
+            )
+            uow.commit()
+
+        self.assertEqual(
+            second.outcome,
+            LeaseAcquireOutcome.ACQUIRED,
+        )
+        assert second.record is not None
+        self.assertEqual(
+            second.record.lease_epoch,
+            2,
+        )
+
+        factory = PostgresUnitOfWorkFactory(
+            self.engine
+        )
+
+        stale_factory = (
+            SingleRunFencedUowFactory(
+                factory,
+                research_run_id="run-1",
+                owner_runtime_instance_id=(
+                    "owner-a"
+                ),
+                lease_epoch=1,
+            )
+        )
+
+        with self.assertRaises(
+            LeaseFencingError
+        ):
+            with stale_factory.open() as uow:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=(
+                            "audit-stale-lease"
+                        ),
+                        occurred_at=NOW,
+                        actor_id="owner-a",
+                        actor_type="CONTROL_PLANE",
+                        event_type=(
+                            "STALE_WRITE_PROBE"
+                        ),
+                        subject_type=(
+                            "research_run"
+                        ),
+                        subject_id="run-1",
+                        payload={
+                            "should_commit": False,
+                        },
+                    )
+                )
+                uow.commit()
+
+        # The stale transaction must have rolled back,
+        # not merely raised after committing its write.
+        with PostgresUnitOfWork(
+            self.engine
+        ) as uow:
+            persisted = uow.audit_events.get(
+                "audit-stale-lease"
+            )
+            uow.rollback()
+
+        self.assertIsNone(persisted)
 
 
 if __name__ == "__main__":

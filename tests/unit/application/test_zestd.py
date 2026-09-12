@@ -408,7 +408,10 @@ class LeaseFencingCompositionTests(unittest.TestCase):
             uow.commit()
         self.assertEqual(stolen.record.lease_epoch, 2)
         stale_factory = SingleRunFencedUowFactory(
-            factory, owner_runtime_instance_id="owner-a", lease_epoch=1
+            factory,
+            research_run_id="run-1",
+            owner_runtime_instance_id="owner-a",
+            lease_epoch=1,
         )
         with factory.open() as uow:
             current = uow.research_orchestrations.get("run-1")
@@ -426,6 +429,193 @@ class LeaseFencingCompositionTests(unittest.TestCase):
         )
         with self.assertRaises(LeaseFencingError):
             worker.invoke({"contract_version": "v1"})
+
+
+    def test_fenced_uow_commit_rejects_superseded_owner_and_rolls_back(self) -> None:
+        store = _seed()
+
+        store.research_orchestrations[
+            "run-1"
+        ] = _orchestration_record(
+            state="RUNNING"
+        )
+
+        current_attempt = replace(
+            _attempt("AUTHORIZED"),
+            attempt_id="ea-current",
+            request_id="req-current",
+        )
+        stale_attempt = replace(
+            _attempt("AUTHORIZED"),
+            attempt_id="ea-stale",
+            request_id="req-stale",
+        )
+
+        store.execution_attempts[
+            current_attempt.attempt_id
+        ] = current_attempt
+        store.execution_attempts_by_request[
+            current_attempt.request_id
+        ] = current_attempt.attempt_id
+
+        store.execution_attempts[
+            stale_attempt.attempt_id
+        ] = stale_attempt
+        store.execution_attempts_by_request[
+            stale_attempt.request_id
+        ] = stale_attempt.attempt_id
+
+        factory = FakeUnitOfWorkFactory(
+            store=store
+        )
+
+        with factory.open() as uow:
+            acquired = (
+                uow.research_orchestrations
+                .acquire_lease(
+                    "run-1",
+                    owner_runtime_instance_id=(
+                        "owner-a"
+                    ),
+                    ttl_seconds=90,
+                )
+            )
+            uow.commit()
+
+        self.assertEqual(
+            acquired.record.lease_epoch,
+            1,
+        )
+
+        current_factory = (
+            SingleRunFencedUowFactory(
+                factory,
+                research_run_id="run-1",
+                owner_runtime_instance_id=(
+                    "owner-a"
+                ),
+                lease_epoch=1,
+            )
+        )
+
+        # Current owner must not be overblocked.
+        with current_factory.open() as uow:
+            uow.execution_attempts.set_state(
+                "ea-current",
+                "DISPATCHING",
+                dispatch_started_at=CREATED_AT,
+            )
+            uow.commit()
+
+        self.assertEqual(
+            store.execution_attempts[
+                "ea-current"
+            ].state,
+            "DISPATCHING",
+        )
+
+        # Expire epoch 1 and let runtime B advance
+        # ownership to epoch 2.
+        with factory.open() as uow:
+            current = (
+                uow.research_orchestrations.get(
+                    "run-1"
+                )
+            )
+            assert current is not None
+
+            uow.research_orchestrations.save(
+                replace(
+                    current,
+                    lease_expires_at=(
+                        datetime.now(timezone.utc)
+                        - timedelta(seconds=1)
+                    ),
+                )
+            )
+
+            stolen = (
+                uow.research_orchestrations
+                .acquire_lease(
+                    "run-1",
+                    owner_runtime_instance_id=(
+                        "owner-b"
+                    ),
+                    ttl_seconds=90,
+                )
+            )
+            uow.commit()
+
+        self.assertEqual(
+            stolen.record.lease_epoch,
+            2,
+        )
+
+        stale_factory = (
+            SingleRunFencedUowFactory(
+                factory,
+                research_run_id="run-1",
+                owner_runtime_instance_id=(
+                    "owner-a"
+                ),
+                lease_epoch=1,
+            )
+        )
+
+        with self.assertRaises(
+            LeaseFencingError
+        ):
+            with stale_factory.open() as uow:
+                uow.execution_attempts.set_state(
+                    "ea-stale",
+                    "DISPATCHING",
+                    dispatch_started_at=CREATED_AT,
+                )
+                uow.commit()
+
+        # Failed fenced commit must roll back every
+        # non-orchestration mutation in the UoW.
+        self.assertEqual(
+            store.execution_attempts[
+                "ea-stale"
+            ].state,
+            "AUTHORIZED",
+        )
+
+        # A caller cannot forge the newer owner/epoch
+        # through FencedOrchestrationRepository.save().
+        with factory.open() as uow:
+            current = (
+                uow.research_orchestrations.get(
+                    "run-1"
+                )
+            )
+            uow.rollback()
+
+        assert current is not None
+
+        with self.assertRaises(
+            LeaseFencingError
+        ):
+            with stale_factory.open() as uow:
+                uow.research_orchestrations.save(
+                    replace(
+                        current,
+                        last_phase="forged-stale",
+                    ),
+                    expect_owner_runtime_instance_id=(
+                        "owner-b"
+                    ),
+                    expect_lease_epoch=2,
+                )
+                uow.commit()
+
+        self.assertNotEqual(
+            store.research_orchestrations[
+                "run-1"
+            ].last_phase,
+            "forged-stale",
+        )
 
 
 class ZestdRuntimeTests(unittest.TestCase):

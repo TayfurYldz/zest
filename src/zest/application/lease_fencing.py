@@ -27,8 +27,14 @@ class FencedOrchestrationRepository:
         self._lease_epoch = lease_epoch
 
     def save(self, record, **kwargs):
-        kwargs.setdefault("expect_owner_runtime_instance_id", self._owner_runtime_instance_id)
-        kwargs.setdefault("expect_lease_epoch", self._lease_epoch)
+        # The wrapper owns the fencing identity. A caller may not
+        # override it with a newer/different lease.
+        kwargs["expect_owner_runtime_instance_id"] = (
+            self._owner_runtime_instance_id
+        )
+        kwargs["expect_lease_epoch"] = (
+            self._lease_epoch
+        )
         return self._inner.save(record, **kwargs)
 
     def __getattr__(self, name: str):
@@ -40,11 +46,15 @@ class SingleRunFencedUnitOfWork:
         self,
         inner,
         *,
+        research_run_id: str,
         owner_runtime_instance_id: str,
         lease_epoch: int,
     ) -> None:
         self._inner = inner
-        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._research_run_id = research_run_id
+        self._owner_runtime_instance_id = (
+            owner_runtime_instance_id
+        )
         self._lease_epoch = lease_epoch
 
     def __enter__(self) -> "SingleRunFencedUnitOfWork":
@@ -55,6 +65,29 @@ class SingleRunFencedUnitOfWork:
         return self._inner.__exit__(exc_type, exc, tb)
 
     def commit(self) -> None:
+        # Linearize ownership immediately before commit.
+        #
+        # PostgreSQL keeps the orchestration row locked until the
+        # underlying transaction commits, so another runtime cannot
+        # advance the lease epoch between this check and persistence
+        # of the rest of this UnitOfWork.
+        try:
+            (
+                self._inner.research_orchestrations
+                .assert_lease_current_for_update(
+                    self._research_run_id,
+                    owner_runtime_instance_id=(
+                        self._owner_runtime_instance_id
+                    ),
+                    expected_lease_epoch=(
+                        self._lease_epoch
+                    ),
+                )
+            )
+        except PersistenceError:
+            self._inner.rollback()
+            raise
+
         self._inner.commit()
 
     def rollback(self) -> None:
@@ -77,17 +110,24 @@ class SingleRunFencedUowFactory:
         self,
         inner: UnitOfWorkFactory,
         *,
+        research_run_id: str,
         owner_runtime_instance_id: str,
         lease_epoch: int,
     ) -> None:
         self._inner = inner
-        self._owner_runtime_instance_id = owner_runtime_instance_id
+        self._research_run_id = research_run_id
+        self._owner_runtime_instance_id = (
+            owner_runtime_instance_id
+        )
         self._lease_epoch = lease_epoch
 
     def open(self) -> SingleRunFencedUnitOfWork:
         return SingleRunFencedUnitOfWork(
             self._inner.open(),
-            owner_runtime_instance_id=self._owner_runtime_instance_id,
+            research_run_id=self._research_run_id,
+            owner_runtime_instance_id=(
+                self._owner_runtime_instance_id
+            ),
             lease_epoch=self._lease_epoch,
         )
 

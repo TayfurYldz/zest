@@ -1605,6 +1605,45 @@ class _ResearchOrchestrationRepo:
     def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None:
         return self._root.research_orchestrations.get(research_run_id)
 
+    def assert_lease_current_for_update(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+    ) -> ResearchOrchestrationRecord:
+        current = (
+            self._root.research_orchestrations.get(
+                research_run_id
+            )
+        )
+
+        if current is None:
+            raise PersistenceError(
+                "research_orchestration not found "
+                "for lease fence"
+            )
+
+        if (
+            current.owner_runtime_instance_id
+            != owner_runtime_instance_id
+            or current.lease_epoch
+            != expected_lease_epoch
+        ):
+            raise LeaseFencingError(
+                f"research_orchestration "
+                f"{research_run_id} lease has moved on "
+                f"(expected owner="
+                f"{owner_runtime_instance_id!r} "
+                f"epoch={expected_lease_epoch}, "
+                f"current owner="
+                f"{current.owner_runtime_instance_id!r} "
+                f"epoch={current.lease_epoch}); "
+                "ownership lost, refusing transaction"
+            )
+
+        return current
+
     def save(
         self,
         record: ResearchOrchestrationRecord,

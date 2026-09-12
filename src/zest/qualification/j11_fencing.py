@@ -695,6 +695,7 @@ def _stale_save_is_blocked(
 ) -> bool:
     fenced_factory = SingleRunFencedUowFactory(
         factory,
+        research_run_id=RUN_ID,
         owner_runtime_instance_id=owner_runtime_instance_id,
         lease_epoch=lease_epoch,
     )
