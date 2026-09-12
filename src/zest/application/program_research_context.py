@@ -32,17 +32,55 @@ class ProgramPolicyView:
     rate_limit_profile: RateLimitProfileRecord | None = None
 
     def allows_action(self, action_name: str) -> bool:
-        """Fail-closed action policy: missing or denied → False."""
+        """Default-allow unless the canonical action is explicitly denied.
+
+        Dashboard ``forbidden_actions`` entries are exact action identifiers,
+        not natural-language policy interpretation.
+        """
 
         if not isinstance(action_name, str) or not action_name.strip():
             return False
-        decision = self.action_policy.get(action_name)
+
+        normalized_action = action_name.strip().casefold()
+
+        if "forbidden_actions" in self.action_policy:
+            forbidden = self.action_policy.get("forbidden_actions")
+
+            if isinstance(forbidden, str):
+                forbidden_items = forbidden.splitlines()
+            elif isinstance(forbidden, (list, tuple, set, frozenset)):
+                forbidden_items = forbidden
+            elif forbidden is None:
+                forbidden_items = ()
+            else:
+                # Malformed explicit safety policy fails closed.
+                return False
+
+            for item in forbidden_items:
+                if not isinstance(item, str):
+                    return False
+                candidate = item.strip()
+                if candidate and candidate.casefold() == normalized_action:
+                    return False
+
+        decision = None
+        for key, value in self.action_policy.items():
+            if (
+                isinstance(key, str)
+                and key.strip().casefold() == normalized_action
+            ):
+                decision = value
+                break
+
         if decision is None:
             return True
+
         if isinstance(decision, dict):
             decision = decision.get("decision")
+
         if isinstance(decision, str):
-            return decision.upper() != "DENY"
+            return decision.strip().upper() != "DENY"
+
         return bool(decision)
 
 

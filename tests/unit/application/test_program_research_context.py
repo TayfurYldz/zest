@@ -67,6 +67,73 @@ class ProgramResearchContextTests(unittest.TestCase):
         assert context is not None
         self.assertIsNone(context.policy.rate_limit_profile)
 
+    def test_empty_policy_defaults_to_allow(self) -> None:
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={},
+        )
+
+        self.assertTrue(policy.allows_action("read"))
+        self.assertFalse(policy.allows_action(""))
+        self.assertFalse(policy.allows_action("   "))
+
+    def test_dashboard_forbidden_actions_denies_exact_action(self) -> None:
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "forbidden_actions": [" READ ", "login"],
+                "dashboard_bootstrap": True,
+            },
+        )
+
+        self.assertFalse(policy.allows_action("read"))
+        self.assertFalse(policy.allows_action("LOGIN"))
+        self.assertTrue(policy.allows_action("echo"))
+
+    def test_forbidden_actions_does_not_interpret_natural_language(self) -> None:
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "forbidden_actions": [
+                    "do not perform read operations",
+                ],
+            },
+        )
+
+        self.assertTrue(policy.allows_action("read"))
+
+    def test_direct_action_deny_remains_supported(self) -> None:
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                " READ ": {"decision": "DENY"},
+            },
+        )
+
+        self.assertFalse(policy.allows_action("read"))
+
+    def test_malformed_forbidden_actions_fails_closed(self) -> None:
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "forbidden_actions": {
+                    "read": True,
+                },
+            },
+        )
+
+        self.assertFalse(policy.allows_action("echo"))
+
     def test_default_policy_has_no_rate_limit_profile(self) -> None:
         store = _Store()
         seed_authorization_run(store)

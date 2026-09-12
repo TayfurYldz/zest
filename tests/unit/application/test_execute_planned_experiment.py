@@ -313,6 +313,107 @@ class AuthorizationGateTests(unittest.TestCase):
             ExecutionAttemptState.CANCELLED.value,
         )
 
+    def test_forbidden_actions_policy_denies_before_worker(self) -> None:
+        use_case, factory, port = _use_case()
+
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "forbidden_actions": (" ECHO ",),
+            },
+        )
+
+        outcome = use_case.execute(
+            _command(program_policy=policy)
+        )
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_decision,
+            ExecutionDecisionKind.DENY,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.PROGRAM_POLICY_DENIED,
+        )
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(
+            len(factory.store.execution_attempts),
+            0,
+        )
+        self.assertIsNotNone(
+            outcome.authorization_decision_reference
+        )
+
+        audit = factory.store.audit_events[
+            outcome.authorization_decision_reference
+        ]
+        self.assertEqual(
+            audit.payload["decision"],
+            "DENY",
+        )
+        self.assertEqual(
+            audit.payload["reason_code"],
+            "PROGRAM_POLICY_DENIED",
+        )
+
+    def test_direct_action_policy_deny_blocks_worker(self) -> None:
+        use_case, factory, port = _use_case()
+
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "echo": {"decision": "DENY"},
+            },
+        )
+
+        outcome = use_case.execute(
+            _command(program_policy=policy)
+        )
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.PROGRAM_POLICY_DENIED,
+        )
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(
+            len(factory.store.execution_attempts),
+            0,
+        )
+
+    def test_nonmatching_forbidden_action_does_not_overblock(self) -> None:
+        use_case, _, port = _use_case()
+
+        policy = ProgramPolicyView(
+            loopback_fixture=False,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            action_policy={
+                "forbidden_actions": ("read",),
+            },
+        )
+
+        outcome = use_case.execute(
+            _command(program_policy=policy)
+        )
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.OBSERVATION_PRODUCED,
+        )
+        self.assertEqual(len(port.calls), 1)
+
     def test_scope_deny_does_not_invoke_worker(self) -> None:
         use_case, _, port = _use_case()
         outcome = use_case.execute(_command(scope=_deny_scope()))

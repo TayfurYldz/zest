@@ -22,7 +22,10 @@ from zest.application.http_transaction_authorization import (
     scope_evaluation_from_compiled_check,
 )
 from zest.application.authorized_network_envelope import AuthorizedNetworkEnvelope
-from zest.application.program_research_context import ProgramPolicyView
+from zest.application.program_research_context import (
+    ProgramPolicyView,
+    action_policy_reason_code,
+)
 from zest.application.identity import (
     attempt_id_for,
     execution_decision_audit_id,
@@ -326,6 +329,28 @@ class ExecutePlannedExperiment:
                     approval=command.approval,
                 )
             )
+            if (
+                command.program_policy is not None
+                and not command.program_policy.allows_action(
+                    bound_plan.action
+                )
+            ):
+                decision = ExecutionDecision(
+                    decision=ExecutionDecisionKind.DENY,
+                    reason_code=action_policy_reason_code(
+                        bound_plan.action
+                    ),
+                    authorization_source_id=(
+                        decision.authorization_source_id
+                    ),
+                    matched_scope_rule_ids=(
+                        decision.matched_scope_rule_ids
+                    ),
+                    budget_id=decision.budget_id,
+                    side_effect_level=decision.side_effect_level,
+                    approval_id=decision.approval_id,
+                )
+
             if (
                 bound_plan.required_capability in HTTP_SCOPE_CAPABILITIES
                 and not http_decision.accepted
