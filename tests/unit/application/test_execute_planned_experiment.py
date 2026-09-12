@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import pathsetup  # noqa: F401
@@ -37,6 +38,14 @@ from support.spine import CREATED_AT, DIAGNOSTIC_CLAIM, seed_authorization_run, 
 class FixedClock:
     def now(self) -> datetime:
         return CREATED_AT
+
+
+class MutableClock:
+    def __init__(self, now: datetime) -> None:
+        self.current = now
+
+    def now(self) -> datetime:
+        return self.current
 
 
 def _allow_scope() -> ScopeEvaluationInput:
@@ -133,6 +142,176 @@ class AuthorizationGateTests(unittest.TestCase):
         self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
         self.assertEqual(outcome.core_reason_code, ReasonCode.AUTHORIZATION_INACTIVE)
         self.assertEqual(len(port.calls), 0)
+
+    def test_active_but_temporally_expired_authorization_denies(self) -> None:
+        store = _Store()
+        seed_spine(store)
+
+        current = store.authorization_sources["as-1"]
+        store.authorization_sources["as-1"] = replace(
+            current,
+            state="ACTIVE",
+            effective_from=CREATED_AT - timedelta(hours=1),
+            effective_until=CREATED_AT - timedelta(seconds=1),
+        )
+
+        use_case, factory, port = _use_case(store)
+        outcome = use_case.execute(_command())
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(
+            len(factory.store.execution_attempts),
+            0,
+        )
+
+    def test_active_but_not_yet_effective_authorization_denies(self) -> None:
+        store = _Store()
+        seed_spine(store)
+
+        current = store.authorization_sources["as-1"]
+        store.authorization_sources["as-1"] = replace(
+            current,
+            state="ACTIVE",
+            effective_from=CREATED_AT + timedelta(seconds=1),
+            effective_until=CREATED_AT + timedelta(hours=1),
+        )
+
+        use_case, factory, port = _use_case(store)
+        outcome = use_case.execute(_command())
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(
+            len(factory.store.execution_attempts),
+            0,
+        )
+
+    def test_dispatch_rechecks_authorization_expiry(self) -> None:
+        store = _Store()
+        seed_spine(store)
+
+        current = store.authorization_sources["as-1"]
+        store.authorization_sources["as-1"] = replace(
+            current,
+            state="ACTIVE",
+            effective_from=CREATED_AT - timedelta(hours=1),
+            effective_until=CREATED_AT + timedelta(seconds=1),
+        )
+
+        factory = FakeUnitOfWorkFactory(store)
+        port = RecordingWorkerPort(store=store)
+        clock = MutableClock(CREATED_AT)
+
+        use_case = ExecutePlannedExperiment(
+            factory,
+            port,
+            clock=clock,
+        )
+
+        authorized = use_case.authorize(_command())
+        self.assertIsInstance(
+            authorized,
+            AuthorizedDispatch,
+        )
+        assert isinstance(authorized, AuthorizedDispatch)
+
+        clock.current = CREATED_AT + timedelta(seconds=2)
+
+        outcome = use_case.dispatch(authorized)
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+        self.assertEqual(len(port.calls), 0)
+
+        attempt = store.execution_attempts[
+            authorized.attempt_id
+        ]
+        self.assertEqual(
+            attempt.state,
+            ExecutionAttemptState.CANCELLED.value,
+        )
+        self.assertEqual(
+            store.experiments["exp-1"].execution_state,
+            "BLOCKED",
+        )
+
+        audit = store.audit_events[
+            outcome.authorization_decision_reference
+        ]
+        self.assertEqual(
+            audit.event_type,
+            "EXECUTION_DISPATCH_AUTHORITY_RECHECK",
+        )
+        self.assertFalse(
+            audit.payload["dispatched"]
+        )
+
+    def test_dispatch_rechecks_authorization_revocation(self) -> None:
+        store = _Store()
+        seed_spine(store)
+
+        factory = FakeUnitOfWorkFactory(store)
+        port = RecordingWorkerPort(store=store)
+
+        use_case = ExecutePlannedExperiment(
+            factory,
+            port,
+            clock=FixedClock(),
+        )
+
+        authorized = use_case.authorize(_command())
+        self.assertIsInstance(
+            authorized,
+            AuthorizedDispatch,
+        )
+        assert isinstance(authorized, AuthorizedDispatch)
+
+        current = store.authorization_sources["as-1"]
+        store.authorization_sources["as-1"] = replace(
+            current,
+            state="REVOKED",
+        )
+
+        outcome = use_case.dispatch(authorized)
+
+        self.assertEqual(
+            outcome.status,
+            ResearchLoopStatus.DISPATCH_DENIED,
+        )
+        self.assertEqual(
+            outcome.core_reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+        self.assertEqual(len(port.calls), 0)
+
+        attempt = store.execution_attempts[
+            authorized.attempt_id
+        ]
+        self.assertEqual(
+            attempt.state,
+            ExecutionAttemptState.CANCELLED.value,
+        )
 
     def test_scope_deny_does_not_invoke_worker(self) -> None:
         use_case, _, port = _use_case()

@@ -46,7 +46,10 @@ from zest.application.plan_records import (
 )
 from zest.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from zest.core.approval import ApprovalView
-from zest.core.authorization import AuthorizationSourceView
+from zest.core.authorization import (
+    AuthorizationSourceView,
+    check_authorization,
+)
 from zest.core.budget import BudgetUsage, IssuedBudget
 from zest.core.enums import (
     ActorType,
@@ -224,7 +227,11 @@ class ExecutePlannedExperiment:
         correlation_id = new_opaque_id()
         now = self._clock.now()
         with self._uow_factory.open() as uow:
-            loaded = self._load_context(uow, command)
+            loaded = self._load_context(
+                uow,
+                command,
+                evaluated_at=now,
+            )
             if isinstance(loaded, ResearchLoopOutcome):
                 return loaded
             experiment, hypothesis_id, source, issued = loaded
@@ -538,6 +545,87 @@ class ExecutePlannedExperiment:
                     request_id=authorized.request_id,
                     attempt_id=authorized.attempt_id,
                 )
+            run = uow.research_runs.get(
+                experiment.research_run_id
+            )
+            source_record = (
+                None
+                if run is None
+                else uow.authorization_sources.get(
+                    run.authorization_source_id
+                )
+            )
+            fresh_authorization = check_authorization(
+                _authorization_view(
+                    source_record,
+                    evaluated_at=now,
+                )
+            )
+
+            if not fresh_authorization.allowed_to_continue:
+                recheck_audit_id = execution_decision_audit_id(
+                    new_opaque_id()
+                )
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=recheck_audit_id,
+                        occurred_at=now,
+                        actor_id=self._actor_id,
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type=(
+                            "EXECUTION_DISPATCH_AUTHORITY_RECHECK"
+                        ),
+                        subject_type="execution_attempt",
+                        subject_id=attempt.attempt_id,
+                        correlation_id=attempt.correlation_id,
+                        payload={
+                            "decision": "DENY",
+                            "reason_code": (
+                                fresh_authorization.reason_code.value
+                            ),
+                            "authorization_source_id": (
+                                fresh_authorization.authorization_source_id
+                            ),
+                            "prior_authorization_decision_reference": (
+                                authorized.authorization_decision_reference
+                            ),
+                            "request_id": authorized.request_id,
+                            "dispatched": False,
+                        },
+                    )
+                )
+                uow.execution_attempts.set_state(
+                    attempt.attempt_id,
+                    ExecutionAttemptState.CANCELLED.value,
+                    completed_at=now,
+                )
+                uow.experiments.set_execution_state(
+                    experiment.experiment_id,
+                    ExperimentExecutionState.BLOCKED.value,
+                )
+                uow.commit()
+
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.DISPATCH_DENIED,
+                    hypothesis_id=authorized.hypothesis_id,
+                    experiment_id=authorized.experiment_id,
+                    experiment_execution_state=(
+                        ExperimentExecutionState.BLOCKED.value
+                    ),
+                    core_decision=ExecutionDecisionKind.DENY,
+                    core_reason_code=(
+                        fresh_authorization.reason_code
+                    ),
+                    authorization_decision_reference=(
+                        recheck_audit_id
+                    ),
+                    request_id=authorized.request_id,
+                    attempt_id=authorized.attempt_id,
+                    attempt_state=(
+                        ExecutionAttemptState.CANCELLED.value
+                    ),
+                )
+
             uow.execution_attempts.set_state(
                 attempt.attempt_id,
                 ExecutionAttemptState.DISPATCHING.value,
@@ -776,6 +864,8 @@ class ExecutePlannedExperiment:
         self,
         uow: UnitOfWork,
         command: ExecutePlannedExperimentCommand,
+        *,
+        evaluated_at: datetime,
     ) -> (
         tuple[
             ExperimentRecord,
@@ -842,7 +932,10 @@ class ExecutePlannedExperiment:
         return (
             experiment,
             hypothesis.hypothesis_id,
-            _authorization_view(source_record),
+            _authorization_view(
+                source_record,
+                evaluated_at=evaluated_at,
+            ),
             issued,
         )
 
@@ -958,6 +1051,8 @@ class ExecutePlannedExperiment:
 
 def _authorization_view(
     record: AuthorizationSourceRecord | None,
+    *,
+    evaluated_at: datetime,
 ) -> AuthorizationSourceView | None:
     if record is None:
         return None
@@ -965,6 +1060,9 @@ def _authorization_view(
         record.authorization_source_id,
         record.program_id,
         AuthorizationSourceState(record.state),
+        effective_from=record.effective_from,
+        effective_until=record.effective_until,
+        evaluated_at=evaluated_at,
     )
 
 

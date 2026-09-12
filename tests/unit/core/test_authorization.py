@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import pathsetup  # noqa: F401
 
@@ -35,6 +36,68 @@ class AuthorizationTests(unittest.TestCase):
         decision = evaluate_execution(base_request(authorization_source=source))
         self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
         self.assertEqual(decision.reason_code, ReasonCode.AUTHORIZATION_INACTIVE)
+
+    def test_active_source_past_effective_until_denies(self) -> None:
+        now = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
+        source = AuthorizationSourceView(
+            "as-1",
+            "program-1",
+            AuthorizationSourceState.ACTIVE,
+            effective_from=now - timedelta(hours=1),
+            effective_until=now - timedelta(seconds=1),
+            evaluated_at=now,
+        )
+        decision = evaluate_execution(
+            base_request(authorization_source=source)
+        )
+        self.assertEqual(
+            decision.decision,
+            ExecutionDecisionKind.DENY,
+        )
+        self.assertEqual(
+            decision.reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+
+    def test_active_source_before_effective_from_denies(self) -> None:
+        now = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
+        source = AuthorizationSourceView(
+            "as-1",
+            "program-1",
+            AuthorizationSourceState.ACTIVE,
+            effective_from=now + timedelta(seconds=1),
+            effective_until=now + timedelta(hours=1),
+            evaluated_at=now,
+        )
+        decision = evaluate_execution(
+            base_request(authorization_source=source)
+        )
+        self.assertEqual(
+            decision.decision,
+            ExecutionDecisionKind.DENY,
+        )
+        self.assertEqual(
+            decision.reason_code,
+            ReasonCode.AUTHORIZATION_INACTIVE,
+        )
+
+    def test_temporal_boundaries_are_inclusive(self) -> None:
+        now = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
+        source = AuthorizationSourceView(
+            "as-1",
+            "program-1",
+            AuthorizationSourceState.ACTIVE,
+            effective_from=now,
+            effective_until=now,
+            evaluated_at=now,
+        )
+        decision = evaluate_execution(
+            base_request(authorization_source=source)
+        )
+        self.assertEqual(
+            decision.decision,
+            ExecutionDecisionKind.ALLOW,
+        )
 
     def test_active_continues_to_allow_when_rest_valid(self) -> None:
         decision = evaluate_execution(base_request())
