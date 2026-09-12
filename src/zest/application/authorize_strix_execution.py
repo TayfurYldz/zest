@@ -21,6 +21,8 @@ from zest.core.scope import ScopeEvaluationInput
 from zest.data.records import AuditEventRecord
 from zest.platform.strix import (
     ALLOWED_STRIX_CAPABILITIES,
+    STRIX_DISABLED_REASON,
+    STRIX_RUNTIME_ENABLED,
     UNRESTRICTED_CAPABILITY_MARKERS,
     StrixExecutionOutcome,
     StrixExecutionRequest,
@@ -126,6 +128,27 @@ class AuthorizeStrixExecution:
                     payload={"not_observation": True},
                 ),
             )
+        if not STRIX_RUNTIME_ENABLED:
+            return AuthorizeStrixExecutionResult(
+                core_decision=ExecutionDecisionKind.DENY,
+                core_reason_code=STRIX_DISABLED_REASON,
+                authorization_decision_reference=None,
+                reached_strix=False,
+                outcome=StrixExecutionOutcome(
+                    status=StrixRuntimeStatus.DENIED,
+                    untrusted=True,
+                    capability=command.capability,
+                    reason_codes=(STRIX_DISABLED_REASON,),
+                    payload={
+                        "not_observation": True,
+                        "not_evidence": True,
+                        "not_candidate": True,
+                        "not_finding": True,
+                        "runtime_disabled": True,
+                    },
+                ),
+            )
+
         with self._uow_factory.open() as uow:
             run = uow.research_runs.get(command.research_run_id)
             if run is None:

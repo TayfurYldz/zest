@@ -26,6 +26,12 @@ class StrixRuntimeStatus(Enum):
 ALLOWED_STRIX_CAPABILITIES = frozenset({"strix.diagnostic.ping"})
 UNRESTRICTED_CAPABILITY_MARKERS = frozenset({"*", "all", "unrestricted", "shell", "any"})
 
+# Deferred by product policy. Keep the integration contracts and source code
+# intact, but do not permit runtime execution until explicitly re-qualified.
+STRIX_RUNTIME_ENABLED = False
+STRIX_DISABLED_REASON = "STRIX_RUNTIME_DISABLED"
+STRIX_DISABLED_DETAIL = "strix runtime disabled by product policy"
+
 
 @dataclass(frozen=True)
 class StrixExecutionRequest:

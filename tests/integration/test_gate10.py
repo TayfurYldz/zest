@@ -139,21 +139,30 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
             self.assertEqual(uow.evidence.list_for_research_run("run-1"), [])
             uow.commit()
 
-    def test_strix_runtime_failure_creates_no_observation_or_evidence(self) -> None:
+    def test_disabled_strix_runtime_never_reaches_integration(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)
         with factory.open() as uow:
             seed_authorized_spine(uow)
             uow.commit()
+
         strix = RecordingStrix(
             StrixExecutionOutcome(
                 status=StrixRuntimeStatus.UNAVAILABLE,
                 untrusted=True,
                 capability=STRIX_DIAGNOSTIC_PING_CAPABILITY,
-                reason_codes=("STRIX_RUNTIME_UNAVAILABLE",),
-                payload={"not_observation": True, "not_evidence": True},
+                reason_codes=("SHOULD_NOT_BE_REACHED",),
+                payload={
+                    "not_observation": True,
+                    "not_evidence": True,
+                },
             )
         )
-        result = AuthorizeStrixExecution(factory, strix, clock=FixedClock()).execute(
+
+        result = AuthorizeStrixExecution(
+            factory,
+            strix,
+            clock=FixedClock(),
+        ).execute(
             AuthorizeStrixExecutionCommand(
                 research_run_id="run-1",
                 experiment_id="exp-1",
@@ -164,12 +173,27 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
                 scope=_allow_scope(),
             )
         )
-        self.assertTrue(result.reached_strix)
-        assert result.outcome is not None
-        self.assertEqual(result.outcome.status, StrixRuntimeStatus.UNAVAILABLE)
+
+        self.assertEqual(
+            result.core_decision,
+            ExecutionDecisionKind.DENY,
+        )
+        self.assertEqual(
+            result.core_reason_code,
+            "STRIX_RUNTIME_DISABLED",
+        )
+        self.assertFalse(result.reached_strix)
+        self.assertEqual(strix.calls, [])
+
         with factory.open() as uow:
-            self.assertEqual(uow.observations.list_for_research_run("run-1"), [])
-            self.assertEqual(uow.evidence.list_for_research_run("run-1"), [])
+            self.assertEqual(
+                uow.observations.list_for_research_run("run-1"),
+                [],
+            )
+            self.assertEqual(
+                uow.evidence.list_for_research_run("run-1"),
+                [],
+            )
             uow.commit()
 
     def test_runtime_identities_and_availability_are_reported_without_fabrication(self) -> None:

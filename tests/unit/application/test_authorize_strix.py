@@ -8,6 +8,10 @@ from zest.application.authorize_strix_execution import (
     AuthorizeStrixExecution,
     AuthorizeStrixExecutionCommand,
 )
+from zest.integrations.strix.adapter import (
+    StrixDiagnosticAdapter,
+    probe_strix_runtime,
+)
 from zest.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
@@ -124,23 +128,36 @@ class AuthorizeStrixTests(unittest.TestCase):
                 allowed_capabilities=(STRIX_DIAGNOSTIC_PING_CAPABILITY,),
             )
 
-    def test_allowed_diagnostic_reaches_strix_and_stays_untrusted(self) -> None:
+    def test_disabled_runtime_never_reaches_strix(self) -> None:
         store = _Store()
         seed_spine(store)
         strix = RecordingStrix()
+
         result = AuthorizeStrixExecution(
-            FakeUnitOfWorkFactory(store), strix, clock=FixedClock()
+            FakeUnitOfWorkFactory(store),
+            strix,
+            clock=FixedClock(),
         ).execute(_command())
-        self.assertEqual(result.core_decision, ExecutionDecisionKind.ALLOW)
-        self.assertTrue(result.reached_strix)
-        self.assertEqual(len(strix.calls), 1)
-        self.assertTrue(strix.calls[0].authorization_decision_reference)
+
+        self.assertEqual(
+            result.core_decision,
+            ExecutionDecisionKind.DENY,
+        )
+        self.assertEqual(
+            result.core_reason_code,
+            "STRIX_RUNTIME_DISABLED",
+        )
+        self.assertFalse(result.reached_strix)
+        self.assertEqual(strix.calls, [])
         assert result.outcome is not None
-        self.assertTrue(result.outcome.untrusted)
+        self.assertEqual(
+            result.outcome.status,
+            StrixRuntimeStatus.DENIED,
+        )
         self.assertEqual(store.observations, {})
         self.assertEqual(store.evidence, {})
 
-    def test_strix_runtime_failure_creates_no_observation_or_evidence(self) -> None:
+    def test_disabled_runtime_ignores_integration_outcome(self) -> None:
         store = _Store()
         seed_spine(store)
         strix = RecordingStrix(
@@ -148,19 +165,80 @@ class AuthorizeStrixTests(unittest.TestCase):
                 status=StrixRuntimeStatus.UNAVAILABLE,
                 untrusted=True,
                 capability=STRIX_DIAGNOSTIC_PING_CAPABILITY,
-                reason_codes=("STRIX_RUNTIME_UNAVAILABLE",),
-                payload={"not_observation": True, "not_evidence": True},
+                reason_codes=("SHOULD_NOT_BE_REACHED",),
+                payload={"not_observation": True},
             )
         )
+
         result = AuthorizeStrixExecution(
-            FakeUnitOfWorkFactory(store), strix, clock=FixedClock()
+            FakeUnitOfWorkFactory(store),
+            strix,
+            clock=FixedClock(),
         ).execute(_command())
-        self.assertTrue(result.reached_strix)
-        assert result.outcome is not None
-        self.assertEqual(result.outcome.status, StrixRuntimeStatus.UNAVAILABLE)
+
+        self.assertFalse(result.reached_strix)
+        self.assertEqual(strix.calls, [])
+        self.assertEqual(
+            result.core_reason_code,
+            "STRIX_RUNTIME_DISABLED",
+        )
         self.assertEqual(store.observations, {})
         self.assertEqual(store.evidence, {})
         self.assertEqual(store.findings, {})
+
+    def test_disabled_probe_and_adapter_suppress_process_contact(self) -> None:
+        def forbidden_runtime_contact(*_args, **_kwargs):
+            raise AssertionError("disabled Strix touched process runtime")
+
+        probe_globals = probe_strix_runtime.__globals__
+        old_resolve = probe_globals["resolve_executable"]
+        old_run = probe_globals["run_argv"]
+
+        adapter_globals = StrixDiagnosticAdapter.execute.__globals__
+        old_adapter_resolve = adapter_globals["resolve_executable"]
+        old_adapter_run = adapter_globals["run_argv"]
+
+        probe_globals["resolve_executable"] = forbidden_runtime_contact
+        probe_globals["run_argv"] = forbidden_runtime_contact
+        adapter_globals["resolve_executable"] = forbidden_runtime_contact
+        adapter_globals["run_argv"] = forbidden_runtime_contact
+
+        try:
+            probe = probe_strix_runtime()
+
+            request = StrixExecutionRequest(
+                research_run_id="run-1",
+                experiment_id="exp-1",
+                correlation_id="corr-disabled",
+                request_id="req-disabled",
+                capability=STRIX_DIAGNOSTIC_PING_CAPABILITY,
+                authorized_target_reference="target-1",
+                budget_id="budget-1",
+                side_effect_level=0,
+                authorization_decision_reference="ae-disabled",
+                allowed_capabilities=(
+                    STRIX_DIAGNOSTIC_PING_CAPABILITY,
+                ),
+            )
+
+            adapter = StrixDiagnosticAdapter(
+                executable="/must-not-execute",
+            )
+            outcome = adapter.execute(request)
+        finally:
+            probe_globals["resolve_executable"] = old_resolve
+            probe_globals["run_argv"] = old_run
+            adapter_globals["resolve_executable"] = old_adapter_resolve
+            adapter_globals["run_argv"] = old_adapter_run
+
+        self.assertFalse(probe["available"])
+        self.assertTrue(probe["disabled"])
+        self.assertTrue(probe["probe_suppressed"])
+        self.assertEqual(
+            outcome.status,
+            StrixRuntimeStatus.DENIED,
+        )
+        self.assertEqual(adapter.calls, [])
 
     def test_content_policy_block_does_not_alter_hypothesis_truth(self) -> None:
         store = _Store()

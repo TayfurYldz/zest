@@ -6,6 +6,9 @@ from zest.platform.argv_process import ArgvProcessStatus, resolve_executable, ru
 from zest.platform.readiness import readiness_from_flags
 from zest.platform.strix import (
     ALLOWED_STRIX_CAPABILITIES,
+    STRIX_DISABLED_DETAIL,
+    STRIX_DISABLED_REASON,
+    STRIX_RUNTIME_ENABLED,
     UNRESTRICTED_CAPABILITY_MARKERS,
     StrixExecutionOutcome,
     StrixExecutionRequest,
@@ -14,6 +17,24 @@ from zest.platform.strix import (
 
 
 def probe_strix_runtime() -> dict[str, object]:
+    if not STRIX_RUNTIME_ENABLED:
+        readiness = readiness_from_flags(
+            installed=False,
+            detail=STRIX_DISABLED_DETAIL,
+        )
+        return {
+            "available": False,
+            "installed": False,
+            "healthy": False,
+            "outcome": "UNAVAILABLE",
+            "detail": STRIX_DISABLED_DETAIL,
+            "disabled": True,
+            "probe_suppressed": True,
+            "unavailable_is_not_architecture_failure": True,
+            "strix_is_not_model_runtime": True,
+            "readiness": readiness.to_mapping(),
+        }
+
     path = resolve_executable("strix")
     docker = resolve_executable("docker")
     if path is None:
@@ -82,6 +103,21 @@ class StrixDiagnosticAdapter:
         self.calls: list[StrixExecutionRequest] = []
 
     def execute(self, request: StrixExecutionRequest) -> StrixExecutionOutcome:
+        if not STRIX_RUNTIME_ENABLED:
+            return StrixExecutionOutcome(
+                status=StrixRuntimeStatus.DENIED,
+                untrusted=True,
+                capability=request.capability,
+                reason_codes=(STRIX_DISABLED_REASON,),
+                payload={
+                    "not_observation": True,
+                    "not_evidence": True,
+                    "not_candidate": True,
+                    "not_finding": True,
+                    "runtime_disabled": True,
+                },
+            )
+
         self.calls.append(request)
         lowered = {item.lower() for item in request.allowed_capabilities}
         if lowered & UNRESTRICTED_CAPABILITY_MARKERS:
